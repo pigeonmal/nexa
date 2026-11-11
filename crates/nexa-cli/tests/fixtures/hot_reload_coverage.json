@@ -1474,6 +1474,33 @@
         "name": "ViewInsets",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "ScrollView",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "NumberFlowFormat": [
+      {
+        "name": "Number",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Currency",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Percent",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Compact",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "NumericType": [

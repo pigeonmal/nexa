@@ -499,8 +499,9 @@ private struct NexaAnimatedWhen<Value: Hashable, Content: View>: View {
 }
 
 private final class NexaSafeAreaInsetsProbeView: UIView {
-    var onInsetsChange: ((UIEdgeInsets) -> Void)?
+    var onInsetsChange: ((UIEdgeInsets, CGSize) -> Void)?
     private var lastReportedInsets: UIEdgeInsets?
+    private var lastReportedWindowSize: CGSize?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -520,17 +521,19 @@ private final class NexaSafeAreaInsetsProbeView: UIView {
     func reportInsets() {
         guard let window else { return }
         let insets = window.safeAreaInsets
-        guard insets != lastReportedInsets else { return }
+        let windowSize = window.bounds.size
+        guard insets != lastReportedInsets || windowSize != lastReportedWindowSize else { return }
         lastReportedInsets = insets
+        lastReportedWindowSize = windowSize
         DispatchQueue.main.async { [weak self] in
             guard self?.window != nil else { return }
-            self?.onInsetsChange?(insets)
+            self?.onInsetsChange?(insets, windowSize)
         }
     }
 }
 
 private struct NexaSafeAreaInsetsProbe: UIViewRepresentable {
-    let onChange: (UIEdgeInsets) -> Void
+    let onChange: (UIEdgeInsets, CGSize) -> Void
 
     func makeUIView(context: Context) -> NexaSafeAreaInsetsProbeView {
         let view = NexaSafeAreaInsetsProbeView()
@@ -547,17 +550,23 @@ private struct NexaSafeAreaInsetsProbe: UIViewRepresentable {
 }
 
 private struct NexaEdgeToEdgeRoot<Content: View>: View {
+    private let edgeToEdge: Bool
     private let content: (NexaWindowMetricsSnapshot) -> Content
     @State private var containerSafeInsets = NexaVisualSafeAreaSnapshot()
+    @State private var viewportSize = CGSize.zero
 
-    init(@ViewBuilder content: @escaping (NexaWindowMetricsSnapshot) -> Content) {
+    init(
+        edgeToEdge: Bool = true,
+        @ViewBuilder content: @escaping (NexaWindowMetricsSnapshot) -> Content
+    ) {
+        self.edgeToEdge = edgeToEdge
         self.content = content
     }
 
     var body: some View {
         GeometryReader { proxy in
             let metrics = NexaWindowMetricsSnapshot(
-                viewportSize: proxy.size,
+                viewportSize: viewportSize == .zero ? proxy.size : viewportSize,
                 safeInsets: containerSafeInsets
             )
             content(metrics)
@@ -565,25 +574,40 @@ private struct NexaEdgeToEdgeRoot<Content: View>: View {
                 .environment(\.nexaWindowMetrics, metrics)
                 .environment(\.nexaVisualSafeAreaInsets, containerSafeInsets)
                 .environment(\.nexaWindowSafeAreaInsets, containerSafeInsets)
-                .environment(\.nexaViewportSize, proxy.size)
+                .environment(\.nexaViewportSize, metrics.viewportSize)
         }
         .background {
-            NexaSafeAreaInsetsProbe { insets in
+            NexaSafeAreaInsetsProbe { insets, windowSize in
                 let next = NexaVisualSafeAreaSnapshot(
                     top: insets.top,
                     bottom: insets.bottom,
                     left: insets.left,
                     right: insets.right
                 )
-                guard containerSafeInsets != next else { return }
+                guard containerSafeInsets != next || viewportSize != windowSize else { return }
                 containerSafeInsets = next
+                viewportSize = windowSize
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
-        .ignoresSafeArea(.container, edges: .all)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .modifier(NexaEdgeToEdgeRootModifier(enabled: edgeToEdge))
+    }
+}
+
+private struct NexaEdgeToEdgeRootModifier: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .ignoresSafeArea(.container, edges: .all)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+        } else {
+            content
+        }
     }
 }
 
@@ -592,12 +616,17 @@ struct NexaViewInsetsPrimitive<Content: View>: View {
     let padding: EdgeInsets
     let margin: EdgeInsets
     var scrollContent: Bool = false
+    var usesScrollMarginLayout: Bool = false
     @ViewBuilder let content: () -> Content
 
     @ViewBuilder
     var body: some View {
         if scrollContent {
-            if margin.top == 0, margin.leading == 0, margin.bottom == 0, margin.trailing == 0 {
+            if usesScrollMarginLayout {
+                NexaScrollMarginLayout(margin: margin) {
+                    content().environment(\.nexaScrollContentPadding, padding)
+                }
+            } else if margin.top == 0, margin.leading == 0, margin.bottom == 0, margin.trailing == 0 {
                 NexaScrollViewport {
                     content().environment(\.nexaScrollContentPadding, padding)
                 }
@@ -972,7 +1001,7 @@ struct NexaSwitchPrimitive: View {
     var body: some View {
         HStack(spacing: 12) {
             label
-                .foregroundColor(.white)
+                .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture { selection.wrappedValue.toggle() }
@@ -981,156 +1010,6 @@ struct NexaSwitchPrimitive: View {
                 .tint(Color(uiColor: .systemBlue))
                 .accessibilityLabel(label)
         }
-    }
-}
-
-// nexa-codegen: NexaTextInputPrimitive
-struct NexaTextInputPrimitive: View {
-    @Binding var text: String
-    let placeholder: Text
-    let secure: Bool
-    let multiline: Bool
-    let searchable: Bool
-    let maxLength: Int?
-    let fontSize: CGFloat?
-    let fontFamily: String?
-    let fontRelativeTo: Font.TextStyle
-    let fontDefaultSize: CGFloat
-    let textColor: Color?
-    let placeholderColor: Color?
-    let clearable: Bool
-    let keepsFocusOnNext: Bool
-    let onSubmitAction: (() -> Void)?
-    let onChange: ((String) -> Void)?
-    @State private var correctionRevision = 0
-    @FocusState private var nextSubmissionFocused: Bool
-
-    private var explicitFont: Font? {
-        if let fontFamily {
-            return .custom(
-                fontFamily,
-                size: fontSize ?? fontDefaultSize,
-                relativeTo: fontRelativeTo
-            )
-        }
-        return fontSize.map { .system(size: $0) }
-    }
-
-    private var styledPlaceholder: Text {
-        guard let placeholderColor else { return placeholder }
-        return placeholder.foregroundColor(placeholderColor)
-    }
-
-    private var inputText: Binding<String> {
-        Binding(
-            get: { text },
-            set: { nextValue in
-                let limitedValue = maxLength.map { String(nextValue.prefix(max(0, $0))) } ?? nextValue
-                let previousValue = text
-                text = limitedValue
-                if previousValue != limitedValue {
-                    onChange?(limitedValue)
-                }
-                if limitedValue != nextValue {
-                    correctionRevision &+= 1
-                }
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var field: some View {
-        if secure {
-            SecureField(text: inputText, prompt: styledPlaceholder) { styledPlaceholder }
-        } else if multiline {
-            TextField(text: inputText, prompt: styledPlaceholder, axis: .vertical) { styledPlaceholder }
-        } else {
-            TextField(text: inputText, prompt: styledPlaceholder) { styledPlaceholder }
-        }
-    }
-
-    @ViewBuilder
-    private var focusRetainingField: some View {
-        if keepsFocusOnNext {
-            field
-                .focused($nextSubmissionFocused)
-                .font(explicitFont)
-                .foregroundColor(textColor)
-                .onSubmit {
-                    onSubmitAction?()
-                    // SwiftUI dismisses a lone field after its .next submit
-                    // action unless focus is explicitly restored. Keep the
-                    // native keyboard available when there is no focus target
-                    // supplied by the caller.
-                    DispatchQueue.main.async {
-                        nextSubmissionFocused = true
-                    }
-                }
-        } else {
-            field
-                .font(explicitFont)
-                .foregroundColor(textColor)
-        }
-    }
-
-    @ViewBuilder
-    private var clearControl: some View {
-        if clearable && !text.isEmpty {
-            Button {
-                inputText.wrappedValue = ""
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.tertiary)
-                    .font(.system(size: 14))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    @ViewBuilder
-    var body: some View {
-        // A rejected insertion can leave SwiftUI's native text control holding
-        // the overlong editing buffer when the bound value is already at its
-        // limit. Reading this revision makes the field reconcile from the
-        // bounded binding after each rejected edit without replacing the
-        // focused native control.
-        let _ = correctionRevision
-        if searchable {
-            if clearable {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    leadingField
-                    clearControl
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    leadingField
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        } else if clearable {
-            HStack(spacing: 8) {
-                leadingField
-                clearControl
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            leadingField
-        }
-    }
-
-    // SwiftUI TextField otherwise measures to its placeholder's ideal width. Compose fields fill
-    // the available parent width, so keep the SwiftUI primitive leading-aligned and equally wide.
-    private var leadingField: some View {
-        focusRetainingField
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .multilineTextAlignment(.leading)
     }
 }
 
@@ -1368,6 +1247,129 @@ private struct NexaSharedProminentButtonStyle: ButtonStyle {
     }
 }
 
+// nexa-codegen: NexaButtonWindowTouches
+@MainActor
+private final class NexaButtonWindowTouches: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private static var observers: [NexaButtonWindowTouches] = []
+    private weak var owner: UIWindow?
+    private weak var trackedTouch: UITouch?
+    private(set) var start: CGPoint?
+    private(set) var current: CGPoint?
+    private var generation: UInt64 = 0
+
+    static func observer(in window: UIWindow) -> NexaButtonWindowTouches {
+        observers.removeAll { $0.owner == nil }
+        if let existing = observers.first(where: { $0.owner === window }) { return existing }
+        let observer = NexaButtonWindowTouches(target: nil, action: nil)
+        observer.owner = window
+        observer.cancelsTouchesInView = false
+        observer.delaysTouchesBegan = false
+        observer.delaysTouchesEnded = false
+        observer.delegate = observer
+        window.addGestureRecognizer(observer)
+        observers.append(observer)
+        return observer
+    }
+
+    override func canPrevent(_ other: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by other: UIGestureRecognizer) -> Bool { false }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard trackedTouch == nil, let touch = touches.first, let owner else { return }
+        generation &+= 1
+        trackedTouch = touch
+        start = touch.location(in: owner)
+        current = start
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = trackedTouch, touches.contains(touch), let owner else { return }
+        current = touch.location(in: owner)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = trackedTouch, touches.contains(touch), let owner else { return }
+        current = touch.location(in: owner)
+        clearAfterDispatch()
+        state = .failed
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        clearAfterDispatch()
+        state = .failed
+    }
+
+    private func clearAfterDispatch() {
+        let completedGeneration = generation
+        // Preserve coordinates through native Button touch-up activation, then
+        // release them so keyboard and accessibility activation need no touch.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.generation == completedGeneration else { return }
+            self.trackedTouch = nil
+            self.start = nil
+            self.current = nil
+        }
+    }
+}
+
+// nexa-codegen: NexaButtonActivationGate
+@MainActor
+private final class NexaButtonActivationGate {
+    weak var probe: UIView?
+
+    func permitsActivation(shape: NexaSharedButtonShapeKind) -> Bool {
+        guard let probe, let window = probe.window else { return true }
+        let touches = NexaButtonWindowTouches.observer(in: window)
+        guard let start = touches.start, let current = touches.current else { return true }
+        let localStart = probe.convert(start, from: window)
+        let localCurrent = probe.convert(current, from: window)
+        let bounds = probe.bounds
+        guard bounds.contains(localStart), bounds.contains(localCurrent) else { return false }
+        let outline = NexaSharedButtonOutline(kind: shape).path(in: bounds)
+        return outline.contains(localStart) && outline.contains(localCurrent)
+    }
+}
+
+// nexa-codegen: NexaButtonTouchProbeView
+private final class NexaButtonTouchProbeView: UIView {
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if let window { _ = NexaButtonWindowTouches.observer(in: window) }
+    }
+}
+
+// nexa-codegen: NexaButtonTouchProbe
+private struct NexaButtonTouchProbe: UIViewRepresentable {
+    let gate: NexaButtonActivationGate
+
+    func makeUIView(context: Context) -> NexaButtonTouchProbeView {
+        let view = NexaButtonTouchProbeView()
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        gate.probe = view
+        return view
+    }
+
+    func updateUIView(_ view: NexaButtonTouchProbeView, context: Context) {
+        gate.probe = view
+    }
+}
+
+// nexa-codegen: NexaBoundedButtonActivation
+private struct NexaBoundedButtonActivation: ViewModifier {
+    let gate: NexaButtonActivationGate
+
+    func body(content: Content) -> some View {
+        content.background {
+            NexaButtonTouchProbe(gate: gate)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 // nexa-codegen: NexaButtonPrimitive
 struct NexaButtonPrimitive<Label: View>: View {
     let style: NexaSharedButtonStyleKind
@@ -1381,6 +1383,12 @@ struct NexaButtonPrimitive<Label: View>: View {
     let iconOnlyCircle: Bool
     let action: () -> Void
     private let label: Label
+    @State private var activationGate = NexaButtonActivationGate()
+
+    private func activate() {
+        guard !disabled, !loading, activationGate.permitsActivation(shape: shape) else { return }
+        action()
+    }
 
     init(
         style: NexaSharedButtonStyleKind,
@@ -1422,8 +1430,14 @@ struct NexaButtonPrimitive<Label: View>: View {
         if loading {
             progressLabelContent
         } else {
-            label.font(.system(size: CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)))
+            singleLineButtonLabel(
+                label.font(.system(size: CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)))
+            )
         }
+    }
+
+    private func singleLineButtonLabel<Content: View>(_ content: Content) -> some View {
+        content.lineLimit(1)
     }
 
     @ViewBuilder
@@ -1431,9 +1445,10 @@ struct NexaButtonPrimitive<Label: View>: View {
         if loading {
             progressLabelContent.tint(tint.map { ((disabled || loading) ? $0.opacity(0.38) : $0) })
         } else if let tint {
-            label
-                .font(.system(size: CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)))
-                .foregroundStyle((disabled || loading) ? tint.opacity(0.38) : tint)
+            singleLineButtonLabel(
+                label.font(.system(size: CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)))
+            )
+            .foregroundStyle((disabled || loading) ? tint.opacity(0.38) : tint)
         } else {
             labelContent
         }
@@ -1449,9 +1464,13 @@ struct NexaButtonPrimitive<Label: View>: View {
     @ViewBuilder
     private func accessible<V: View>(_ view: V) -> some View {
         if let accessibilityLabel {
-            view.accessibilityLabel(Text(accessibilityLabel))
-        } else {
             view
+                .accessibilityLabel(Text(accessibilityLabel))
+                .layoutPriority(1)
+                .modifier(NexaBoundedButtonActivation(gate: activationGate))
+        } else {
+            view.layoutPriority(1)
+                .modifier(NexaBoundedButtonActivation(gate: activationGate))
         }
     }
 
@@ -1471,12 +1490,12 @@ struct NexaButtonPrimitive<Label: View>: View {
         case .bordered:
             let tint = tint ?? .blue
             let outline = NexaSharedButtonOutline(kind: shape)
-            accessible(Button(action: action) { labelContent }
+            accessible(Button(action: activate) { labelContent }
                 .disabled(disabled || loading)
                 .buttonStyle(NexaSharedBorderedButtonStyle(tint: tint, shape: outline, size: size))
                 .modifier(NexaSharedGlassModifier(enabled: glass, tint: self.tint, shape: shape)))
         case .borderedProminent:
-            accessible(Button(action: action) { labelContent }
+            accessible(Button(action: activate) { labelContent }
                 .disabled(disabled || loading)
                 .buttonStyle(NexaSharedProminentButtonStyle(
                     tint: tint ?? Color(uiColor: .systemBlue),
@@ -1487,14 +1506,14 @@ struct NexaButtonPrimitive<Label: View>: View {
                 .modifier(NexaSharedGlassModifier(enabled: glass, tint: tint, shape: shape)))
         case .borderless:
             platformSize(
-                accessible(Button(action: action) { plainLabelContent }
+                accessible(Button(action: activate) { plainLabelContent }
                     .disabled(disabled || loading)
                     .buttonStyle(.borderless)
                     .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)))
             )
         case .plain:
             platformSize(
-                accessible(Button(action: action) { plainLabelContent }
+                accessible(Button(action: activate) { plainLabelContent }
                     .disabled(disabled || loading)
                     .buttonStyle(.plain)
                     .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)))
@@ -1505,11 +1524,13 @@ struct NexaButtonPrimitive<Label: View>: View {
 
 // nexa-codegen: NexaSliderPrimitive
 struct NexaSliderPrimitive: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var value: Double
+    @State private var sliderWidth: CGFloat = 0
+    @State private var isEditing = false
     let minValue: Double
     let maxValue: Double
     let step: Double
+    let showStepIndicators: Bool
     let tint: Color?
     let trackColor: Color?
     let thumbColor: Color?
@@ -1518,75 +1539,96 @@ struct NexaSliderPrimitive: View {
     let hitSlop: CGFloat?
     let onChange: ((Double) -> Void)?
     let onEditingChanged: ((Bool) -> Void)?
-    @State private var isEditing = false
 
-    private var safeThumbSize: CGFloat { max(thumbSize ?? 14, 1) }
-    private var safeTrackHeight: CGFloat { max(trackHeight ?? 4, 1) }
     private var lowerBound: Double { minValue.isFinite ? minValue : 0 }
     private var upperBound: Double {
         maxValue.isFinite && maxValue > lowerBound ? maxValue : lowerBound + 1
     }
-    private var normalizedValue: CGFloat {
-        guard value.isFinite else { return 0 }
-        return CGFloat(min(max((value - lowerBound) / (upperBound - lowerBound), 0), 1))
-    }
-
-    var body: some View {
-        GeometryReader { geometry in
-            let thumb = safeThumbSize
-            let width = geometry.size.width
-            ZStack(alignment: .leading) {
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(trackColor ?? Color.gray.opacity(0.28))
-                    Rectangle()
-                        .fill(tint ?? Color.accentColor)
-                        .frame(width: width * normalizedValue)
-                }
-                .frame(width: width, height: safeTrackHeight)
-                .clipShape(Capsule())
-                Circle()
-                    .fill(thumbColor ?? Color.white)
-                    .frame(width: thumb, height: thumb)
-                    .offset(x: width * normalizedValue - thumb / 2)
+    private var sliderBinding: Binding<Double> {
+        Binding(
+            get: { value.isFinite ? min(max(value, lowerBound), upperBound) : lowerBound },
+            set: { nextValue in
+                let boundedValue = min(max(nextValue, lowerBound), upperBound)
+                value = boundedValue
+                onChange?(boundedValue)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .contentShape(Rectangle().inset(by: -max(hitSlop ?? 0, 0)))
-            .allowsHitTesting(minValue.isFinite && maxValue.isFinite && maxValue > minValue)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { gesture in
-                        if !isEditing && abs(gesture.translation.width) > 3 {
-                            isEditing = true
-                            onEditingChanged?(true)
-                        }
-                        if isEditing {
-                            update(gesture.location.x, width: width)
-                        }
-                    }
-                    .onEnded { gesture in
-                        if isEditing {
-                            update(gesture.location.x, width: width)
-                            isEditing = false
-                            onEditingChanged?(false)
-                        } else {
-                            update(gesture.location.x, width: width)
-                        }
-                    }
-            )
-        }
-        .frame(height: safeThumbSize)
-        .animation(reduceMotion || isEditing ? nil : .linear(duration: 0.25), value: value)
+        )
     }
 
-    private func update(_ locationX: CGFloat, width: CGFloat) {
-        let fraction = width > 0
-            ? min(max(locationX / width, 0), 1)
-            : 0
-        let nextValue = lowerBound + Double(fraction) * (upperBound - lowerBound)
-        let quantizedValue = step > 0 ? lowerBound + ((nextValue - lowerBound) / step).rounded() * step : nextValue
-        value = min(max(quantizedValue, lowerBound), upperBound)
-        onChange?(value)
+    @ViewBuilder
+    var body: some View {
+        Group {
+            if step > 0 {
+                if showStepIndicators {
+                    if #available(iOS 26.0, *) {
+                        Slider(
+                            value: sliderBinding,
+                            in: lowerBound...upperBound,
+                            step: step,
+                            label: { EmptyView() },
+                            tick: { SliderTick($0) },
+                            onEditingChanged: setEditing
+                        )
+                    } else {
+                        steppedSlider
+                    }
+                } else {
+                    steppedSlider
+                }
+            } else {
+                Slider(
+                    value: sliderBinding,
+                    in: lowerBound...upperBound,
+                    onEditingChanged: setEditing
+                )
+            }
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { sliderWidth = geometry.size.width }
+                    .onChange(of: geometry.size.width) { sliderWidth = $0 }
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                .onChanged { drag in
+                    setEditing(true)
+                    let width = Double(sliderWidth)
+                    let trackInset = min(14.0, width / 2)
+                    let trackWidth = max(width - 2 * trackInset, 1)
+                    let fraction = min(
+                        max((Double(drag.location.x) - trackInset) / trackWidth, 0),
+                        1
+                    )
+                    let rawValue = lowerBound + (upperBound - lowerBound) * fraction
+                    let nextValue = step > 0
+                        ? lowerBound + ((rawValue - lowerBound) / step).rounded() * step
+                        : rawValue
+                    let boundedValue = min(max(nextValue, lowerBound), upperBound)
+                    if sliderBinding.wrappedValue != boundedValue {
+                        sliderBinding.wrappedValue = boundedValue
+                    }
+                }
+                .onEnded { _ in setEditing(false) }
+        )
+        .tint(tint ?? Color.accentColor)
+        .disabled(!minValue.isFinite || !maxValue.isFinite || maxValue <= minValue)
+    }
+
+    private var steppedSlider: some View {
+        Slider(
+            value: sliderBinding,
+            in: lowerBound...upperBound,
+            step: step,
+            onEditingChanged: setEditing
+        )
+    }
+
+    private func setEditing(_ editing: Bool) {
+        guard isEditing != editing else { return }
+        isEditing = editing
+        onEditingChanged?(editing)
     }
 }
 
@@ -2221,6 +2263,51 @@ struct NexaStackPrimitive<Content: View>: View {
 }
 
 // nexa-codegen: NexaAnimateContentSizeModifier
+private struct NexaAnimateContentSizeLayout: Layout {
+    var animatedSize: CGSize?
+
+    struct Cache {}
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get {
+            guard let animatedSize else { return AnimatablePair(-1, -1) }
+            return AnimatablePair(animatedSize.width, animatedSize.height)
+        }
+        set {
+            guard newValue.first >= 0, newValue.second >= 0 else {
+                animatedSize = nil
+                return
+            }
+            animatedSize = CGSize(width: newValue.first, height: newValue.second)
+        }
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        guard let animatedSize else { return subview.sizeThatFits(proposal) }
+        return animatedSize
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) {
+        guard let subview = subviews.first else { return }
+        // Measure children against the original parent proposal, not the
+        // currently interpolated bounds. Otherwise a newly added child can
+        // wrap to the previous width and keep the animated layout too narrow.
+        subview.place(at: bounds.origin, anchor: .topLeading, proposal: proposal)
+    }
+}
+
 struct NexaAnimateContentSizeModifier: ViewModifier {
     let animation: Animation
 
@@ -2228,23 +2315,23 @@ struct NexaAnimateContentSizeModifier: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        content
-            // Keep the child at its final intrinsic size. Only the outer frame
-            // interpolates, so the Stack reveals/clips content like Compose's
-            // animateContentSize instead of moving or fading the child itself.
-            .transaction { transaction in
-                transaction.animation = nil
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .background {
-                GeometryReader { geometry in
-                    Color.clear
-                        .onAppear { updateContentSize(geometry.size) }
-                        .onChange(of: geometry.size, perform: updateContentSize)
+        NexaAnimateContentSizeLayout(animatedSize: contentSize) {
+            content
+                // Keep the child at its final size and animate only the
+                // wrapper's bounds, matching Compose's animateContentSize.
+                .transaction { transaction in
+                    transaction.animation = nil
                 }
-            }
-            .frame(width: contentSize?.width, height: contentSize?.height, alignment: .topLeading)
-            .clipped()
+                .fixedSize(horizontal: false, vertical: true)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear
+                            .onAppear { updateContentSize(geometry.size) }
+                            .onChange(of: geometry.size, perform: updateContentSize)
+                    }
+                }
+        }
+        .clipped()
     }
 
     private func updateContentSize(_ newSize: CGSize) {
@@ -2515,6 +2602,8 @@ private final class NexaNativeListRefProbeView: UIView {
 struct NexaNativeListPrimitive<Content: View>: View {
     private let spacing: CGFloat
     private let scrollEnabled: Bool
+    private let hideHorizontalScrollbar: Bool
+    private let hideVerticalScrollbar: Bool
     private let rowCount: Int
     private let componentRef: NexaFastListRef?
     private let content: Content
@@ -2524,6 +2613,8 @@ struct NexaNativeListPrimitive<Content: View>: View {
     init(
         spacing: CGFloat = 0,
         scrollEnabled: Bool = true,
+        hideHorizontalScrollbar: Bool = false,
+        hideVerticalScrollbar: Bool = false,
         reorderEnabled: Bool = false,
         rowCount: Int = 0,
         componentRef: NexaFastListRef? = nil,
@@ -2531,6 +2622,8 @@ struct NexaNativeListPrimitive<Content: View>: View {
     ) {
         self.spacing = spacing
         self.scrollEnabled = scrollEnabled
+        self.hideHorizontalScrollbar = hideHorizontalScrollbar
+        self.hideVerticalScrollbar = hideVerticalScrollbar
         self.rowCount = rowCount
         self.componentRef = componentRef
         _reorderSession = State(
@@ -2604,6 +2697,10 @@ struct NexaNativeListPrimitive<Content: View>: View {
             .listRowSpacing(spacing)
             .scrollDisabled(!scrollEnabled)
             .modifier(NexaNativeListStyleModifier())
+            .modifier(NexaScrollIndicatorVisibility(
+                hideHorizontal: hideHorizontalScrollbar,
+                hideVertical: hideVerticalScrollbar
+            ))
         }
     }
 }
@@ -2880,10 +2977,50 @@ private struct NexaScrollViewport<Content: View>: View {
     var body: some View {
         GeometryReader { proxy in
             content
-                .ignoresSafeArea(.container, edges: .all)
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        .ignoresSafeArea(.container, edges: .all)
+    }
+}
+
+// Scroll margins belong to the outer layout extent, while the child viewport
+// receives the remaining proposal. Measuring the child directly avoids a
+// GeometryReader's 10-point ideal size causing fixed-height scroll views to
+// overlap their following siblings in a vertical stack.
+private struct NexaScrollMarginLayout: Layout {
+    let margin: EdgeInsets
+
+    struct Cache {}
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+
+        let horizontalMargin = margin.leading + margin.trailing
+        let verticalMargin = margin.top + margin.bottom
+        let childProposal = ProposedViewSize(
+            width: proposal.width.map { max(0, $0 - horizontalMargin) },
+            height: proposal.height.map { max(0, $0 - verticalMargin) }
+        )
+        let childSize = child.sizeThatFits(childProposal)
+
+        return CGSize(
+            width: max(0, childSize.width + horizontalMargin),
+            height: max(0, childSize.height + verticalMargin)
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        guard let child = subviews.first else { return }
+
+        child.place(
+            at: CGPoint(x: bounds.minX + margin.leading, y: bounds.minY + margin.top),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(
+                width: max(0, bounds.width - margin.leading - margin.trailing),
+                height: max(0, bounds.height - margin.top - margin.bottom)
+            )
+        )
     }
 }
 
@@ -2911,7 +3048,6 @@ private struct NexaScrollMarginViewport<Content: View>: View {
                 .padding(margin)
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        .ignoresSafeArea(.container, edges: .all)
     }
 }
 
@@ -2944,6 +3080,8 @@ private final class NexaScrollMarginHostingController<Content: View>: UIHostingC
 // nexa-codegen: NexaFormPrimitive
 struct NexaFormPrimitive<Content: View>: View {
     let background: Color?
+    let hideHorizontalScrollbar: Bool
+    let hideVerticalScrollbar: Bool
     let contentPadding: EdgeInsets
     let margin: EdgeInsets
     let firstChildIsSection: Bool
@@ -2952,12 +3090,16 @@ struct NexaFormPrimitive<Content: View>: View {
 
     init(
         background: Color? = nil,
+        hideHorizontalScrollbar: Bool = false,
+        hideVerticalScrollbar: Bool = false,
         contentPadding: EdgeInsets = .init(),
         margin: EdgeInsets = .init(),
         firstChildIsSection: Bool = false,
         @ViewBuilder content: () -> Content
     ) {
         self.background = background
+        self.hideHorizontalScrollbar = hideHorizontalScrollbar
+        self.hideVerticalScrollbar = hideVerticalScrollbar
         self.contentPadding = contentPadding
         self.margin = margin
         self.firstChildIsSection = firstChildIsSection
@@ -2996,6 +3138,10 @@ struct NexaFormPrimitive<Content: View>: View {
             .multilineTextAlignment(inheritedTextAlignment)
             .scrollContentBackground(.hidden)
             .background(background ?? Color.clear)
+            .modifier(NexaScrollIndicatorVisibility(
+                hideHorizontal: hideHorizontalScrollbar,
+                hideVertical: hideVerticalScrollbar
+            ))
             .environment(\.nexaFormTopPadding, firstChildIsSection ? effectivePadding.top : 0)
 
         // Margin constrains and clips the Form viewport. Explicit padding remains
@@ -3094,6 +3240,7 @@ struct NexaFormRowPrimitive<Content: View>: View {
 
     var body: some View {
         content
+            .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
             .listRowInsets(EdgeInsets(top: 0, leading: horizontalInset, bottom: 0, trailing: horizontalInset))
             .listRowSeparator(showDividers ? .visible : .hidden)
@@ -3221,6 +3368,8 @@ enum NexaKeyboardBehavior {
 struct NexaKeyboardAwarePrimitive<Content: View>: View {
     let behavior: NexaKeyboardBehavior
     let hasNativeScrollOwner: Bool
+    let hideHorizontalScrollbar: Bool
+    let hideVerticalScrollbar: Bool
     let dismissMode: ScrollDismissesKeyboardMode
     private let content: Content
 
@@ -3228,11 +3377,15 @@ struct NexaKeyboardAwarePrimitive<Content: View>: View {
         behavior: NexaKeyboardBehavior,
         hasNativeScrollOwner: Bool,
         dismissMode: ScrollDismissesKeyboardMode,
+        hideHorizontalScrollbar: Bool = false,
+        hideVerticalScrollbar: Bool = false,
         @ViewBuilder content: () -> Content
     ) {
         self.behavior = behavior
         self.hasNativeScrollOwner = hasNativeScrollOwner
         self.dismissMode = dismissMode
+        self.hideHorizontalScrollbar = hideHorizontalScrollbar
+        self.hideVerticalScrollbar = hideVerticalScrollbar
         self.content = content()
     }
 
@@ -3248,11 +3401,15 @@ struct NexaKeyboardAwarePrimitive<Content: View>: View {
 
     @ViewBuilder
     var body: some View {
+        let visibleScrollOwner = scrollOwner.modifier(NexaScrollIndicatorVisibility(
+            hideHorizontal: hideHorizontalScrollbar,
+            hideVertical: hideVerticalScrollbar
+        ))
         switch behavior {
         case .stay:
-            scrollOwner.ignoresSafeArea(.keyboard, edges: .bottom)
+            visibleScrollOwner.ignoresSafeArea(.keyboard, edges: .bottom)
         case .avoid:
-            scrollOwner
+            visibleScrollOwner
         }
     }
 }
@@ -3921,8 +4078,14 @@ struct NexaNavigationScreenPrimitive<Content: View>: View {
     }
 
     var body: some View {
-        content
-            .navigationTitle(inline && leadingTitle ? "" : title)
+        // NavigationStack can center a destination whose intrinsic content is
+        // taller than its viewport. Give each screen the finite viewport size
+        // and pin its content to the top so large margins/columns overflow
+        // below the screen instead of shifting earlier content under the bars.
+        GeometryReader { proxy in
+            content.frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+        }
+        .navigationTitle(inline && leadingTitle ? "" : title)
             .modifier(NexaNavigationTitleDisplayModeModifier(inline: inline))
             .toolbar {
                 if inline && leadingTitle {
@@ -4257,7 +4420,16 @@ private struct NexaTextLineHeightModifier: ViewModifier {
         );
     }
     source.push_str(include_str!("components/date_picker.swift"));
+    source.push_str(include_str!("components/text_input.swift"));
+    source.push_str(include_str!("components/text_input_native.swift"));
+    source.push_str(include_str!("components/text_input_edit.swift"));
+    source.push_str(include_str!("components/scroll_view.swift"));
+    source.push_str(include_str!("components/marquee.swift"));
     source.push_str(include_str!("components/text_reveal.swift"));
+    source.push_str(&include_str!("components/number_flow.swift").replace(
+        "__NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__",
+        &nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
+    ));
     source
 }
 
@@ -4457,11 +4629,6 @@ fn generate_with_analysis_mode(
     plugin_value_runtime: bool,
 ) -> GeneratedSources {
     components::controls::register_known_screens(&module.screens);
-    let app_focus_bindings = app_focus_bindings(module, &features);
-    let mut all_focus_bindings = app_focus_bindings.clone();
-    for screen in &module.screens {
-        all_focus_bindings.extend(screen_focus_bindings(screen, &features));
-    }
     let uses_fast_list = features.uses_fast_list;
     // Each unit becomes its own file, so every file needs the full import
     // block and the shared native-object storage helper.
@@ -4540,9 +4707,9 @@ fn generate_with_analysis_mode(
     }
 
     units.write("app", |out| {
-        if features.uses_fast_list {
+        if features.facts.ui.lists.any {
             out.push_str(
-                "private struct NexaIdentifiedListRow: Identifiable {\n    let id: AnyHashable\n    let position: Int\n}\n\n",
+                "private struct NexaIdentifiedListRow<ID: Hashable>: Identifiable {\n    let id: ID\n    let position: Int\n}\n\nprivate struct NexaIdentifiedListRows<ID: Hashable>: RandomAccessCollection {\n    typealias Index = Int\n    typealias Element = NexaIdentifiedListRow<ID>\n\n    private let rowCount: Int\n    private let identityAt: (Int) -> ID\n\n    init(count: Int, identityAt: @escaping (Int) -> ID) {\n        self.rowCount = Swift.max(0, count)\n        self.identityAt = identityAt\n    }\n\n    var startIndex: Int { 0 }\n    var endIndex: Int { rowCount }\n\n    subscript(position: Int) -> Element {\n        precondition(position >= startIndex && position < endIndex)\n        return Element(id: identityAt(position), position: position)\n    }\n\n    func index(after index: Int) -> Int { index + 1 }\n    func index(before index: Int) -> Int { index - 1 }\n    func index(_ index: Int, offsetBy distance: Int) -> Int { index + distance }\n    func distance(from start: Int, to end: Int) -> Int { end - start }\n}\n\n",
             );
         }
         let untracked_task_scopes = &features.facts.untracked_task_launch_scopes;
@@ -4598,9 +4765,7 @@ fn generate_with_analysis_mode(
                 ));
                 continue;
             }
-            if (!state.mutable && !state.is_native_class_instance_binding())
-                || all_focus_bindings.contains(&state.name)
-            {
+            if !state.mutable && !state.is_native_class_instance_binding() {
                 continue;
             }
             let name = nexa_codegen::names::state_name(&state.name);
@@ -4611,15 +4776,7 @@ fn generate_with_analysis_mode(
             ));
         }
         render_immutable_state(&module.states, 1, out);
-        for binding in &app_focus_bindings {
-            out.push_str(&format!(
-                "    @FocusState private var {}: Bool\n",
-                nexa_codegen::names::state_name(binding),
-            ));
-        }
-        if !module.states.is_empty() || !app_focus_bindings.is_empty() {
-            out.push('\n');
-        }
+        if !module.states.is_empty() { out.push('\n'); }
         if features.app_uses_adaptive_color {
             out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n");
         }
@@ -4664,7 +4821,15 @@ fn generate_with_analysis_mode(
         // the node renderer, so body modifiers (including task cleanup) can be
         // applied to it directly without adding a redundant second wrapper.
         let needs_group = features.uses_shared_elements;
-        out.push_str("        NexaEdgeToEdgeRoot { nexaWindowMetrics in\n");
+        let root_owns_navigation_safe_area = matches!(
+            module.body.first(),
+            Some(Node::NavigationStack { .. } | Node::NavigationSplitView { .. })
+        );
+        if root_owns_navigation_safe_area {
+            out.push_str("        NexaEdgeToEdgeRoot(edgeToEdge: false) { nexaWindowMetrics in\n");
+        } else {
+            out.push_str("        NexaEdgeToEdgeRoot { nexaWindowMetrics in\n");
+        }
 
         if needs_group {
             out.push_str("            Group {\n");
@@ -4840,48 +5005,6 @@ fn generate_with_analysis_mode(
     generated
 }
 
-pub(super) fn app_focus_bindings(
-    module: &Module,
-    features: &features::Features,
-) -> std::collections::BTreeSet<String> {
-    let mut bindings = features.facts.focus_bindings.app.clone();
-    for screen in &module.screens {
-        for binding in screen_focus_bindings(screen, features) {
-            if module.states.iter().any(|state| state.name == binding) {
-                bindings.insert(binding);
-            }
-        }
-    }
-    bindings
-}
-
-pub(super) fn screen_focus_bindings(
-    screen: &nexa_ir::Screen,
-    features: &features::Features,
-) -> std::collections::BTreeSet<String> {
-    let mut bindings = features
-        .facts
-        .focus_bindings
-        .screens
-        .get(&screen.name)
-        .cloned()
-        .unwrap_or_default();
-    nexa_ir::walk::walk_ir(
-        &screen.body,
-        &mut |node| {
-            if let Node::TextInput {
-                focused: Some(name),
-                ..
-            } = node
-            {
-                bindings.insert(name.clone());
-            }
-        },
-        &mut |_| {},
-    );
-    bindings
-}
-
 /// Concatenates units into a single source string.
 fn join_units(units: Vec<SourceUnit>) -> String {
     let mut source = String::new();
@@ -4990,10 +5113,10 @@ mod tests {
         generate_units_with_network_and_project_features, shared_component_primitives,
     };
     use nexa_ir::{
-        Action, AnimationSpec, Component, Expr, FastListMove, Function, ImageScale, ImageSource,
-        LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId,
-        SectionedListCommon, State, SystemIcon, TaskExecutor, TextStyle, Type, ViewStyle,
-        ViewTransition, WhenCase,
+        Action, AnimationSpec, Component, Expr, FastListMove, Function, FunctionParameter,
+        ImageScale, ImageSource, LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node,
+        NumericType, Screen, ScreenId, SectionedListCommon, State, SystemIcon, TaskExecutor,
+        TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
 
     #[test]
@@ -5006,30 +5129,104 @@ mod tests {
     }
 
     #[test]
-    fn edge_to_edge_root_uses_full_window_geometry_and_separate_safe_insets() {
-        let root = NEXA_SHARED_COMPONENT_PRIMITIVES
-            .split("private struct NexaEdgeToEdgeRoot<Content: View>")
+    fn text_reveal_uses_its_measured_height_in_vertical_layouts() {
+        let source = include_str!("components/text_reveal.swift");
+
+        assert!(source.contains(".fixedSize(horizontal: false, vertical: true)"));
+        assert!(source.contains("uiView.measuredSize(width: proposal.width ?? 320)"));
+    }
+
+    #[test]
+    fn text_reveal_caches_highlight_glyph_ranges_outside_display_ticks() {
+        let source = include_str!("components/text_reveal.swift");
+        let draw = source
+            .split("    override func draw(_ rect: CGRect) {")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("    private func updatePaintAttributes()")
+                    .next()
+            })
+            .unwrap_or_default();
+
+        assert!(source.contains("var highlightGlyphRange = NSRange(location: 0, length: 0)"));
+        assert!(source.contains(
+            "lineTimings[index].highlightGlyphRange = highlightLayoutManager.glyphRange("
+        ));
+        assert!(draw.contains("timing.highlightGlyphRange"));
+        assert!(!draw.contains("glyphRange(forBoundingRectWithoutAdditionalLayout:"));
+    }
+
+    #[test]
+    fn scroll_margins_participate_in_layout_measurement() {
+        let insets = NEXA_SHARED_COMPONENT_PRIMITIVES
+            .split("struct NexaViewInsetsPrimitive<Content: View>")
             .nth(1)
             .and_then(|source| source.split("// nexa-codegen:").next())
             .unwrap_or_default();
 
+        assert!(insets.contains("content().padding(padding).padding(margin)"));
+        assert!(!insets.contains("fixedSize(horizontal: false, vertical: true)"));
+        let scroll_insets = insets
+            .split("if scrollContent {")
+            .nth(1)
+            .and_then(|source| source.split("} else {").next())
+            .unwrap_or_default();
+        assert!(scroll_insets.contains("if usesScrollMarginLayout {"));
+        assert!(scroll_insets.contains("NexaScrollMarginLayout(margin: margin) {"));
+        assert!(scroll_insets.contains("NexaScrollViewport {"));
+        assert!(!scroll_insets.contains(".padding(margin)"));
+        assert!(insets.contains("NexaScrollMarginViewport(margin: margin) {"));
+
+        let scroll_margin_layout = NEXA_SHARED_COMPONENT_PRIMITIVES
+            .split("private struct NexaScrollMarginLayout: Layout {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        assert!(scroll_margin_layout.contains("child.sizeThatFits(childProposal)"));
+        assert!(scroll_margin_layout.contains("childSize.height + verticalMargin"));
+        assert!(scroll_margin_layout.contains("bounds.height - margin.top - margin.bottom"));
+        assert!(scroll_margin_layout.contains("bounds.minY + margin.top"));
+    }
+
+    #[test]
+    fn edge_to_edge_root_uses_full_window_geometry_and_separate_safe_insets() {
+        let root = NEXA_SHARED_COMPONENT_PRIMITIVES
+            .split("private struct NexaEdgeToEdgeRoot<Content: View>")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("private struct NexaEdgeToEdgeRootModifier")
+                    .next()
+            })
+            .unwrap_or_default();
+
         assert!(root.contains("GeometryReader { proxy in"));
         assert!(root.contains("let metrics = NexaWindowMetricsSnapshot("));
+        assert!(root.contains("viewportSize: viewportSize == .zero ? proxy.size : viewportSize"));
         assert!(root.contains("content(metrics)"));
         assert!(root.contains(".environment(\\.nexaWindowMetrics, metrics)"));
         assert!(root.contains(".frame(width: proxy.size.width, height: proxy.size.height"));
-        assert!(root.contains("NexaSafeAreaInsetsProbe { insets in"));
+        assert!(root.contains("NexaSafeAreaInsetsProbe { insets, windowSize in"));
         assert!(root.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"));
         assert!(!root.contains(".frame(width: 0, height: 0)"));
         assert!(root.contains(".environment(\\.nexaVisualSafeAreaInsets, containerSafeInsets)"));
         assert!(root.contains(".environment(\\.nexaWindowSafeAreaInsets, containerSafeInsets)"));
-        assert!(root.contains(".environment(\\.nexaViewportSize, proxy.size)"));
-        assert!(root.contains(".ignoresSafeArea(.container, edges: .all)"));
+        assert!(root.contains(".environment(\\.nexaViewportSize, metrics.viewportSize)"));
+        assert!(root.contains(".modifier(NexaEdgeToEdgeRootModifier(enabled: edgeToEdge))"));
+        assert!(!root.contains(".ignoresSafeArea(.container, edges: .all)"));
         assert!(root.contains("left: insets.left"));
         assert!(root.contains("right: insets.right"));
         assert!(!root.contains("layoutDirection == .rightToLeft"));
         assert!(!root.contains("proxy.safeAreaInsets"));
         assert!(!root.contains("proxy.size.height + safeInsets.top + safeInsets.bottom"));
+        let root_modifier = NEXA_SHARED_COMPONENT_PRIMITIVES
+            .split("private struct NexaEdgeToEdgeRootModifier: ViewModifier {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        assert!(root_modifier.contains("if enabled"));
+        assert!(root_modifier.contains(".ignoresSafeArea(.container, edges: .all)"));
         assert!(!NEXA_SHARED_COMPONENT_PRIMITIVES.contains("NexaSafeAreaInsetsReader"));
         assert!(!root.contains("@State private var safeInsets"));
 
@@ -5072,12 +5269,16 @@ mod tests {
             })
             .unwrap_or_default();
         assert!(probe.contains("window.safeAreaInsets"));
+        assert!(probe.contains("window.bounds.size"));
         assert!(probe.contains("safeAreaInsetsDidChange()"));
         assert!(probe.contains("layoutSubviews()"));
-        assert!(probe.contains("guard insets != lastReportedInsets else { return }"));
+        assert!(probe.contains("guard insets != lastReportedInsets || windowSize != lastReportedWindowSize else { return }"));
 
         let dev_runtime = include_str!("../../../../runtime/ios/NexaDevRuntime.swift");
-        assert!(dev_runtime.contains("NexaDevEdgeToEdgeRoot {"));
+        assert!(
+            dev_runtime.contains("NexaDevEdgeToEdgeRoot(edgeToEdge: !rootOwnsNavigationSafeArea)")
+        );
+        assert!(dev_runtime.contains("nexaDevRootOwnsNavigationSafeArea(rootNodes)"));
         let dev_root = dev_runtime
             .split("private struct NexaDevEdgeToEdgeRoot<Content: View>")
             .nth(1)
@@ -5085,6 +5286,8 @@ mod tests {
             .unwrap_or_default();
         assert!(dev_root.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"));
         assert!(!dev_root.contains(".frame(width: 0, height: 0)"));
+        assert!(dev_root.contains("NexaDevEdgeToEdgeRootModifier(enabled: edgeToEdge)"));
+        assert!(dev_runtime.contains("windowSize != lastReportedWindowSize"));
         assert!(!dev_runtime.contains("NexaDevSafeAreaEdgePadding"));
         assert!(
             dev_runtime.contains(".environment(\\.nexaDevVisualSafeInsets, containerSafeInsets)")
@@ -5144,7 +5347,7 @@ mod tests {
         assert!(form.contains("NexaScrollViewport {"));
         assert!(!form.contains("NexaFormScrollInsetsProbe"));
         assert!(!form.contains(".padding(margin)"));
-        assert!(form_margin_viewport.contains(".ignoresSafeArea(.container, edges: .all)"));
+        assert!(!form_margin_viewport.contains(".ignoresSafeArea"));
         assert!(
             form_margin_viewport
                 .contains("width: max(0, proxy.size.width - margin.leading - margin.trailing)")
@@ -5161,7 +5364,7 @@ mod tests {
             )
         );
         assert!(form_margin_viewport.contains("view.clipsToBounds = true"));
-        assert!(form_padding_viewport.contains(".ignoresSafeArea(.container, edges: .all)"));
+        assert!(!form_padding_viewport.contains(".ignoresSafeArea"));
         assert!(
             form_padding_viewport
                 .contains("frame(width: proxy.size.width, height: proxy.size.height")
@@ -5203,7 +5406,7 @@ mod tests {
         assert!(!primitives.contains("nexaFormNativeTopContentMargin"));
         assert!(native_list.contains("NexaScrollViewport { content }"));
         assert!(!native_list.contains("windowSafeAreaInsets"));
-        assert!(root.contains(".ignoresSafeArea(.container, edges: .all)"));
+        assert!(root_modifier.contains(".ignoresSafeArea(.container, edges: .all)"));
 
         let list_runtime = include_str!("components/list_runtime.rs");
         assert!(list_runtime.contains("func nexaConfigureEdgeToEdgeScrollView("));
@@ -5367,16 +5570,35 @@ mod tests {
     }
 
     #[test]
+    fn button_activation_dependency_survives_primitive_pruning() {
+        for dev_host in [false, true] {
+            let source = shared_component_primitives(dev_host);
+            let reachable =
+                nexa_codegen::source_sections::reachable(&source, "NexaButtonPrimitive()");
+            assert!(reachable.contains("private struct NexaBoundedButtonActivation: ViewModifier"));
+            assert!(reachable.contains("private struct NexaSharedButtonOutline: Shape"));
+            assert!(
+                reachable
+                    .contains("private final class NexaButtonWindowTouches: UIGestureRecognizer")
+            );
+            assert!(reachable.contains("private struct NexaButtonTouchProbe: UIViewRepresentable"));
+        }
+    }
+
+    #[test]
     fn shared_button_primitive_embeds_design_system_geometry() {
         let primitives = shared_component_primitives(false);
 
         assert!(primitives.contains("struct NexaButtonPrimitive<Label: View>"));
         assert!(primitives.contains("let accessibilityLabel: String?"));
-        assert!(primitives.contains("view.accessibilityLabel(Text(accessibilityLabel))"));
+        assert!(primitives.contains(".accessibilityLabel(Text(accessibilityLabel))"));
         assert!(primitives.contains("private struct NexaSharedProminentButtonStyle: ButtonStyle"));
         assert!(primitives.contains("NexaSharedProminentButtonStyle("));
+        assert!(primitives.contains(".layoutPriority(1)"));
         assert!(primitives.contains("case .regular, nil: (CGFloat(0), CGFloat(0))"));
         assert!(primitives.contains("private var plainLabelContent: some View"));
+        assert!(primitives.contains("content.lineLimit(1)"));
+        assert!(primitives.contains("private func singleLineButtonLabel<Content: View>"));
         assert!(
             primitives
                 .contains(".foregroundStyle((disabled || loading) ? tint.opacity(0.38) : tint)")
@@ -5480,14 +5702,16 @@ mod tests {
             .unwrap_or_default();
 
         assert!(input.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
-        assert!(input.contains(".multilineTextAlignment(.leading)"));
+        assert!(input.contains(
+            "NexaNativeTextInput(owner: self, value: text, initialFocus: initialFocus)"
+        ));
         assert!(input.contains("let onSubmitAction: (() -> Void)?"));
-        assert!(input.contains("onSubmitAction?()"));
-        assert!(input.contains("leadingField"));
-        assert!(input.contains("clearable && !text.isEmpty"));
+        assert!(input.contains("if clearable {"));
         assert!(input.contains("xmark.circle.fill"));
-        assert!(input.contains(".font(explicitFont)"));
-        assert!(input.contains(".foregroundColor(textColor)"));
+        let native = include_str!("components/text_input_native.swift");
+        assert!(native.contains("field.textAlignment = .natural"));
+        assert!(native.contains("owner.onSubmitAction?()"));
+        assert!(native.contains("guard value != proposal else { return true }"));
     }
 
     #[test]
@@ -5563,6 +5787,12 @@ mod tests {
         assert!(section.contains(".listRowBackground(background ?? Color.clear)"));
         assert!(!section.contains("listSectionMargins(.top"));
         assert!(!section.contains("formSectionTopPadding"));
+    }
+
+    #[test]
+    fn ios_form_rows_reset_inherited_text_alignment_to_leading() {
+        assert!(NEXA_SHARED_COMPONENT_PRIMITIVES.contains(".multilineTextAlignment(.leading)"));
+        assert!(NEXA_SHARED_COMPONENT_PRIMITIVES.contains("alignment: .leading"));
     }
 
     #[test]
@@ -5907,7 +6137,7 @@ mod tests {
             screens: Vec::new(),
             components: Vec::new(),
             body: vec![Node::Pressable {
-                disabled: Expr::Bool(false),
+                disabled: Expr::Bool(true),
                 haptic: None,
                 fill_max_size: false,
                 children: vec![Node::Text {
@@ -5954,6 +6184,9 @@ mod tests {
         };
 
         let swift = generate(&module);
+        assert!(swift.contains("SpatialTapGesture(coordinateSpace: .local)"));
+        assert!(swift.contains("nexaPressableGeometry.size).contains(nexaTap.location)"));
+        assert!(swift.contains(".disabled(true).opacity((true) ? 0.5 : 1.0)"));
         assert!(swift.contains(".contextMenu {"));
         assert!(swift.contains(
             "Label { Text(\"Edit\", comment: \"Context menu action\") } icon: { Image(systemName: \"pencil\") }"
@@ -6089,6 +6322,8 @@ mod tests {
                     common: ListCommon {
                         axis: ListAxis::Vertical,
                         show_dividers: true,
+                        hide_horizontal_scrollbar: false,
+                        hide_vertical_scrollbar: false,
                         reverse_layout: false,
                         page_snap: true,
                         item_extent: None,
@@ -6125,6 +6360,32 @@ mod tests {
         let swift = generate(&module);
         assert!(swift.contains("pageSnap: true"));
         assert!(swift.contains("onScroll: nil,"));
+        let generated_units = super::generate_units(&module);
+        let generated_types = generated_units
+            .units
+            .iter()
+            .find(|unit| unit.name == "NexaGenerated_types.swift")
+            .expect("shared types unit should be emitted");
+        let generated_list_runtime = generated_units
+            .units
+            .iter()
+            .find(|unit| unit.name == "NexaGenerated_list_runtime.swift")
+            .expect("FastList runtime unit should be emitted");
+        assert!(
+            generated_types
+                .contents
+                .contains("struct NexaScrollIndicatorVisibility: ViewModifier")
+        );
+        assert!(
+            !generated_types
+                .contents
+                .contains("struct NexaScrollViewPrimitive<Content: View>")
+        );
+        assert!(
+            generated_list_runtime
+                .contents
+                .contains(".modifier(NexaScrollIndicatorVisibility(")
+        );
         let page_snap_call = swift
             .split("NexaSwiftUIPageSnapList(")
             .nth(1)
@@ -6248,6 +6509,8 @@ mod tests {
                     common: ListCommon {
                         axis: ListAxis::Vertical,
                         show_dividers: true,
+                        hide_horizontal_scrollbar: false,
+                        hide_vertical_scrollbar: false,
                         reverse_layout: false,
                         page_snap: false,
                         item_extent: None,
@@ -6340,7 +6603,7 @@ mod tests {
         assert!(!swift.contains("NexaFastListReorderDropDelegate"));
         assert!(!swift.contains("UniformTypeIdentifiers"));
         assert!(swift.contains(
-            "NexaNativeListPrimitive(scrollEnabled: true, reorderEnabled: true, rowCount:"
+            "NexaNativeListPrimitive(scrollEnabled: true, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, reorderEnabled: true, rowCount:"
         ));
         assert!(swift.contains("let nexa_from: Int32 = Int32(source)"));
         assert!(!swift.contains("isReorderable"));
@@ -6348,6 +6611,20 @@ mod tests {
         assert!(!swift.contains("\\.editMode"));
         // Swipe actions can still require UIKit-backed control styling; the
         // native List assertion above is the reliable renderer check.
+
+        let mut keyed_module = module.clone();
+        let Node::FastList { plan } = &mut keyed_module.body[0] else {
+            panic!("expected the items-backed FastList plan");
+        };
+        let ListPlan::Items { common, .. } = plan.as_mut() else {
+            panic!("expected the items-backed FastList plan");
+        };
+        common.key = Some(Expr::State("task".to_owned(), Type::String));
+        let keyed_swift = generate(&keyed_module);
+        assert!(keyed_swift.contains("NexaIdentifiedListRows(count: nexa_list_values_0.count)"));
+        assert!(keyed_swift.contains("nexa_list_values_0[listPosition]"));
+        assert!(!keyed_swift.contains("(0..<(nexa_list_values_0.count)).map"));
+        assert!(!keyed_swift.contains("AnyHashable(nexa_list_values_0"));
 
         let mut disabled_module = module.clone();
         let Node::FastList { plan } = &mut disabled_module.body[0] else {
@@ -6359,7 +6636,7 @@ mod tests {
         common.scroll_enabled = Some(Expr::Bool(false));
         let disabled_swift = generate(&disabled_module);
         assert!(disabled_swift.contains(
-            "NexaNativeListPrimitive(scrollEnabled: false, reorderEnabled: true, rowCount:"
+            "NexaNativeListPrimitive(scrollEnabled: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, reorderEnabled: true, rowCount:"
         ));
         assert!(disabled_swift.contains(".scrollDisabled(!scrollEnabled)"));
 
@@ -6391,12 +6668,14 @@ mod tests {
         };
         let sectioned_common = SectionedListCommon {
             show_dividers: common.show_dividers,
+            hide_horizontal_scrollbar: common.hide_horizontal_scrollbar,
+            hide_vertical_scrollbar: common.hide_vertical_scrollbar,
             item_extent: common.item_extent,
             gap: common.gap,
             scroll_enabled: common.scroll_enabled.clone(),
             index: common.index.clone(),
             component_ref: common.component_ref.clone(),
-            key: common.key.clone(),
+            key: Some(Expr::State("task".to_owned(), Type::String)),
             children: common.children.clone(),
             section_header: None,
             swipe_actions: common.swipe_actions.clone(),
@@ -6415,6 +6694,9 @@ mod tests {
         let sectioned_swift = generate(&sectioned_module);
         assert!(sectioned_swift.contains("starts.reserveCapacity(nexa_list_sections_"));
         assert!(sectioned_swift.contains("position: nexa_list_section_starts_"));
+        assert!(sectioned_swift.contains("NexaIdentifiedListRows(count: nexa_sectionItems.count)"));
+        assert!(!sectioned_swift.contains("nexa_sectionItems.indices.map"));
+        assert!(!sectioned_swift.contains("NexaIdentifiedListRow(id: AnyHashable("));
         assert!(!sectioned_swift.contains(".prefix(sectionPosition).reduce(0) { $0 + $1.count }"));
     }
 
@@ -6494,6 +6776,7 @@ mod tests {
             .split("struct NexaScreen0: View")
             .next()
             .expect("navigation host is emitted before screen declarations");
+        assert!(app_body.contains("NexaEdgeToEdgeRoot(edgeToEdge: false)"));
         let appearance_position = app_body
             .find("NexaAppearancePrimitive(mode: \"dark\")")
             .expect("root appearance is hoisted to the navigation host");
@@ -6551,15 +6834,29 @@ mod tests {
         assert!(swift.contains("return isLeadingEdgeSwipe && abs(velocity.x) > abs(velocity.y)"));
         assert!(!swift.contains("DragGesture(minimumDistance: 18"));
         assert!(app_body.contains("NexaNavigationScreenPrimitive(title: \"Details\""));
-        assert!(app_body.contains(".ignoresSafeArea(.container, edges: .top)"));
-        assert!(app_body.contains(".toolbar(.hidden, for: .navigationBar)"));
         let navigation_stack_environment = app_body
             .find("}.environment(\\.nexaNavigationPath, __nexaNavigationPath)")
             .expect("navigation stack environment is emitted");
+        let destination_position = app_body
+            .find(".navigationDestination(for: NexaNavigationRoute.self)")
+            .expect("navigation destinations are emitted");
         let edge_to_edge_modifier = app_body
             .find(".ignoresSafeArea(.container, edges: .top)")
-            .expect("toolbar-free navigation is edge-to-edge");
-        assert!(edge_to_edge_modifier > navigation_stack_environment);
+            .expect("toolbar-free root screen is edge-to-edge");
+        let hidden_root_toolbar = app_body
+            .find(".toolbar(.hidden, for: .navigationBar)")
+            .expect("toolbar-free root screen hides its navigation bar");
+        assert!(edge_to_edge_modifier < destination_position);
+        assert!(hidden_root_toolbar < destination_position);
+        assert!(navigation_stack_environment > destination_position);
+        assert!(
+            !app_body[navigation_stack_environment..]
+                .contains(".ignoresSafeArea(.container, edges: .top)")
+        );
+        assert!(
+            !app_body[navigation_stack_environment..]
+                .contains(".toolbar(.hidden, for: .navigationBar)")
+        );
         assert!(multiple_stack_app.contains(".ignoresSafeArea(.container, edges: .all)"));
         assert!(swift.contains("@Namespace private var nexaSharedNamespace"));
         assert!(
@@ -6567,12 +6864,27 @@ mod tests {
         );
         assert!(!swift.contains(".modifier(NexaNavigationChromeModifier("));
         assert!(swift.contains("struct NexaNavigationScreenPrimitive<Content: View>: View"));
+        assert!(swift.contains(
+            "GeometryReader { proxy in\n            content.frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)\n        }\n        .navigationTitle"
+        ));
         assert!(swift.contains(".toolbar(.visible, for: .navigationBar)"));
         assert!(swift.contains(".navigationTitle(inline && leadingTitle ? \"\" : title)"));
         assert!(swift.contains("NexaNavigationTitleDisplayModeModifier(inline: inline)"));
         assert!(swift.contains("content.toolbarTitleDisplayMode(inline ? .inline : .large)"));
         assert!(swift.contains("content.navigationBarTitleDisplayMode(inline ? .inline : .large)"));
         assert!(!swift.contains(".navigationBarBackButtonHidden(true)"));
+        assert!(!app_body.contains("let queryItems = URLComponents("));
+        let mut parameterized_module = module.clone();
+        parameterized_module.screens[1]
+            .parameters
+            .push(FunctionParameter {
+                name: "itemId".to_owned(),
+                ty: Type::String,
+            });
+        let parameterized_swift = generate(&parameterized_module);
+        assert!(parameterized_swift.contains(
+            "let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []"
+        ));
         assert!(!swift.contains("NexaNavigationEdgeBackGesture"));
         assert!(swift.contains("ToolbarItem(placement: .topBarLeading)"));
         assert!(!swift.contains("Image(systemName: \"chevron.backward\")"));
@@ -6682,24 +6994,38 @@ mod tests {
         assert!(swift.contains(
             ".modifier(NexaAnimateContentSizeModifier(animation: .interpolatingSpring(mass: 1, stiffness: 816.32654, damping: 45.714287, initialVelocity: 0)))"
         ));
+        let animated_size_layout = swift
+            .split("struct NexaAnimateContentSizeLayout: Layout {")
+            .nth(1)
+            .expect("emit the proposal-preserving animated layout");
+        assert!(animated_size_layout.contains("subview.sizeThatFits(proposal)"));
+        assert!(animated_size_layout.contains("proposal: proposal"));
+        assert!(
+            animated_size_layout.contains("var animatableData: AnimatablePair<CGFloat, CGFloat>")
+        );
+        assert!(
+            animated_size_layout
+                .contains("guard let animatedSize else { return subview.sizeThatFits(proposal) }")
+        );
+        assert!(animated_size_layout.contains("return animatedSize"));
+
         let animated_size_modifier = swift
             .split("struct NexaAnimateContentSizeModifier: ViewModifier {")
             .nth(1)
             .expect("emit the layout animation modifier");
         assert!(animated_size_modifier.contains("transaction.animation = nil"));
-        let frame = animated_size_modifier
-            .find(".frame(width: contentSize?.width, height: contentSize?.height, alignment: .topLeading)")
-            .expect("animate the measured frame");
+        assert!(
+            animated_size_modifier
+                .contains("NexaAnimateContentSizeLayout(animatedSize: contentSize)")
+        );
+        assert!(!animated_size_modifier.contains(".frame(width: contentSize?.width"));
         assert!(animated_size_modifier.contains("withAnimation(animation)"));
         assert!(animated_size_modifier.contains("if reduceMotion {"));
         assert!(animated_size_modifier.contains("self.contentSize = newSize"));
         assert!(!animated_size_modifier.contains(".animation("));
-        let measurement = animated_size_modifier
-            .find(".onChange(of: geometry.size, perform: updateContentSize)")
-            .expect("geometry changes update the measured content size");
         assert!(
-            measurement < frame,
-            "the measured size drives the outer frame animation"
+            animated_size_modifier
+                .contains(".onChange(of: geometry.size, perform: updateContentSize)")
         );
         let animated_update = animated_size_modifier
             .split("if reduceMotion {")
@@ -6944,9 +7270,15 @@ mod tests {
 
         let swift = generate(&module);
 
+        assert!(swift.contains("Group {"));
+        assert!(swift.contains(".contentShape(.interaction, Rectangle())"));
+        assert!(swift.contains(
+            ".accessibilityAddTraits(.isButton).contentShape(.interaction, Rectangle())"
+        ));
+        assert!(swift.contains(".gesture(\n"));
         assert!(swift.contains("TapGesture(count: 2)"));
         assert!(swift.contains(
-            ".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())"
+            ".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(.interaction, Rectangle())"
         ));
         assert!(swift.contains(".exclusively(before:"));
         assert!(swift.contains("TapGesture(count: 1)"));
@@ -6982,7 +7314,8 @@ mod tests {
 
         let swift = generate(&long_press_module);
 
-        assert!(swift.contains("Button(action: {}) {"));
+        assert!(!swift.contains("Button(action:"));
+        assert!(swift.contains(".highPriorityGesture(\n"));
         assert!(swift.contains("LongPressGesture(minimumDuration:"));
         assert!(swift.contains(".exclusively(before:"));
         assert!(swift.contains("TapGesture(count: 1)"));

@@ -1142,6 +1142,10 @@ internal class NexaDevStateStore(internal val context: Context) {
                         NexaBottomSheetRef()
                     } else if (namespace == "Nexa" && name == "FastList") {
                         NexaFastListRef()
+                    } else if (namespace == "Nexa" && name == "ScrollView") {
+                        NexaScrollViewRef()
+                    } else if (namespace == "Nexa" && name == "TextInput") {
+                        NexaTextInputRef()
                     } else if (namespace == "Nexa") {
                         NexaDevComponentRef(name, key)
                     } else {
@@ -2020,13 +2024,13 @@ internal class NexaDevStateStore(internal val context: Context) {
                 for (index in 0 until arguments.length()) evaluated += evaluateAsync(arguments.opt(index), locals, scope)
                 return constructUserClass(name, classType, evaluated, scope)
             }
-            val fields = structs[name]
+            val fields = structConstructorFieldNames(call, name)
             if (fields != null) {
                 val arguments = call.optJSONArray("arguments") ?: JSONArray()
-                if (fields.length() != arguments.length()) return JSONObject.NULL
+                if (fields.size != arguments.length()) return JSONObject.NULL
                 val instance = linkedMapOf<String, Any>()
-                for (index in 0 until fields.length()) {
-                    val fieldName = fields.optJSONObject(index)?.optString("name") ?: continue
+                for (index in fields.indices) {
+                    val fieldName = fields[index]
                     instance[fieldName] = evaluateAsync(arguments.opt(index), locals, scope)
                 }
                 return instance
@@ -2065,6 +2069,30 @@ internal class NexaDevStateStore(internal val context: Context) {
         }
     }
 
+    /**
+     * Struct constructor calls carry their field layout in the typed return
+     * type. Prefer that over the installed-module registry: initial state is
+     * evaluated before prepareFullInstall commits the incoming registries.
+     */
+    private fun structConstructorFieldNames(call: JSONObject, name: String): List<String>? {
+        val typedFields = call.optJSONObject("return_type")
+            ?.optJSONObject("Struct")
+            ?.optJSONArray("fields")
+        if (typedFields != null) {
+            return (0 until typedFields.length()).mapNotNull { index ->
+                when (val field = typedFields.opt(index)) {
+                    is JSONArray -> field.optString(0).takeIf(String::isNotEmpty)
+                    is JSONObject -> field.optString("name").takeIf(String::isNotEmpty)
+                    else -> null
+                }
+            }
+        }
+        val declarationFields = structs[name] ?: return null
+        return (0 until declarationFields.length()).mapNotNull { index ->
+            declarationFields.optJSONObject(index)?.optString("name")?.takeIf(String::isNotEmpty)
+        }
+    }
+
     internal fun invokeFunction(call: JSONObject, locals: Map<String, Any>, scope: String): Any {
         val name = call.optString("name")
         if (call.optBoolean("is_constructor")) {
@@ -2086,11 +2114,12 @@ internal class NexaDevStateStore(internal val context: Context) {
                 for (index in 0 until arguments.length()) evaluated += evaluate(arguments.opt(index), locals, scope)
                 return constructUserClass(name, classType, evaluated, scope)
             }
-            val fields = structs[name] ?: return JSONObject.NULL
             val arguments = call.optJSONArray("arguments") ?: JSONArray()
+            val fields = structConstructorFieldNames(call, name) ?: return JSONObject.NULL
+            if (fields.size != arguments.length()) return JSONObject.NULL
             val result = mutableMapOf<String, Any>()
-            for (index in 0 until fields.length()) {
-                val fieldName = fields.optJSONObject(index)?.optString("name") ?: continue
+            for (index in fields.indices) {
+                val fieldName = fields[index]
                 result[fieldName] = evaluate(arguments.opt(index), locals, scope)
             }
             return result

@@ -53,7 +53,7 @@ Sections:
 
 ### `Column`
 
-Vertical layout container with configurable child gap, padding, and outer margin
+Vertical layout container with configurable gap, padding, margin, and native Marquee motion
 
 Signature: `Column(gap:, margin:, alignment:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
@@ -115,9 +115,9 @@ Reference: components.md#divider
 
 Native settings form with optional background and configurable row dividers
 
-Signature: `Form(showDividers:, background:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Form(showDividers:, background:, hideHorizontalScrollbar:, hideVerticalScrollbar:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `showDividers`, `background`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `showDividers`, `background`, `hideHorizontalScrollbar`, `hideVerticalScrollbar`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -129,9 +129,9 @@ Reference: components.md#form
 
 Keeps content at the window edge by default, with an option to avoid the software keyboard
 
-Signature: `KeyboardAware(dismiss:, behavior:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `KeyboardAware(dismiss:, behavior:, hideHorizontalScrollbar:, hideVerticalScrollbar:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `dismiss`, `behavior`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `dismiss`, `behavior`, `hideHorizontalScrollbar`, `hideVerticalScrollbar`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -141,7 +141,7 @@ Reference: components.md#keyboardaware
 
 ### `Row`
 
-Horizontal layout container with configurable child gap, padding, and outer margin
+Horizontal layout container with configurable gap, padding, margin, and native Marquee motion
 
 Signature: `Row(gap:, margin:, alignment:, horizontalArrangement:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
@@ -152,6 +152,20 @@ Children: node block
 Modifiers: none
 
 Reference: components.md#row
+
+### `ScrollView`
+
+Explicit native scroll container for content that does not fit in its viewport
+
+Signature: `ScrollView(axis:, ref:, hideHorizontalScrollbar:, hideVerticalScrollbar:, margin:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+
+Optional options: `axis`, `ref`, `hideHorizontalScrollbar`, `hideVerticalScrollbar`, `margin`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+
+Children: node block
+
+Modifiers: none
+
+Reference: components.md#scrollview
 
 ### `Section`
 
@@ -229,6 +243,22 @@ Modifiers: none
 
 Reference: components.md#content-unavailable
 
+### `NumberFlow`
+
+Formats a number and rolls each changing digit natively
+
+Signature: `NumberFlow(value, format:, currencyCode:, minimumFractionDigits:, maximumFractionDigits:, animation:, comment:, color:, alignment:, fontSize:, fontStyle:, fontDesign:, fontFamily:, fontWeight:, padding:, opacity:, scale:, scaleY:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, italic:, underline:, selectable:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+
+Required options: `value`
+
+Optional options: `format`, `currencyCode`, `minimumFractionDigits`, `maximumFractionDigits`, `animation`, `comment`, `color`, `alignment`, `fontSize`, `fontStyle`, `fontDesign`, `fontFamily`, `fontWeight`, `padding`, `opacity`, `scale`, `scaleY`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `italic`, `underline`, `selectable`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#numberflow
+
 ### `Text`
 
 Displays formatted text
@@ -247,9 +277,9 @@ Reference: components.md#text
 
 Reveals timed text segments using native text layout and animation
 
-Signature: `TextReveal(value, segments, position, active, playing, enabled, seekRevision, revealOpacity:, leadTime:, targetOffset:, smoothingDuration:, comment:, color:, alignment:, fontSize:, fontStyle:, fontDesign:, fontFamily:, fontWeight:, padding:, opacity:, scale:, scaleY:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, italic:, underline:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `TextReveal(value, segments, position, isActive, isPlaying, revealEnabled, seekRevision, revealOpacity:, leadTime:, targetOffset:, smoothingDuration:, comment:, color:, alignment:, fontSize:, fontStyle:, fontDesign:, fontFamily:, fontWeight:, padding:, opacity:, scale:, scaleY:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, italic:, underline:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `segments`, `position`, `active`, `playing`, `enabled`, `seekRevision`
+Required options: `segments`, `position`, `isActive`, `isPlaying`, `revealEnabled`, `seekRevision`
 
 Optional options: `revealOpacity`, `leadTime`, `targetOffset`, `smoothingDuration`, `comment`, `color`, `alignment`, `fontSize`, `fontStyle`, `fontDesign`, `fontFamily`, `fontWeight`, `padding`, `opacity`, `scale`, `scaleY`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `italic`, `underline`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
@@ -353,13 +383,13 @@ Reference: components.md#segmentedcontrol
 
 ### `Slider`
 
-Adjusts a Float64 state value within a styled, stepped or continuous range
+Adjusts a Float64 state value within a native, optionally stepped range
 
-Signature: `Slider(value, min, max, step, tint:, trackColor:, thumbColor:, trackHeight:, thumbSize:, hitSlop:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Slider(value, min, max, step:, showStepIndicators:, tint:, trackColor:, thumbColor:, trackHeight:, thumbSize:, hitSlop:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `value`, `min`, `max`, `step`
+Required options: `value`, `min`, `max`
 
-Optional options: `tint`, `trackColor`, `thumbColor`, `trackHeight`, `thumbSize`, `hitSlop`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `step`, `showStepIndicators`, `tint`, `trackColor`, `thumbColor`, `trackHeight`, `thumbSize`, `hitSlop`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -392,11 +422,11 @@ Reference: components.md#switch
 
 Text input control bound to mutable state
 
-Signature: `TextInput(value, placeholder, comment:, keyboardType:, isSecure:, autofill:, returnKeyType:, multiline:, autocorrect:, capitalization:, focused:, maxLength:, font:, fontSize:, fontFamily:, textColor:, placeholderColor:, clearable:, minLines:, maxLines:, searchable:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)` with optional trailing `{ ... }` actions
+Signature: `TextInput(value, placeholder, comment:, keyboardType:, isSecure:, autofill:, returnKeyType:, multiline:, autocorrect:, capitalization:, focused:, ref:, maxLength:, font:, fontSize:, fontFamily:, textColor:, placeholderColor:, clearable:, minLines:, maxLines:, searchable:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)` with optional trailing `{ ... }` actions
 
 Required options: `value`, `placeholder`
 
-Optional options: `comment`, `keyboardType`, `isSecure`, `autofill`, `returnKeyType`, `multiline`, `autocorrect`, `capitalization`, `focused`, `maxLength`, `font`, `fontSize`, `fontFamily`, `textColor`, `placeholderColor`, `clearable`, `minLines`, `maxLines`, `searchable`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `comment`, `keyboardType`, `isSecure`, `autofill`, `returnKeyType`, `multiline`, `autocorrect`, `capitalization`, `focused`, `ref`, `maxLength`, `font`, `fontSize`, `fontFamily`, `textColor`, `placeholderColor`, `clearable`, `minLines`, `maxLines`, `searchable`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: optional action block
 
@@ -670,7 +700,7 @@ High-performance virtualized list with configurable dividers and responsive grid
 
 Signature: `FastList(collection | count: | sections:, axis:, ...)` with `{ bindings in ... }` rows
 
-Optional options: `axis`, `rowHeight`, `gap`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `showDividers`, `ref`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `axis`, `rowHeight`, `gap`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `showDividers`, `hideHorizontalScrollbar`, `hideVerticalScrollbar`, `ref`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Source forms: positional collection, `count`:, or `sections:` (exactly one); row-key option `key`.
 

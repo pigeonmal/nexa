@@ -23,6 +23,7 @@ app RenderParity {
     state toolbarActionCount: Int32 = 0
     state sliderValue: Float64 = 0.35
     state progress: Float64 = 0.72
+    state rollingTotal: Float64 = 1234.5
     state ringTint: String = "#2563EB"
     state period: String = "Week"
     state periods: Array<String> = ["Day", "Week", "Month"]
@@ -49,7 +50,6 @@ app RenderParity {
     state canNavigate: Bool = true
     state loading: Bool = false
     state disabled: Bool = true
-    state inputFocused: Bool = false
     state inputFocusCallbackCount: Int32 = 0
     state dialogPresented: Bool = false
     state confirmationPresented: Bool = false
@@ -59,6 +59,7 @@ app RenderParity {
 
     screen Main {
         let parityListRef = ComponentRef<FastList>()
+        let emailInputRef = ComponentRef<TextInput>()
         let sheetRef = ComponentRef<BottomSheet>()
         let controlledSheetRef = ComponentRef<BottomSheet>()
         StatusBar(style: Default, hidden: false, background: "#000000", navigationBarBackground: "#000000")
@@ -72,7 +73,7 @@ app RenderParity {
                             }
                         }
                         Text("Toolbar actions: $toolbarActionCount", fontSize: 12)
-                        Form(showDividers: true, background: "#FFFFFF") {
+                        Form(showDividers: true, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, background: "#FFFFFF") {
                             Text("Parity heading", fontSize: 20, fontWeight: Semibold)
                             NavigationLink(destination: Detail, when: canNavigate) {
                                 Text("Open detail screen")
@@ -207,9 +208,9 @@ app RenderParity {
                                     "Timed text",
                                     segments: revealSegments,
                                     position: progress,
-                                    active: true,
-                                    playing: true,
-                                    enabled: true,
+                                    isActive: true,
+                                    isPlaying: true,
+                                    revealEnabled: true,
                                     seekRevision: count,
                                     revealOpacity: 0.38,
                                     leadTime: 0.3,
@@ -238,6 +239,38 @@ app RenderParity {
                                     strikethrough: true,
                                     italic: true,
                                     underline: true
+                                )
+                                NumberFlow(
+                                    value: rollingTotal,
+                                    format: Currency,
+                                    currencyCode: "EUR",
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                    animation: Spring(response: 0.35, damping: 0.82),
+                                    comment: "Rolling currency output",
+                                    color: "#F5F5F5",
+                                    alignment: Center,
+                                    fontSize: 14,
+                                    fontStyle: Subheadline,
+                                    fontDesign: Default,
+                                    fontFamily: "Gilroy",
+                                    fontWeight: Bold,
+                                    padding: 4,
+                                    opacity: 0.95,
+                                    scale: 1.0,
+                                    scaleY: 1.0,
+                                    rotation: 0,
+                                    shadow: Shadow(1, 0, 0, "#00000020"),
+                                    blur: 0,
+                                    clip: Rounded(4),
+                                    zIndex: 1,
+                                    lineLimit: 2,
+                                    lineHeight: 18,
+                                    letterSpacing: 0.2,
+                                    strikethrough: true,
+                                    italic: true,
+                                    underline: true,
+                                    selectable: true
                                 )
                                 LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: TopToBottom, height: 32)
                                 Link(url: "https://example.com") {
@@ -277,7 +310,7 @@ app RenderParity {
                                 refreshCount = refreshCount + 1
                             }
                             Stack(height: 180) {
-                                FastList(count: 24, gap: 4, showDividers: false, ref: parityListRef, accessibilityLabel: "Parity task list") {
+                                FastList(count: 24, gap: 4, showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, ref: parityListRef, accessibilityLabel: "Parity task list") {
                                     index in
                                     Row(gap: 8, padding: 8) {
                                         Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
@@ -427,7 +460,7 @@ app RenderParity {
     }
 
     screen TextEntry {
-        KeyboardAware(dismiss: Never, behavior: Stay) {
+        KeyboardAware(dismiss: Never, behavior: Stay, hideHorizontalScrollbar: false, hideVerticalScrollbar: false) {
             Column(gap: 12, padding: 16) {
                 NavigationBack(label: "Back to previous screen")
                 Text("Nested navigation destination", accessibilityLabel: "Nested navigation destination")
@@ -618,7 +651,8 @@ app RenderParity {
                 multiline: false,
                 autocorrect: false,
                 capitalization: Words,
-                focused: inputFocused,
+                focused: true,
+                ref: emailInputRef,
                 maxLength: 24,
                 font: Body,
                 searchable: true
@@ -628,6 +662,8 @@ app RenderParity {
                 }.onFocus {
                     inputFocusCallbackCount = inputFocusCallbackCount + 1
                 }
+                Button("Focus email") { emailInputRef.focus() }
+                Button("Blur email") { emailInputRef.blur() }
                 Text("Focus callbacks: $inputFocusCallbackCount", fontSize: 12)
                 TextInput(
                 value: title,
@@ -712,6 +748,50 @@ app RenderParity {
                     Text("Page snap row \(index)")
                 }
             }
+        }
+    }
+
+    screen ScrollViewCoverage {
+        let scrollViewRef = ComponentRef<ScrollView>()
+
+        ScrollView(
+            axis: Horizontal,
+            hideHorizontalScrollbar: false,
+            hideVerticalScrollbar: false,
+            ref: scrollViewRef,
+            margin: Insets(bottom: 8),
+            padding: Insets(top: 8, horizontal: 12, bottom: 16),
+            width: Fill,
+            height: 220,
+            minWidth: 0,
+            maxWidth: 100%,
+            minHeight: 180,
+            maxHeight: 240,
+            background: "#F1F5F9",
+            cornerRadius: 12,
+            cornerRadiusBottom: 8,
+            borderColor: "#CBD5E1",
+            borderWidth: 1,
+            opacity: 1,
+            scale: 1,
+            scaleY: 1,
+            rotation: 0,
+            offsetY: 0,
+            shadow: Shadow(2, 0, 1, "#00000020"),
+            blur: 0,
+            clip: Rounded(12),
+            zIndex: 1,
+            glass: Glass(shape: "rounded(12)", tint: "#FFFFFF"),
+            animation: EaseInOut
+        ) {
+            Row(gap: 8) {
+                Text("One")
+                Text("Two")
+                Text("Three")
+            }
+        }
+        Button("Scroll to end") {
+            scrollViewRef.scrollToEnd()
         }
     }
 

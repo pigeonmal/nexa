@@ -27,6 +27,8 @@ impl std::error::Error for WidgetGenerationError {}
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct KotlinProjectFeatures {
     pub uses_network: bool,
+    /// Full fetch/download API, distinct from image-only transport.
+    pub uses_network_api: bool,
     pub uses_network_connectivity: bool,
     pub uses_remote_image: bool,
     pub uses_system_icons: bool,

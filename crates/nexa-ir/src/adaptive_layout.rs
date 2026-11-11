@@ -37,8 +37,9 @@ pub enum LayoutInsetSource {
     FixedDesignSpacing,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ScrollAxis {
+    #[default]
     Vertical,
     Horizontal,
     Both,
@@ -59,6 +60,7 @@ impl ScrollAxis {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ScrollOwnerKind {
+    ScrollView,
     FastList,
     Form,
     KeyboardAware,

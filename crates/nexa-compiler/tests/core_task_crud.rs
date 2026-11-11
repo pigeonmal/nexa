@@ -360,7 +360,8 @@ test "soft-deleted records remain as hidden tombstones" {
     );
     assert!(generated_source.contains("ForEach(nexa_list_rows_"));
     assert!(generated_source.contains("ForEach(nexa_section_rows_"));
-    assert!(generated_source.contains("NexaIdentifiedListRow(id: AnyHashable("));
+    assert!(generated_source.contains("NexaIdentifiedListRows(count:"));
+    assert!(!generated_source.contains("NexaIdentifiedListRow(id: AnyHashable("));
     assert!(generated_source.contains("ToolbarItem(placement: .topBarLeading)"));
     assert!(generated_source.contains("ToolbarItem(placement: .topBarTrailing)"));
     assert!(generated_source.contains("Picker("));
@@ -369,7 +370,9 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("NexaBottomSheetPrimitive("));
     assert!(generated_source.contains("detents: [.fraction(0.5), .fraction(1)]"));
     assert!(generated_source.contains("NexaTextInputPrimitive(text: $nexa_editingCommentText"));
-    assert!(generated_source.contains("placeholder: Text(\"Comment\")"));
+    assert!(generated_source.contains(
+        "placeholder: NexaLocale.localizedString(key: \"Comment\", value: \"Comment\", comment: \"\")"
+    ));
     let localized_entries = nexa_ir::localization::extract(swift_module);
     assert!(localized_entries.contains_key("Comment image"));
     assert!(localized_entries.contains_key("Double tap to view full size"));

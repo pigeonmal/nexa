@@ -1,0 +1,103 @@
+{
+  "scope": "Native UIKit header refresh; not complete app frame time",
+  "ios": {
+    "registryChecks": "ordering, replacement identity, collapsed views, weak ownership, removal",
+    "tables": [
+      {
+        "optimizedHeaderQueries": 0,
+        "optimizedMs": [
+          0.015083334801602177,
+          0.015083332982612774,
+          0.014791667126701213,
+          0.01412499841535464,
+          0.014375000318977982,
+          0.014083332644077018,
+          0.014041666872799397
+        ],
+        "referenceHeaderQueries": 20000,
+        "referenceMs": [
+          14.91491666638467,
+          15.261124999597087,
+          14.953333333323826,
+          15.03745833360881,
+          14.868625001327018,
+          14.799750000747736,
+          14.259125000535278
+        ],
+        "refreshesPerSample": 10,
+        "registeredHeaders": 7,
+        "sections": 20000
+      },
+      {
+        "optimizedHeaderQueries": 0,
+        "optimizedMs": [],
+        "referenceHeaderQueries": 1000,
+        "referenceMs": [],
+        "refreshesPerSample": 10,
+        "registeredHeaders": 7,
+        "sections": 1000
+      }
+    ],
+    "visibility": {
+      "checksum": 360000,
+      "equivalenceCases": 1440,
+      "scope": "Emitted visible-index scan with deterministic UIKit inputs; excludes UIKit snapshot creation and complete scroll frame",
+      "tableSamples": [
+        {
+          "iterationsPerSample": 10000,
+          "optimizedMs": [
+            2.039583334408235,
+            1.8472083338565426,
+            2.034125000136555,
+            1.839000000472879,
+            1.9157916667609243,
+            1.8657083328434965,
+            2.0055833338119555,
+            1.9387500015000114,
+            1.915374999953201
+          ],
+          "pinnedHeader": false,
+          "referenceMs": [
+            2.2689166653435677,
+            2.02874999922642,
+            2.0437500006664777,
+            2.122041665643337,
+            2.082833334497991,
+            2.0372500002849847,
+            2.0334999990154756,
+            2.0592083328665467,
+            2.04137500077195
+          ],
+          "visibleRows": 40
+        },
+        {
+          "iterationsPerSample": 10000,
+          "optimizedMs": [
+            27.635291666229023,
+            27.37366666769958,
+            29.195416667789686,
+            28.83254166590632,
+            28.9917083337059,
+            28.50104166827805,
+            28.11404166823195,
+            28.576458333191113,
+            28.134708332800074
+          ],
+          "pinnedHeader": true,
+          "referenceMs": [
+            30.16866666621354,
+            30.242333332353155,
+            30.046458332435577,
+            30.32020833416027,
+            31.38204166680225,
+            31.666291666624602,
+            31.210583332722308,
+            30.829374998575076,
+            30.498541666020174
+          ],
+          "visibleRows": 40
+        }
+      ]
+    }
+  }
+}

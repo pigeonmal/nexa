@@ -433,6 +433,8 @@ fn fast_list_source_grammar_is_catalogued() {
             "reverseLayout",
             "pageSnap",
             "showDividers",
+            "hideHorizontalScrollbar",
+            "hideVerticalScrollbar",
             "ref"
         ]
     );
@@ -594,5 +596,16 @@ fn syntax_audit_matches_catalog() {
         &workspace_path("../../docs/syntax-audit.md"),
         &catalog::render_syntax_audit(),
         "docs/syntax-audit.md",
+    );
+}
+
+#[test]
+fn marquee_parameter_documentation_matches_catalog() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    nexa_testkit::assert_region(
+        &root.join("docs/animations.md"),
+        "MARQUEE_PARAMETERS",
+        &nexa_syntax::catalog::render_marquee_parameter_table(),
+        "marquee parameter documentation",
     );
 }

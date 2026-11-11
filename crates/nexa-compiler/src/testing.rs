@@ -1254,6 +1254,7 @@ fn node_name(node: &Node) -> &'static str {
         Node::OnInactive { .. } => "OnInactive",
         Node::OnBackground { .. } => "OnBackground",
         Node::Layout { .. }
+        | Node::ScrollView { .. }
         | Node::ViewInsets { .. }
         | Node::SafeAreaInset { .. }
         | Node::ScrollHeader { .. }

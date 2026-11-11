@@ -1,0 +1,32 @@
+{
+  "referenceAllocatedBytes": [
+    1277952,
+    1277952,
+    1277952,
+    1277952,
+    1294336,
+    1310720,
+    1277952
+  ],
+  "optimizedAllocatedBytes": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "counterOverheadBytes": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "unchangedPairsPerSample": 20000,
+  "apiLevel": 31,
+  "scope": "ART cumulative allocation statistics are approximate; isolated native helper process"
+}

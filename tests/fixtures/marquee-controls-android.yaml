@@ -1,0 +1,28 @@
+steps:
+  - echo: Change the displayed headline and verify the live source updates without
+      remounting.
+  - tap:
+      text: Change headline
+  - tool: await-ui-element
+    args:
+      condition: visible
+      selector:
+        text: Independent artists, live performances
+  - echo: Pause and resume the native marquee; source lifecycle count must remain
+      one.
+  - tap:
+      text: Pause or resume marquee
+  - tool: await-ui-element
+    args:
+      condition: visible
+      selector:
+        text: "Source mounts: 1"
+  - tap:
+      text: Pause or resume marquee
+  - tool: await-ui-element
+    args:
+      condition: visible
+      selector:
+        text: "Source mounts: 1"
+executionPrerequisite: Android parity app (AOT or DevRuntime) is open on the Marquee
+  route with its initial headline and playback enabled.

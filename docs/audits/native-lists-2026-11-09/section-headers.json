@@ -1,0 +1,42 @@
+{
+  "scope": "Native UIKit header refresh; not complete app frame time",
+  "ios": {
+    "registryChecks": "ordering, replacement identity, collapsed views, weak ownership, removal",
+    "tables": [
+      {
+        "optimizedHeaderQueries": 0,
+        "optimizedMs": [
+          0.01583333323651459,
+          0.015083332982612774,
+          0.014833332897978835,
+          0.014541667042067274,
+          0.015416668247780763,
+          0.014750001355423592,
+          0.014333332728710957
+        ],
+        "referenceHeaderQueries": 20000,
+        "referenceMs": [
+          15.241958333717776,
+          15.30300000013085,
+          14.473666666162899,
+          14.834791667453828,
+          15.217499998470885,
+          14.849333332676906,
+          14.82308333288529
+        ],
+        "refreshesPerSample": 10,
+        "registeredHeaders": 7,
+        "sections": 20000
+      },
+      {
+        "optimizedHeaderQueries": 0,
+        "optimizedMs": [],
+        "referenceHeaderQueries": 1000,
+        "referenceMs": [],
+        "refreshesPerSample": 10,
+        "registeredHeaders": 7,
+        "sections": 1000
+      }
+    ]
+  }
+}

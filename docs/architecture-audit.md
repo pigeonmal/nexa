@@ -23,6 +23,19 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v516` | Keeps iOS keyed FastList row identity lazy through a typed random-access collection instead of allocating an identity wrapper and `AnyHashable` for every source row during parent updates. |
+| `build-v515` | Removes Android Marquee's draw-time StateFlow invalidation; typed child values and measured geometry drive animation resets outside the drawing phase. |
+| `build-v514` | Reuses one Cronet transfer buffer, bounds response storage, avoids a final body copy when the accumulator is exact-sized, uses overflow-safe limits, and serializes Android download writes against cancellation and close. |
+| `build-v513` | Streams iOS downloads to a same-directory staging file with response-size enforcement before each write, cancellation cleanup, and atomic replacement only after HTTP validation. |
+| `build-v512` | Streams Android Cronet image bytes directly into Coil's Okio response buffer, eliminating the intermediate byte-array and buffer copies and rejecting known-oversized bodies before transfer. |
+| `build-v511` | Marks UIKit-backed horizontal-list item measurement and grid-layout construction as main-actor work under Swift 6. |
+| `build-v510` | Keeps Swift response bodies within their byte limit while streaming, eagerly decodes remote image thumbnails off the main actor, and emits unique tab aliases plus only-needed deep-link query locals. |
+| `build-v509` | Enforces native Swift response limits during chunk delivery for fetch, upload responses, and remote images; eagerly decodes image thumbnails off the main actor with task cancellation, and retains row identity helpers for native-only keyed lists. |
+| `build-v508` | Keeps shared UIKit inset/scroll helpers on the main actor, preserves actor isolation through Marquee KVO callbacks, and omits unused section-header bindings from native Swift output. |
+| `build-v507` | Makes native Marquee disposal terminal so queued playback, source-layout, and configuration callbacks cannot restart animation after SwiftUI teardown. |
+| `build-v506` | Removes temporary index-projection arrays from native table, horizontal-list, grid, and masonry scroll observations while preserving sticky-header and reversed-list selection. |
+| `build-v505` | Tracks sectioned-list headers through UIKit display lifecycles, refreshes only registered headers, and reuses already-normalized section counts during native updates. |
+| `build-v504` | Refreshes shared native renderers for NumberFlow memoization, bounded TextReveal glyph drawing and clock disposal, allocation-free FastList observation, and coalesced Marquee metrics. |
 | `build-v503` | Cancels SwiftUI Form's native scroll inset for first-section content before applying authored padding, so default edge-to-edge, padding, and margin use the same inset source. |
 | `build-v502` | Cancels SwiftUI Form's native top inset at the first section boundary so explicit Form padding and margin each apply once. |
 | `build-v501` | Applies authored SwiftUI Form padding and margin directly, removing duplicate per-Form safe-area correction. |

@@ -1,0 +1,327 @@
+{
+  "scope": "Native UIKit offscreen rendering; not app frame timing or screen captures",
+  "ios": {
+    "cases": [
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 2,
+        "optimizedMs": [
+          0.32049999936134554,
+          0.32737499986978946,
+          0.3197083333361661,
+          0.3365833326824941,
+          0.31941666657075984,
+          0.32412499967904296,
+          0.32245833244815003
+        ],
+        "pixelCases": 5,
+        "referenceMs": [
+          0.3166249998685089,
+          0.31491666686633835,
+          0.3379166673767031,
+          0.3348333339090459,
+          0.3235000003769528,
+          0.31837500046094647,
+          0.3180416670147679
+        ]
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [
+          1.039791666698875,
+          0.9478333331571775,
+          0.9346666665805969,
+          0.9495416661593481,
+          0.9499999996478437,
+          0.9824166663747746,
+          0.956291666625475
+        ],
+        "pixelCases": 5,
+        "referenceMs": [
+          1.2085833332093898,
+          1.194499999655818,
+          1.1515833339217352,
+          1.1599583331189933,
+          1.1721250002665329,
+          1.2920000008307397,
+          1.1888333328897716
+        ]
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 60,
+        "optimizedMs": [
+          10.094624999510415,
+          10.070208332763286,
+          9.873833333585935,
+          9.77762500042445,
+          10.054999999738357,
+          10.58408333301486,
+          9.945666666681063
+        ],
+        "pixelCases": 5,
+        "referenceMs": [
+          53.189041666882986,
+          53.39475000073435,
+          53.79887500021141,
+          54.34191666699917,
+          53.68929166615999,
+          55.000833333906485,
+          54.73391666691896
+        ]
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 1,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 2,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 2,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 3,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 3,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 3,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 3,
+        "drawsPerSample": 20,
+        "lines": 6,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      },
+      {
+        "displayScale": 3,
+        "drawsPerSample": 20,
+        "lines": 3,
+        "optimizedMs": [],
+        "pixelCases": 5,
+        "referenceMs": []
+      }
+    ]
+  }
+}

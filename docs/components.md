@@ -26,6 +26,52 @@ app ProfileCard {
 }
 ```
 
+## NumberFlow
+
+`NumberFlow` formats a numeric expression with the device locale and rolls each changed digit. SwiftUI and Compose animate only the digits whose glyph changes, while separators and symbols update with the formatted value. A single formatted accessibility value is exposed on both platforms.
+
+```nx
+app CartTotal {
+    state total: Float64 = 42.99
+
+    body {
+        Column(gap: 12, padding: 20) {
+            NumberFlow(
+                value: total,
+                format: Currency,
+                currencyCode: "EUR",
+                maximumFractionDigits: 2,
+                animation: Spring(response: 0.35, damping: 0.82),
+                fontSize: 32,
+                fontWeight: Bold,
+            )
+            Button("Add 10 cents") { total = total + 0.1 }
+        }
+    }
+}
+```
+
+| Argument | Type | Default | Behavior |
+|---|---|---|---|
+| `value` | Numeric expression | Required | The number to format and animate. |
+| `format` | `Number` \| `Currency` \| `Percent` \| `Compact` | `Number` | Currency uses the platform currency formatter; Percent treats `0.25` as `25%`; Compact uses compact magnitude suffixes. |
+| `currencyCode` | Static three-letter string | None | Required only for `format: Currency`, such as `"EUR"` or `"USD"`. |
+| `minimumFractionDigits` | Integer from 0 to 20 | Platform formatter default | Minimum displayed fraction digits. |
+| `maximumFractionDigits` | Integer from 0 to 20 | Platform formatter default | Maximum fraction digits; cannot be below the minimum. |
+| `animation` | Nexa animation specification | `Spring(response: 0.35, damping: 0.82)` | Controls per-digit roll timing. Rising and falling values roll in opposite directions. |
+
+`NumberFlow` also accepts the shared `Text` presentation arguments: `fontSize`, `fontStyle`, `fontDesign`, `fontFamily`, `fontWeight`, `color`, `alignment`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `italic`, `underline`, `selectable`, `opacity`, `scale`, `scaleY`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, and `comment`.
+
+```nx
+Column(gap: 8) {
+    NumberFlow(value: completedTasks, format: Number, maximumFractionDigits: 0, fontSize: 28)
+    NumberFlow(value: completionRatio, format: Percent, maximumFractionDigits: 1, color: "#15803D")
+    NumberFlow(value: cartTotal, format: Currency, currencyCode: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2)
+}
+```
+
+Grouping, decimal separators, and currency placement follow the current device locale. Formatter data can vary slightly between OS versions. NumberFlow does not bundle locale data or animate time/countdown strings.
+
 ## Custom icon fonts
 
 Register one TTF or OTF font in `nexa.config.nx` and name the glyph codepoints once. The aliases compile into native font glyphs and work with built-in `icon:` parameters on both platforms.
@@ -81,6 +127,17 @@ For a branded bottom toolbar, use Nexa's recommended [`AppBottomBar` custom `Tab
 Layout defaults are shared by iOS and Android: `Column` aligns its children and text to `Center`, `Row` aligns children vertically to `Center` and starts its horizontal arrangement at `Start`, and `Stack` centers its content. Omitted `padding` adds no inset. Explicit layout parameters replace these defaults.
 
 `width` and `height` set a fixed content size. `minWidth`, `maxWidth`, `minHeight`, and `maxHeight` constrain that size or the content's natural size. A fixed size must fit within any supplied bounds; contradictory values are compile errors. Padding is added outside the content size, so it increases the component's total size.
+
+`blur` softens the complete component, including its background, rounded edges,
+and children. It can draw beyond the component’s bounds without changing its
+layout size. iOS uses SwiftUI blur; Android uses native RenderEffect on Android
+12 and later with transparent, unbounded edges. An explicit `clip` still limits
+the final output; Android versions before 12 do not render this blur effect.
+
+For `Row`, `Column`, and `Stack`, `animation` interpolates the container’s
+bounds. Its background, border, and rounded surface follow those bounds during
+both expansion and collapse. Children update immediately; insertion and removal
+transitions are separate from container size animation.
 
 ### Shape
 
@@ -144,7 +201,7 @@ Column(
 
 A percentage uses the parent's available content size; `screenWidthFraction(0.5)` and `screenHeightFraction(0.5)` use the current app window. The functions also work with the matching `minWidth`, `maxWidth`, `minHeight`, and `maxHeight`. `Fill` and `100%` both fill a finite parent proposal. If the parent is unbounded on that axis, fill and parent percentages preserve intrinsic sizing. Window measurements are shared and update on resize or rotation.
 
-A number passed to `padding` or `margin` applies to all four edges. `Insets(top:, bottom:, leading:, trailing:)` selects edges, while `horizontal:` and `vertical:` set pairs; omitted edges are zero. `leading` and `trailing` follow right-to-left layout. Padding is inside the component; margin is outside it. A layout's `gap` separates its children, and combines additively with each child's margin. The former component-level `spacing` is now `margin`; `safeAreaInset` accepts only an edge:
+A number passed to `padding` or `margin` applies to all four edges. `Insets(top:, bottom:, leading:, trailing:)` selects edges, while `horizontal:` and `vertical:` set pairs; omitted edges are zero. `leading` and `trailing` follow right-to-left layout. Negative inset values clamp to zero on both platforms. Padding is inside the component; margin is outside it. A layout's `gap` separates its children, and combines additively with each child's margin. The former component-level `spacing` is now `margin`; `safeAreaInset` accepts only an edge:
 
 ```nx
 Column(gap: 12, padding: 16) {
@@ -163,6 +220,69 @@ Set `cornerRadiusBottom` to round both bottom corners while keeping the top corn
 Use `width: Fill` or `height: Fill` when a view should consume the finite space its parent offers. `100%` is an alias for `Fill`; both preserve intrinsic sizing when that parent axis is unbounded. These forms also work with `minWidth`, `maxWidth`, `minHeight`, and `maxHeight`.
 
 `Row(alignment:)` positions children vertically (`Start`, `Center`, or `End`). Use `horizontalArrangement: Start|Center|End` to place the child group across the available width; it defaults to `Start`. Setting `horizontalArrangement` makes the Row use available width, constrained by any explicit width bounds.
+
+### ScrollView
+
+`Column` and `Row` arrange content without scrolling. Wrap content in `ScrollView` when it must move beyond the visible viewport. The viewport fills the bounded space offered by its parent. If the parent is unbounded along the scroll axis, provide a finite `height` for a vertical scroll view or `width` for a horizontal one.
+
+```nx
+app LongArticle {
+    let articleScroll = ComponentRef<ScrollView>()
+
+    body {
+        Column(gap: 12) {
+            Text("Field notes", fontSize: 28, fontWeight: Bold)
+            ScrollView(axis: Vertical, ref: articleScroll, height: screenHeightFraction(0.75)) {
+                Column(gap: 12) {
+                    Text("The walk continues beyond the ridge.")
+                    Text("The final observation", margin: Insets(top: 1000))
+                }
+            }
+            Button("Back to the start") { articleScroll.scrollToTop() }
+        }
+    }
+}
+```
+
+| Argument | Type | Default | Behavior |
+|---|---|---|---|
+| `axis` | `Vertical \| Horizontal` | `Vertical` | Scrolls on one axis. Arrange content with a `Column` or `Row` inside the scroll view. |
+| `ref` | `ComponentRef<ScrollView>` | Unset | Exposes the typed scrolling methods below. Calls on a detached ref return `ComponentRefError<Void>`. |
+| `hideHorizontalScrollbar` | `Bool` | `true` | Hides the horizontal native scroll indicator. Set to `false` to use the platform default when horizontal scrolling is active. |
+| `hideVerticalScrollbar` | `Bool` | `true` | Hides the vertical native scroll indicator. Set to `false` to use the platform default when vertical scrolling is active. |
+| `width`, `height` | `Dimension` | Parent proposal | Sets the viewport size. Accepts logical units, a parent-relative percentage, `Fill`/`100%`, or the matching window-fraction function. |
+| `minWidth`, `maxWidth`, `minHeight`, `maxHeight` | `Dimension` | Unset | Constrains the viewport using the same syntax as `width` and `height`. |
+| `padding` | `Number \| Insets` | `0` on every edge | Insets the scroll content. The padding moves with the content and contributes to its scrollable extent. |
+| `margin` | `Number \| Insets` | `0` on every edge | Adds space outside the viewport. It does not become content padding. |
+| `background` | `Color` | Transparent | Fills the viewport background. A color can be a hex string or a color expression. |
+| `cornerRadius` | `Float64` | Unset | Clips the viewport to a rounded rectangle. |
+| `cornerRadiusBottom` | `Float64` | Unset | Sets both bottom corner radii; when combined with `cornerRadius`, it overrides only the bottom pair. |
+| `borderColor` | `Color` | Unset | Border color. A border is drawn when both `borderColor` and `borderWidth` are supplied. |
+| `borderWidth` | `Float64` | Unset | Border thickness in logical units; paired with `borderColor`. |
+| `opacity` | `Float64` | `1` | Sets viewport opacity. |
+| `scale` | `Float64` | Unset | Applies a uniform visual scale. |
+| `scaleY` | `Float64` | Unset | Overrides the vertical scale independently. |
+| `rotation` | `Float64` | Unset | Rotates the viewport in degrees. |
+| `offsetY` | `Float64` | Unset | Applies a vertical visual offset in logical units. |
+| `shadow` | `Shadow(radius:, x:, y:, color:)` | Unset | Draws a shadow behind the viewport. |
+| `blur` | `Float64` | Unset | Applies a blur radius in logical units. |
+| `clip` | `Rounded(radius)` | Unset | Clips the viewport to a rounded rectangle. |
+| `zIndex` | `Int32` | `0` | Controls drawing order relative to siblings. |
+| `glass` | `Glass(shape:, tint:)` or a glass shape string | Unset | Applies the shared glass surface treatment. Supported shapes are `circle`, `capsule`, and `rounded(radius)`. |
+| `animation` | `AnimationSpec` | Unset | Animates changes to the viewport's measured size. |
+| Child block | Nexa nodes | Required | Children are created eagerly. A child's margin remains inside the scroll content extent. |
+
+`ScrollView` hides its indicators by default to preserve Nexa's current behavior. Set the active axis flag to `false` to use the native iOS indicator. Compose currently renders no scrollbar for these scroll modifiers, so the hide flags do not change Android visuals. Native touch gestures and fling behavior are retained. A `ScrollView` creates all children eagerly, so use `FastList` for large collections or repeated data; see [SwiftUI scroll views](https://developer.apple.com/documentation/swiftui/scroll-views) and [Compose scroll modifiers](https://developer.android.com/develop/ui/compose/touch-input/scroll/scroll-modifiers).
+
+The typed ref supports these calls:
+
+| Method | Signature | Behavior |
+|---|---|---|
+| `scrollToTop` | `(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Moves to the logical start of the selected axis. |
+| `scrollToEnd` | `(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Moves to the logical end of the selected axis. |
+| `scrollToOffset` | `(offset: Float64, animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Moves from the logical start by logical points/dp. The offset is clamped to the scrollable range. |
+
+`safeAreaInset` can reserve its attached content against a compatible `ScrollView`. `KeyboardAware` reuses a nested `ScrollView` rather than creating a second scroll container. `.scrollHeader` accepts only a vertical `ScrollView` owner.
 
 Use `scale` for uniform visual scaling and `scaleY` for an independent vertical transform on `Column`, `Row`, `Stack`, and `Text`. Both accept a `Float64` expression and animate when the state is changed inside `withAnimation`; when both are provided, `scaleY` overrides the vertical part while `scale` controls the horizontal part.
 
@@ -241,7 +361,7 @@ app StoryViewer {
 | Window metrics | One root snapshot carries viewport size and visual insets. iOS reads the window safe-area values; Android unions system bars, display cutouts, and waterfall insets and converts pixels to `dp`. Resize, rotation, cutouts, and transient bars update the snapshot. |
 | `SystemInsets` | Raw visual insets in logical units. Reading them never pads content and never consumes an edge. Use them in explicit `padding` or `margin` expressions. |
 | Keyboard and gestures | IME and gesture regions remain separate from visual insets. `KeyboardAware` defaults to `Stay`; `behavior: Avoid` opts into moving content above the keyboard. |
-| Scroll content | `FastList` and `Form` remain edge-to-edge by default. `safeAreaInset` reserves the measured attachment and relevant safe edge for a unique scroll owner; no synthetic row or extra gap is inserted. |
+| Scroll content | `ScrollView`, `FastList`, and `Form` remain edge-to-edge by default. `safeAreaInset` reserves the measured attachment and relevant safe edge for a unique scroll owner; no synthetic row or extra gap is inserted. |
 | Insets and direction | Physical left/right values are mapped to logical leading/trailing using the active layout direction. Android overlapping visual inset sources use the maximum value on each edge. |
 
 For a feed, `safeAreaInset` keeps the action clear of the final row while leaving each row's layout untouched:
@@ -264,7 +384,7 @@ app ReadingFeed {
 
 ### Adaptive scroll headers
 
-Attach one custom header to a subtree containing exactly one vertical native scroll owner. The modifier can wrap `FastList`, `Form`, or a future compatible owner; it does not replace scrolling or introduce an extra scroll container. If there are zero or multiple compatible owners, the compiler reports the relationship and asks you to place the modifier on the intended owner.
+Attach one custom header to a subtree containing exactly one vertical native scroll owner. The modifier can wrap `ScrollView`, `FastList`, or `Form`; it does not replace scrolling or introduce an extra scroll container. If there are zero or multiple compatible owners, the compiler reports the relationship and asks you to place the modifier on the intended owner.
 
 | Parameter | Type | Default | Behavior |
 |---|---|---|---|
@@ -295,12 +415,16 @@ The system `NavigationStack(titleMode: Large)` remains the native choice for sta
 
 ### KeyboardAware
 
-`KeyboardAware` preserves its existing scroll dismissal behavior and can either stay fixed to the window or avoid the software keyboard. It reuses a nested `FastList` or `Form` as the native scroll owner; when there is no scroll owner, it supplies a vertical scrolling container.
+`KeyboardAware` preserves its existing scroll dismissal behavior and can either stay fixed to the window or avoid the software keyboard. It reuses a nested `ScrollView`, `FastList`, or `Form` as the native scroll owner; when there is no scroll owner, it supplies a vertical scrolling container.
 
 | Argument | Type | Default | Behavior |
 |---|---|---|---|
 | `dismiss` | `Interactive \| Never` | `Interactive` | Controls whether a drag can dismiss the software keyboard. |
 | `behavior` | `Stay \| Avoid` | `Stay` | `Stay` leaves the scope at the window position and allows the IME to cover content. `Avoid` resizes or moves the scope above the IME. |
+| `hideHorizontalScrollbar` | `Bool` | `false` | Hides a horizontal native scroll indicator in a nested scroll owner. |
+| `hideVerticalScrollbar` | `Bool` | `false` | Hides a vertical native scroll indicator in the reused or supplied scroll owner. |
+
+When `KeyboardAware` creates its own scroll container, these flags control that container. When it reuses a `ScrollView`, `FastList`, or `Form`, set the flags on that scroll owner directly. Android Compose does not draw a scrollbar for its built-in scroll modifiers.
 
 ```nx
 app MessageComposer {
@@ -327,6 +451,10 @@ Bind controls directly to declared `state`. `TextInput` and `Switch` accept type
 
 `Button` renders a native action on both platforms. Its optional `accessibilityLabel` is useful for icon-only actions; without it, assistive technology uses the visible label or the platform's native icon description.
 
+On iOS, physical tap activation checks the delivered location against the button's measured bounds and outline. A tap outside that area cannot activate the button through native touch tolerance. This adds no padding or margin; accessibility activation continues through the native button action. AOT and DevRuntime use the same primitive.
+
+A passive touch observer is shared by buttons in each window. It never recognizes or consumes gestures; SwiftUI retains native pressing, release feedback, and activation. Each button provides a non-interactive bounds probe, and pointer movement does not update SwiftUI state.
+
 | Parameter | Type | Default | Behavior |
 |---|---|---|---|
 | `label` | `String` expression | Required positional value | Visible button text. |
@@ -351,10 +479,16 @@ Button("", icon: "add", shape: Circle, accessibilityLabel: "Add task") {
 ### TextInput
 
 `TextInput` binds directly to mutable `String` state and uses the native text control on each
-platform. Static font and color options are typed at compile time. Placeholder strings are
-localized automatically. `clearable` adds the iOS inline clear control; Android retains its
-native field behavior, matching React Native's iOS-only clear-button mode. Use `.onFocus` with
-`focused` when an interaction must run after the user focuses the field.
+platform. iOS uses a UIKit text control inside SwiftUI; Android uses Compose BasicTextField. Both AOT
+and DevRuntime call the same platform primitive. Static font and color options are typed at compile time. Placeholder strings are
+localized automatically. `clearable` adds an inline clear control on both platforms. `focused: true`
+requests focus once when the native input mounts; it is not a binding and does not track keyboard or
+focus changes. Use a typed `ComponentRef<TextInput>` with `.focus()` and `.blur()` for later actions.
+`.onFocus` independently runs when the native field gains focus and does not require a state.
+
+Both platforms use regular-weight input text without inherited letter spacing. Placeholder and
+search/clear icons use `#8E8E93`; `placeholderColor` overrides the placeholder independently.
+Refs attach only to mounted editors, so temporary layout measurements cannot take focus ownership.
 
 <!-- nexadoc:begin TEXT_INPUT_PARAMETERS -->
 | Parameter | Type | Default | Behavior |
@@ -369,25 +503,40 @@ native field behavior, matching React Native's iOS-only clear-button mode. Use `
 | `multiline` | `Bool` | `false` | Uses a vertically expanding native text control; submit action blocks are not supported |
 | `autocorrect` | `Bool` | Platform default | Enables or disables native spelling correction |
 | `capitalization` | `None`, `Sentences`, `Words`, or `Characters` | `Sentences` | Selects automatic capitalization behavior |
-| `focused` | mutable `Bool` state | Omitted | Requests focus when true and reflects native focus changes |
-| `maxLength` | positive integer literal | Unlimited | Bounds text accepted from native editing |
+| `focused` | `Bool` expression | `false` | Requests keyboard focus once when the native input mounts; changing it later does not control focus |
+| `ref` | `ComponentRef<TextInput>` | Omitted | Provides `.focus()` and `.blur()` actions for the mounted input |
+| `maxLength` | positive integer literal | Unlimited | Bounds user-perceived Unicode characters accepted from native editing |
 | `font` | `Body` or `Title3` | Platform default | Selects a shared native text style |
 | `fontSize` | non-negative number or `FontSize` theme token | Platform default | Sets entered-text and placeholder size in points on iOS and `sp` on Android |
 | `fontFamily` | registered font-face `String` or font-family theme token | `Theme.Default` when declared, otherwise platform default | Uses the registered native font face from `assets/fonts/` |
 | `textColor` | hex color `String` or color theme token | Platform default | Sets the entered-text color |
-| `placeholderColor` | hex color `String` or color theme token | Platform default | Sets the placeholder color independently of entered text |
-| `clearable` | `Bool` | `false` | Shows an inline clear control on iOS while text is present; Android keeps its native field behavior |
+| `placeholderColor` | hex color `String` or color theme token | `#8E8E93` | Sets the placeholder color independently of entered text |
+| `clearable` | `Bool` | `false` | Shows an inline clear control on both platforms; clearing updates value and fires onChange |
 | `minLines` | positive integer literal | 1 | Minimum visible line count; requires `multiline: true` |
-| `maxLines` | positive integer literal | Unlimited | Maximum visible line count; requires `multiline: true` |
+| `maxLines` | positive integer literal | Unlimited | Maximum explicit input lines and visible line count; rejects edits adding excess line breaks; requires `multiline: true` |
 | `searchable` | `Bool` | `false` | Adds a native search icon and uses the Search return-key action; cannot be combined with multiline or submit actions |
 <!-- nexadoc:end TEXT_INPUT_PARAMETERS -->
+
+`minLines` reserves visible space. `maxLines` caps both the visible height and the number of
+explicit newline-separated input lines. An edit or paste that adds excess line breaks is
+rejected without firing `.onChange`. Wrapped text remains scrollable inside the field; resizing
+or changing font size does not remove text. CRLF counts as one line break.
+
+`maxLength` counts user-perceived Unicode characters, including combined emoji. Bounded insertions
+and pastes preserve the existing text after the cursor. Single-line
+inputs convert pasted line breaks to spaces. Limits apply to native edits; programmatic state
+assignments remain under app control, and existing over-limit text can be edited down.
+Secure fields disable autocorrection and automatic capitalization. Android selects password
+IME variants for `Text` and `Number` keyboards. Clear controls reserve a 48-point/dp slot so
+showing the icon does not change the input row height.
+
 
 <!-- nexadoc:begin TEXT_INPUT_EVENTS -->
 | Action or modifier | Type | Default | Behavior |
 |---|---|---|---|
 | `action block` | actions | Omitted | Runs on submit for a single-line field; defaults the return key to `Done` |
 | `.onChange` | one `String` binding and actions | Omitted | Runs after user-driven edits with the new text bound to its parameter; programmatic state changes do not trigger it |
-| `.onFocus` | actions | Omitted | Runs when the field gains native focus; requires `focused` so both native targets can track the focus binding |
+| `.onFocus` | actions | Omitted | Runs when the field gains native focus; does not require a focus state |
 <!-- nexadoc:end TEXT_INPUT_EVENTS -->
 
 Common accessibility options also apply: `accessibilityLabel` is required when any of
@@ -398,9 +547,9 @@ strings are localized automatically.
 app SongSearchField {
     state query: String = ""
     state changedText: String = ""
-    state focused: Bool = false
     state focusEntries: Int32 = 0
 
+    let queryInputRef = ComponentRef<TextInput>()
     body {
         Column(gap: 8, padding: 16) {
             TextInput(
@@ -414,18 +563,20 @@ app SongSearchField {
                 textColor: "#FFFFFF",
                 placeholderColor: "#9F9F9F",
                 clearable: true,
-                focused: focused,
+                ref: queryInputRef,
                 accessibilityLabel: "Search songs and artists",
             ).onFocus {
-                if query != "" {
-                    query = ""
-                    changedText = ""
-                }
                 focusEntries = focusEntries + 1
             }.onChange { typed ->
                 changedText = typed
             }
-            Text("Last edit: \(changedText) · focused \(focusEntries) times")
+            Button("Focus search") {
+                queryInputRef.focus()
+            }
+            Button("Dismiss input focus") {
+                queryInputRef.blur()
+            }
+            Text("Last edit: \(changedText) · focus events \(focusEntries)")
         }
     }
 }
@@ -463,11 +614,16 @@ app AudioPreferences {
 ### Slider
 
 `Slider` binds to mutable `Float64` state and accepts a dynamic range, which lets a
-media player bind its position directly to the current track duration. Use
-`step: 0.0` for a continuous seek bar. The shared renderer draws the same rounded
-track and circular thumb on iOS and Android; track, thumb, and hit-area sizes use
-points on iOS and dp on Android. Horizontal drag pauses the player through
-`.onEditingChanged`; the callback ends before the final position is sought.
+media player bind its position directly to the current track duration. Omit `step`
+or set it to `0.0` for a continuous seek bar; a positive step quantizes values.
+Nexa uses SwiftUI `Slider` on iOS and Material 3 `Slider` on Android. Both use
+native sizing and interaction; `tint` colors the active track. `.onEditingChanged`
+follows the native control's editing session. Stepped sliders show tick marks by
+default. SwiftUI exposes native tick marks on iOS 26 and later; older iOS versions
+still snap to the configured step but do not display marks. Set
+`showStepIndicators: false` to hide the marks.
+Track/thumb colors and custom dimensions remain accepted for source compatibility,
+but native sliders do not apply them consistently across platforms.
 
 <!-- nexadoc:begin SLIDER_PARAMETERS -->
 | Parameter | Type | Default | Behavior |
@@ -475,20 +631,21 @@ points on iOS and dp on Android. Horizontal drag pauses the player through
 | `value` | mutable `Float64` state | Required | Current slider value; updated before `.onChange` actions run |
 | `min` | `Float64` expression | Required | Lower end of the value range |
 | `max` | `Float64` expression | Required | Upper end of the range; must be greater than `min` when rendered |
-| `step` | non-negative `Float64` literal | Required; use `0.0` for continuous values | Quantization interval; a zero step keeps native pointer precision |
+| `step` | non-negative `Float64` literal | Optional; `0.0` (continuous) | Positive values quantize interaction; omitted or `0.0` keeps continuous native values |
+| `showStepIndicators` | `Bool` | `true` | Shows native tick marks for stepped sliders; iOS displays them on iOS 26 and later |
 | `tint` | color expression (`String`) or `String` state | Platform accent | Filled portion of the track |
-| `trackColor` | color expression (`String`) or `String` state | Platform inactive track color | Unfilled portion of the track |
-| `thumbColor` | color expression (`String`) or `String` state | White | Circular thumb fill |
-| `trackHeight` | positive `Dp` number | 4 dp | Track thickness |
-| `thumbSize` | positive `Dp` number | 14 dp | Thumb diameter |
-| `hitSlop` | non-negative `Dp` number | 0 dp | Extra vertical pointer hit area above and below the visual control |
+| `trackColor` | color expression (`String`) or `String` state | Native platform color | Retained for source compatibility; native track styling takes precedence |
+| `thumbColor` | color expression (`String`) or `String` state | Native platform color | Retained for source compatibility; native thumb styling takes precedence |
+| `trackHeight` | positive `Dp` number | Native platform size | Retained for source compatibility; native control sizing takes precedence |
+| `thumbSize` | positive `Dp` number | Native platform size | Retained for source compatibility; native control sizing takes precedence |
+| `hitSlop` | non-negative `Dp` number | Native platform hit area | Retained for source compatibility; native control hit testing takes precedence |
 <!-- nexadoc:end SLIDER_PARAMETERS -->
 
 <!-- nexadoc:begin SLIDER_EVENTS -->
 | Modifier | Type | Default | Behavior |
 |---|---|---|---|
 | `.onChange` | one `Float64` binding and actions | Omitted | Runs as the bound value changes; its `Float64` parameter is commonly named `value` and tap and drag input are supported |
-| `.onEditingChanged` | one `Bool` binding and actions | Omitted | Runs with `true` when horizontal dragging begins and `false` when it ends; its `Bool` parameter is commonly named `editing`; taps do not enter editing state |
+| `.onEditingChanged` | one `Bool` binding and actions | Omitted | Runs with `true` when native editing begins and `false` when it ends; its `Bool` parameter is commonly named `editing` |
 <!-- nexadoc:end SLIDER_EVENTS -->
 
 ```nx
@@ -505,12 +662,7 @@ app EpisodePlayer {
                 min: 0.0,
                 max: duration,
                 step: 0.0,
-                tint: "#CA2828",
-                trackColor: "#424242",
-                thumbColor: "#FFFFFF",
-                trackHeight: 3.51,
-                thumbSize: 14.04,
-                hitSlop: 18.72
+                tint: "#CA2828"
             )
                 .onChange { seconds ->
                     if !isSeeking {
@@ -570,6 +722,8 @@ For `padding: Insets(top: SystemInsets.top)`, initial content starts below the s
 |---|---|---|---|---|
 | `Form` | `showDividers` | `Bool` | `true` | Shows separators between direct form rows and rows inside sections. `false` hides those separators for the whole form unless a Section opts back in. |
 | `Form` | `background` | `Color?` | `nil` (transparent) | Optional form canvas color, accepted as a hex color string or theme color token. |
+| `Form` | `hideHorizontalScrollbar` | `Bool` | `false` | Hides a horizontal native scroll indicator when one is present. |
+| `Form` | `hideVerticalScrollbar` | `Bool` | `false` | Hides the native vertical scroll indicator. Omitted or `false` preserves the platform default. |
 | `Section` | `showDividers` | `Bool` | Inherits from `Form` (`true` when omitted outside an explicit Form value) | Overrides the enclosing Form setting for rows in this section. |
 | `Section` | `background` | `Color?` | `nil` (transparent) | Optional rounded section surface color, accepted as a hex color string or theme color token. |
 
@@ -706,6 +860,13 @@ set, row content is vertically centered within that height on both platforms.
 When omitted, rows grow to fit their content and have a shared minimum height
 of 52 pt/dp.
 
+For ordinary `FastList` variants, omitted or `false` preserves the platform
+default. Page-snapping lists keep their existing hidden vertical indicator by
+default; set `hideVerticalScrollbar: false` to use the native iOS default.
+Setting either flag to `true` hides that native indicator. Android's built-in
+Compose scroll modifiers do not draw scrollbars, so there is no visible
+indicator to hide there.
+
 | Parameter | Type | Required/default | Behavior |
 |---|---|---|---|
 | Data source | `Array<T>`, `count: Int32`, or `sections: Array<Array<T>>` | Exactly one source | Positional arrays and named `count:` or `sections:` sources are supported. |
@@ -718,6 +879,8 @@ of 52 pt/dp.
 | `reverseLayout` | `Bool` | `false` | Reverses a flat vertical list; cannot be combined with sections, sticky headers, or page snapping. |
 | `pageSnap` | `Bool` | `false` | Pages a flat vertical list by viewport height; omit `rowHeight`. |
 | `showDividers` | `Bool` | `true` | Shows automatically rendered separators between rows in vertical flat and sectioned lists. Set to `false` to hide them. Horizontal lists, grids, and page-snapping lists do not draw row separators. |
+| `hideHorizontalScrollbar` | `Bool` | `false` | Hides the native horizontal scroll indicator when present. Use it with `axis: Horizontal`. |
+| `hideVerticalScrollbar` | `Bool` | `false` (`true` when `pageSnap: true`) | Hides the native vertical scroll indicator when present, including for vertical, page-snapping, grid, adaptive-grid, masonry, and sectioned lists. |
 | `ref` | `ComponentRef<FastList>` | Omitted | Attaches a typed imperative handle for the current list instance. Calls made while it is detached return the typed not-attached failure. |
 | `accessibilityLabel` | `String` | Omitted | Accessible label for the list. |
 
@@ -1218,6 +1381,10 @@ Image(
 )
 ```
 
+### Marquee container animation
+
+`Row(animation: Marquee(...))` scrolls overflowing display content horizontally; `Column(animation: Marquee(...))` scrolls it vertically. Both use the same typed preset and native implementation in AOT and DevRuntime. Add `edgeFade: 16` inside `Marquee(...)` for transparent fades at the viewport ends; the default is `0`. See [Marquee container motion](animations.md#marquee-container-motion) for all parameters, viewport behavior, lifecycle, accessibility, and restrictions.
+
 ### Text
 
 `Text` renders with SwiftUI on iOS and Compose Material 3 `Text` on Android. Semantic font styles use shared point/`sp` sizes and weights; SwiftUI applies the matching text style for Dynamic Type, and Android follows the system font scale. If both `fontStyle` and `fontSize` are supplied, the explicit size replaces the style's size while keeping its default weight. An explicit `fontWeight` takes precedence over that semantic weight.
@@ -1288,8 +1455,8 @@ app AudioTranscript {
         TranscriptCue(text: "left", startTimeSeconds: 4.6, endTimeSeconds: 5.0, hasTrailingSpace: false),
     ]
     state position: Float64 = 4.2
-    state active: Bool = true
-    state playing: Bool = true
+    state isActive: Bool = true
+    state isPlaying: Bool = false
     state revealEnabled: Bool = true
     state seekRevision: Int32 = 0
 
@@ -1298,9 +1465,9 @@ app AudioTranscript {
             "Turn left after the bridge",
             segments: cues,
             position: position,
-            active: active,
-            playing: playing,
-            enabled: revealEnabled,
+            isActive: isActive,
+            isPlaying: isPlaying,
+            revealEnabled: revealEnabled,
             seekRevision: seekRevision,
             fontSize: 20,
             fontWeight: Semibold,
@@ -1313,12 +1480,12 @@ app AudioTranscript {
 
 | Parameter | Type | Required/default | Behavior |
 |---|---|---|---|
-| `value` | `String` expression | Required | Complete text shown by the component. It should contain the same words and spaces as `segments` in the same order. |
+| First positional text | `String` expression | Required | Complete text shown by the component. It should contain the same words and spaces as `segments` in the same order. |
 | `segments` | `Array<Struct>` | Required | Each element must provide `text: String`, `startTimeSeconds: Float64`, and `endTimeSeconds: Float64`. Optional `hasTrailingSpace: Bool?` defaults to `true`; it contributes one text unit when Nexa assigns segments to wrapped lines. |
 | `position` | `Float64` | Required | Current playback or timeline position in seconds. |
-| `active` | `Bool` | Required | Enables the highlight overlay for this text row. Inactive rows keep only their dimmed base text. |
-| `playing` | `Bool` | Required | Controls timeline smoothing. When false, the current position is applied immediately and no animation clock runs. |
-| `enabled` | `Bool` | Required | Enables timed word reveal. When false, an active row is fully highlighted. |
+| `isActive` | `Bool` | Required | Whether this row is selected for highlighting. When false, only the dimmed base text is drawn. |
+| `isPlaying` | `Bool` | Required | Whether playback is advancing. When false, the reveal follows `position` immediately without a smoothing clock. |
+| `revealEnabled` | `Bool` | Required | Whether to reveal progressively by word. When false on an active row, the entire text is highlighted. |
 | `seekRevision` | Integer | Required | Increment after an explicit seek. Nexa snaps to the earlier of `position` and the first segment start time. |
 | `revealOpacity` | `Float64` literal from `0` to `1` | `0.38` | Opacity of the dim base text. The reveal overlay uses `color` at full opacity. |
 | `leadTime` | Non-negative numeric literal in seconds | `0.3` | Initial lead after a row becomes active during playback. |
@@ -1348,7 +1515,18 @@ app AudioTranscript {
 | `italic` | `Bool` | `false` | Uses the italic face where available. |
 | `underline` | `Bool` | `false` | Underlines both text layers. |
 
-The component measures line wrapping with the selected font and width, then caches line and segment timing ranges. Android reads the `TextLayoutResult`; iOS lays out with TextKit. A native frame clock runs only for an active, enabled row while playing and settling. The clock stops after smoothing completes, on pause, when the row leaves the screen, or when timed reveal is disabled. RTL rows reveal from the logical leading edge.
+Set `hasTrailingSpace` to `false` for a segment that has no following space, usually the last word or a word followed directly by punctuation. It helps Nexa map timed segments onto wrapped lines; it does not insert or remove characters from `value`.
+
+The three state parameters have separate jobs:
+
+| State | `isActive` | `isPlaying` | `revealEnabled` | Result |
+|---|---:|---:|---:|---|
+| Inactive row | `false` | Any | Any | Dim text only; no reveal clock. |
+| Playing reveal | `true` | `true` | `true` | Progressive reveal follows playback with smoothing. |
+| Paused reveal | `true` | `false` | `true` | Progressive reveal uses the exact `position`; no clock. |
+| Fully highlighted | `true` | Any | `false` | Entire text is highlighted. |
+
+The component measures line wrapping with the selected font and width, then caches line and segment timing ranges. Android reads the `TextLayoutResult`; iOS lays out with TextKit and rebuilds its line map only when text, segment timing, or layout changes. A native frame clock runs only for an active, enabled row while playing and settling. The clock stops after smoothing completes, on pause, when the row leaves the screen, or when timed reveal is disabled. RTL rows reveal from the logical leading edge.
 
 ### ContentUnavailable
 

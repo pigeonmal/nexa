@@ -9,14 +9,6 @@ use crate::generator::engine::imports::ImportSet;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
-        features.uses_keyboard_aware,
-        "androidx.compose.foundation.gestures.awaitEachGesture",
-    );
-    imports.add(
-        features.uses_keyboard_aware,
-        "androidx.compose.foundation.gestures.awaitFirstDown",
-    );
-    imports.add(
         features.uses_keyboard_aware || features.uses_refresh_scroll,
         "androidx.compose.foundation.rememberScrollState",
     );
@@ -36,27 +28,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_keyboard_aware,
         "androidx.compose.foundation.layout.imeNestedScroll",
     );
-    imports.add(
-        features.uses_keyboard_aware,
-        "androidx.compose.ui.input.pointer.PointerEventPass",
-    );
-    imports.add(
-        features.uses_keyboard_aware,
-        "androidx.compose.ui.input.pointer.pointerInput",
-    );
     imports.add(features.uses_keyboard_aware, "androidx.compose.ui.Modifier");
-    imports.add(
-        features.uses_keyboard_aware,
-        "androidx.compose.ui.platform.LocalFocusManager",
-    );
-    imports.add(
-        features.uses_keyboard_aware,
-        "androidx.compose.ui.platform.LocalViewConfiguration",
-    );
-    imports.add(
-        features.uses_keyboard_aware,
-        "androidx.compose.runtime.rememberUpdatedState",
-    );
 }
 
 pub(crate) fn render_keyboard_aware(

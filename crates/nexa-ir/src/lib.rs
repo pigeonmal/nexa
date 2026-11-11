@@ -855,11 +855,31 @@ pub enum Node {
         style: ViewStyle,
         children: Vec<Node>,
     },
+    /// Explicit non-virtualized scroll container. Its axis and ref stay typed
+    /// through serialization and both native backends.
+    ScrollView {
+        #[serde(default)]
+        axis: adaptive_layout::ScrollAxis,
+        /// Hides the horizontal native scroll indicator when one is rendered.
+        #[serde(default = "default_true")]
+        hide_horizontal_scrollbar: bool,
+        /// Hides the vertical native scroll indicator when one is rendered.
+        #[serde(default = "default_true")]
+        hide_vertical_scrollbar: bool,
+        style: ViewStyle,
+        #[serde(default)]
+        component_ref: Option<Expr>,
+        children: Vec<Node>,
+    },
     /// Native settings-style container. Child sections map to SwiftUI Form
     /// sections and to Material settings groups on Android.
     Form {
         #[serde(default = "default_true")]
         show_dividers: bool,
+        #[serde(default)]
+        hide_horizontal_scrollbar: bool,
+        #[serde(default)]
+        hide_vertical_scrollbar: bool,
         #[serde(default)]
         background: Option<ColorValue>,
         children: Vec<Node>,
@@ -941,7 +961,12 @@ pub enum Node {
         return_key: Option<ReturnKeyType>,
         autocorrect: Option<bool>,
         capitalization: Option<Capitalization>,
-        focused: Option<String>,
+        /// Requests keyboard focus once when the native input is first mounted.
+        #[serde(default)]
+        focused: Option<Expr>,
+        /// Imperative focus and blur handle for this mounted input.
+        #[serde(default)]
+        component_ref: Option<Expr>,
         max_length: Option<i32>,
         font: Option<TextInputFont>,
         /// Optional explicit point/sp size for the entered text and placeholder.
@@ -983,6 +1008,8 @@ pub enum Node {
         min: Expr,
         max: Expr,
         step: f64,
+        #[serde(default = "default_true")]
+        show_step_indicators: bool,
         #[serde(default)]
         tint: Option<ColorExpression>,
         #[serde(default)]
@@ -1146,6 +1173,10 @@ pub enum Node {
         dismiss: KeyboardDismissMode,
         #[serde(default)]
         behavior: adaptive_layout::KeyboardBehavior,
+        #[serde(default)]
+        hide_horizontal_scrollbar: bool,
+        #[serde(default)]
+        hide_vertical_scrollbar: bool,
         children: Vec<Node>,
     },
     BottomSheet {
@@ -1339,6 +1370,12 @@ pub struct ListCommon {
     /// Whether rows are separated visually. Defaults to true for existing IR.
     #[serde(default = "default_true")]
     pub show_dividers: bool,
+    /// Hide the horizontal native scroll indicator when present.
+    #[serde(default)]
+    pub hide_horizontal_scrollbar: bool,
+    /// Hide the vertical native scroll indicator when present.
+    #[serde(default)]
+    pub hide_vertical_scrollbar: bool,
     /// Invert a flat vertical list so logical rows appear bottom-to-top.
     #[serde(default)]
     pub reverse_layout: bool,
@@ -1397,6 +1434,12 @@ pub struct SectionedListCommon {
     /// Whether rows are separated visually. Defaults to true for existing IR.
     #[serde(default = "default_true")]
     pub show_dividers: bool,
+    /// Hide the horizontal native scroll indicator when present.
+    #[serde(default)]
+    pub hide_horizontal_scrollbar: bool,
+    /// Hide the vertical native scroll indicator when present.
+    #[serde(default)]
+    pub hide_vertical_scrollbar: bool,
     pub item_extent: Option<f32>,
     /// Vertical distance between adjacent rows, in logical points/dp; defaults to zero.
     #[serde(default)]
@@ -1875,6 +1918,8 @@ pub struct ViewStyle {
     pub opacity: Option<f32>,
     pub effects: ViewEffects,
     pub animation: Option<AnimationSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marquee: Option<Box<MarqueeSpec>>,
 }
 
 impl ViewStyle {
@@ -2034,6 +2079,17 @@ pub struct ViewShadow {
     pub color: ColorValue,
 }
 
+/// Container-owned motion. Direction is inferred from Row/Column, not authored.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MarqueeSpec {
+    pub speed: f64,
+    pub gap: f64,
+    pub delay: f64,
+    /// Symmetric viewport alpha-mask length in logical units; zero disables it.
+    pub edge_fade: f64,
+    pub playing: Box<Expr>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AnimationSpec {
     Spring {
@@ -2171,6 +2227,29 @@ pub struct TextStyle {
     /// DevRuntime serializes the same expressions with the Text node.
     #[serde(default)]
     pub reveal: Option<Box<TextReveal>>,
+    /// Digit-by-digit rolling number presentation, when this Text node was
+    /// lowered from the NumberFlow component.
+    #[serde(default)]
+    pub number_flow: Option<Box<NumberFlow>>,
+}
+
+/// Localized formatting and native digit-roll behavior for NumberFlow.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NumberFlow {
+    pub format: NumberFlowFormat,
+    pub currency_code: Option<String>,
+    pub minimum_fraction_digits: Option<u8>,
+    pub maximum_fraction_digits: Option<u8>,
+    pub animation: AnimationSpec,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NumberFlowFormat {
+    #[default]
+    Number,
+    Currency,
+    Percent,
+    Compact,
 }
 
 /// Shared timing inputs for reusable text reveal effects.
@@ -2179,9 +2258,9 @@ pub struct TextReveal {
     pub segments: Expr,
     pub segment_type: Type,
     pub position: Expr,
-    pub active: Expr,
-    pub playing: Expr,
-    pub enabled: Expr,
+    pub is_active: Expr,
+    pub is_playing: Expr,
+    pub reveal_enabled: Expr,
     pub seek_revision: Expr,
     pub dim_opacity: f32,
     pub lead_time: f32,

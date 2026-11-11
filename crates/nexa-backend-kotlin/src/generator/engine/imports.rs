@@ -42,6 +42,25 @@ impl ImportSet {
 
 pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
+    let marquee = context.include_all_shared_primitives || context.features.facts.ui.style.marquee;
+    for import in [
+        "androidx.compose.runtime.getValue",
+        "androidx.compose.runtime.setValue",
+        "androidx.compose.ui.draw.clipToBounds",
+        "androidx.compose.ui.draw.drawWithContent",
+        "androidx.compose.ui.draw.drawWithCache",
+        "androidx.compose.ui.graphics.graphicsLayer",
+        "androidx.compose.ui.layout.onGloballyPositioned",
+        "androidx.compose.ui.layout.boundsInWindow",
+        "androidx.compose.ui.graphics.drawscope.translate",
+        "androidx.compose.ui.unit.constrainWidth",
+        "androidx.compose.ui.unit.constrainHeight",
+        "kotlinx.coroutines.flow.collectLatest",
+        "androidx.compose.ui.semantics.semantics",
+    ] {
+        imports.add(marquee, import);
+    }
+
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
     // DevRuntime can introduce navigation after a hot reload, so keep these
@@ -148,6 +167,15 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.foundation.layout.ime");
     imports.add(true, "androidx.compose.foundation.layout.navigationBars");
     imports.add(true, "androidx.compose.foundation.layout.statusBars");
+    imports.add(
+        true,
+        "androidx.compose.foundation.layout.windowInsetsTopHeight",
+    );
+    imports.add(
+        true,
+        "androidx.compose.foundation.layout.windowInsetsBottomHeight",
+    );
+    imports.add(true, "androidx.compose.ui.graphics.drawscope.clipPath");
     imports.add(true, "androidx.compose.foundation.layout.systemBars");
     imports.add(true, "androidx.compose.foundation.layout.displayCutout");
     imports.add(true, "androidx.compose.foundation.layout.waterfall");
@@ -225,7 +253,11 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::appearance::imports(context.features, &mut imports);
     crate::generator::components::lifecycle::imports(&context, &mut imports);
     crate::generator::components::status_bar::imports(context.features, &mut imports);
-    crate::generator::components::text::imports(context.features, &mut imports);
+    crate::generator::components::text::imports(
+        context.features,
+        context.include_all_shared_primitives,
+        &mut imports,
+    );
     crate::generator::components::accessibility::imports(context.features, &mut imports);
     crate::generator::components::adaptive_layout::imports(&context, &mut imports);
     crate::generator::components::assets::imports(context.features, &mut imports);
@@ -244,6 +276,11 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::navigation::imports(&context, &mut imports);
     crate::generator::components::split_view::imports(&context, &mut imports);
     crate::generator::components::refresh::imports(context.features, &mut imports);
+    crate::generator::components::scroll_view::imports(
+        context.features,
+        context.include_all_shared_primitives,
+        &mut imports,
+    );
     crate::generator::components::shared_elements::imports(context.features, &mut imports);
     crate::generator::api::network::imports(context.features, &mut imports);
     crate::generator::api::json::imports(context.features, &mut imports);
@@ -296,6 +333,14 @@ mod tests {
         assert!(imports.contains("import androidx.compose.foundation.layout.requiredHeight\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.wrapContentHeight\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.statusBars\n"));
+        assert!(
+            imports.contains("import androidx.compose.foundation.layout.windowInsetsTopHeight\n")
+        );
+        assert!(
+            imports
+                .contains("import androidx.compose.foundation.layout.windowInsetsBottomHeight\n")
+        );
+        assert!(imports.contains("import androidx.compose.ui.graphics.drawscope.clipPath\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.wrapContentWidth\n"));
         assert!(
             imports

@@ -123,7 +123,7 @@ fn generated_android_project_uses_the_compile_sdk_checked_by_doctor() {
 }
 
 #[test]
-fn android_keyboard_aware_scroll_preserves_drag_focus_guard_in_aot_output() {
+fn android_keyboard_aware_scroll_uses_native_ime_nested_scroll_for_dismissal() {
     let project = TestProject::new("nexa-android-keyboard-aware-drag");
     let entry = project.join("App.nx");
     fs::write(
@@ -156,12 +156,23 @@ fn android_keyboard_aware_scroll_preserves_drag_focus_guard_in_aot_output() {
         )
     );
     assert!(kotlin.contains("internal fun NexaKeyboardAwareColumnPrimitive("));
-    assert!(kotlin.contains("val keyboardWasVisible = imeVisible.value"));
     assert!(kotlin.contains("if (avoidIme) modifier = modifier.imePadding()"));
-    assert!(kotlin.contains(
-        "if (interactiveDismiss && imeVisible.value) modifier = modifier.imeNestedScroll()"
-    ));
-    assert!(kotlin.contains("focusManager.clearFocus()"));
+    assert!(
+        kotlin.contains(
+            "if (interactiveDismiss && imeVisible) modifier = modifier.imeNestedScroll()"
+        )
+    );
+    let keyboard_modifier = kotlin
+        .split("private fun nexaKeyboardAwareModifier(")
+        .nth(1)
+        .and_then(|source| {
+            source
+                .split("// nexa-codegen: NexaTextInputPrimitive")
+                .next()
+        })
+        .unwrap_or_default();
+    assert!(!keyboard_modifier.contains("pointerInput"));
+    assert!(!keyboard_modifier.contains("awaitEachGesture"));
     let manifest = fs::read_to_string(output.join("android/app/src/main/AndroidManifest.xml"))
         .expect("read generated Android manifest");
     assert!(manifest.contains("android:windowSoftInputMode=\"adjustNothing\""));
@@ -496,6 +507,12 @@ fn multipart_upload_generates_native_streaming_calls() {
                     maxResponseBytes: 1048576,
                     certificatePins: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
                 )).statusCode
+                let downloaded: Bool = await Network.download(
+                    url: "https://example.com/receipt.pdf",
+                    destinationPath: "/tmp/receipt.pdf",
+                    maxResponseBytes: 1048576
+                )
+                if downloaded { statusCode = 1 } else { statusCode = 0 }
             } catch {
                 statusCode = -1
             }
@@ -514,7 +531,12 @@ fn multipart_upload_generates_native_streaming_calls() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(swift.contains("try await NexaNetwork.upload("));
-    assert!(swift.contains("fromFile: uploadURL"));
+    assert!(swift.contains("try await NexaNetwork.download("));
+    assert!(swift.contains("try await collector.download("));
+    assert!(swift.contains("limit: maxResponseBytes"));
+    assert!(swift.contains("destinationURL: temporaryURL"));
+    assert!(swift.contains("uploadFile: uploadURL"));
+    assert!(swift.contains("session.uploadTask(with: request, fromFile: $0)"));
     for option in [
         "Bearer test-token",
         "Content-Type",
@@ -539,6 +561,8 @@ fn multipart_upload_generates_native_streaming_calls() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(kotlin.contains("NexaNetwork.upload(NexaRuntime.context()"));
+    assert!(kotlin.contains("NexaNetwork.download(NexaRuntime.context()"));
+    assert!(kotlin.contains("1048576L"));
     assert!(kotlin.contains("NexaMultipartUploadProvider"));
     for option in [
         "Bearer test-token",

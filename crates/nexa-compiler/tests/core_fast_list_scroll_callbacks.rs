@@ -398,7 +398,7 @@ app ScrollCallbacks {
         "{swift}"
     );
     assert!(
-        swift.contains("let positions = visibleRows.map(\\.row)")
+        swift.contains("let positions = visibleRows.lazy.map(\\.row)")
             && swift.contains("return unobscuredPositions.min()"),
         "UIKit visible rows should be normalized and rows covered by a pinned header excluded before deriving callback positions\n{swift}"
     );
@@ -484,15 +484,15 @@ app ScrollCallbacks {
         "Android callbacks should calculate their leading item independently of a pinned header item\n{kotlin}"
     );
     assert!(
-        kotlin.contains("item.offset + item.size > stickyHeader.offset"),
+        kotlin.contains("hasStickyHeader && offset < stickyEnd && end > stickyStart"),
         "Android callbacks should skip rows obscured by the pinned header\n{kotlin}"
     );
     assert!(
-        kotlin.contains("visibleItems = layoutInfo.visibleItemsInfo.filter { it.offset + it.size > layoutInfo.viewportStartOffset && it.offset < layoutInfo.viewportEndOffset }"),
+        kotlin.contains("end <= viewportStartOffset || offset >= viewportEndOffset"),
         "Android position callbacks must ignore lazy-list items retained just outside the viewport\n{kotlin}"
     );
     assert!(
-        kotlin.contains("item.index > leadingIndex"),
+        kotlin.contains("reverseLayout && index > leadingIndex"),
         "reverse Android callbacks should choose the last in-viewport layout item, after filtering prefetched rows\n{kotlin}"
     );
     assert!(

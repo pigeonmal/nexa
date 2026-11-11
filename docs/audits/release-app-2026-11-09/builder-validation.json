@@ -1,0 +1,8 @@
+{
+  "package": "dev.nexa.performanceprofile",
+  "edgeFade": 16,
+  "apkBytes": 1090047,
+  "apkSha256": "3e3c30511aebf77b9519dd90b9030baab4a0a43308ba4d46d18c2ff1d6902597",
+  "sourceSha256": "ec3c81e3198ac291a45e44bf75d97e45df730d92ad58d2c029dccc83e683d54e",
+  "scope": "AOT Release fixture with profiling manifest and disposable signing identity"
+}

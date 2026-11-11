@@ -38,19 +38,25 @@ def render() -> str:
         raise ValueError(
             f"agent review routes do not match App.nx; missing={missing_reviews}, unexpected={unexpected_reviews}"
         )
-    valid_statuses = {"Reviewed", "Pending", "In progress", "Not applicable"}
+    valid_statuses = {"Approved", "Reviewed", "Pending", "In progress", "Not applicable"}
     invalid_statuses = {route: value for route, value in reviews.items() if value not in valid_statuses}
     if invalid_statuses:
         raise ValueError(f"invalid agent review statuses: {invalid_statuses}")
+    approval_mismatches = sorted(route for route in approved if reviews.get(route) != "Approved")
+    if approval_mismatches:
+        raise ValueError(
+            "human-approved routes must also be agent-approved: "
+            f"{approval_mismatches}"
+        )
     current_review = status.get("current_agent_review")
-    complete = all(value in {"Reviewed", "Not applicable"} for value in reviews.values())
+    complete = all(value in {"Approved", "Reviewed", "Not applicable"} for value in reviews.values())
     if current_review is None:
         if not complete:
             raise ValueError("current_agent_review can be null only after every route has been reviewed")
     else:
         if current_review not in routes:
             raise ValueError(f"current review route missing from App.nx: {current_review}")
-        if reviews.get(current_review) in {"Reviewed", "Not applicable"}:
+        if reviews.get(current_review) in {"Approved", "Reviewed", "Not applicable"}:
             raise ValueError(f"current review route is already agent-reviewed: {current_review}")
     review_focus = status["agent_review_focus"]
     seen_components: set[str] = set()
@@ -64,7 +70,7 @@ def render() -> str:
         seen_components.add(row["component"])
 
     summary = status["report_summary"]
-    reviewed_count = sum(value in {"Reviewed", "Not applicable"} for value in reviews.values())
+    reviewed_count = sum(value in {"Approved", "Reviewed", "Not applicable"} for value in reviews.values())
     in_progress_count = sum(value == "In progress" for value in reviews.values())
     pending_count = sum(value == "Pending" for value in reviews.values())
     state = (
@@ -92,9 +98,9 @@ def render() -> str:
         "## Route review",
         "",
         (
-            "All routes have completed Agent Review. Human approval is tracked separately."
+            "All routes have completed Agent Review. Human approval is recorded separately and also approves Agent Review."
             if current_review is None
-            else f"Active route: **{current_review}**. Agent Review and human approval are tracked separately."
+            else f"Active route: **{current_review}**. Human approval also approves Agent Review; Agent Review can be completed before human approval."
         ),
         "",
         "| Route | Human review | Agent Review |",

@@ -433,28 +433,6 @@ pub(crate) fn render_screen_functions(
             depth + 1,
             out,
         );
-        let focus_bindings = features
-            .facts
-            .focus_bindings
-            .screens
-            .get(&screen.name)
-            .cloned()
-            .unwrap_or_default();
-        for binding in &focus_bindings {
-            out.line_at(
-                depth + 1,
-                format_args!(
-                    "val {} = remember {{ FocusRequester() }}",
-                    crate::generator::input::focus_requester_name(binding)
-                ),
-            );
-        }
-        for binding in &focus_bindings {
-            let state = state_name(binding);
-            let requester = crate::generator::input::focus_requester_name(binding);
-            out.line_at(depth + 1, format_args!("LaunchedEffect({state}) {{ if ({state}) {requester}.requestFocus() else {requester}.freeFocus() }}"));
-        }
-
         let root_body = &screen.body;
         let navigation_toolbars = bottom_bar::tab_toolbars(root_body);
         let destination_body = bottom_bar::without_tab_toolbars(root_body);
@@ -485,40 +463,38 @@ pub(crate) fn render_screen_functions(
             out.line_at(depth + 2, format_args!("}}"));
         } else {
             render_screen_content_function(
-                "nexaScreenRootContent",
-                root_body,
-                module,
-                features,
-                depth + 1,
-                out,
-            );
-            render_screen_content_function(
-                "nexaScreenDestinationContent",
+                "nexaScreenContent",
                 &destination_body,
                 module,
                 features,
                 depth + 1,
                 out,
             );
-            out.line_at(
-                depth + 1,
-                format_args!("if (nexaIsRoot || !nexaShowNavigationBar) {{"),
-            );
-            out.line_at(depth + 2, format_args!("nexaScreenRootContent()"));
+            out.line_at(depth + 1, format_args!("if (!nexaShowNavigationBar) {{"));
+            out.line_at(depth + 2, format_args!("nexaScreenContent()"));
             out.line_at(depth + 1, format_args!("}} else {{"));
+            out.line_at(depth + 2, format_args!("if (nexaIsRoot) {{"));
             render_navigation_screen_chrome(
                 screen,
                 &navigation_toolbars,
                 module,
                 features,
-                depth + 2,
+                depth + 3,
                 out,
             );
-            out.line_at(
-                depth + 2,
-                format_args!(") {{ nexaScreenDestinationContent() }}"),
+            out.line_at(depth + 3, format_args!(") {{ nexaScreenContent() }}"));
+            out.line_at(depth + 2, format_args!("}} else {{"));
+            render_navigation_screen_chrome(
+                screen,
+                &navigation_toolbars,
+                module,
+                features,
+                depth + 3,
+                out,
             );
+            out.line_at(depth + 4, format_args!(") {{ nexaScreenContent() }}"));
             out.line_at(depth + 2, format_args!("}}"));
+            out.line_at(depth + 1, format_args!("}}"));
         }
         crate::generator::components::lifecycle::render_on_appear(
             screen.on_appear.as_deref(),
@@ -583,6 +559,7 @@ fn render_navigation_screen_chrome(
     );
     out.line_at(depth + 1, format_args!("inline = nexaTitleInline,"));
     out.line_at(depth + 1, format_args!("leadingTitle = nexaLeadingTitle,"));
+    out.line_at(depth + 1, format_args!("showBackButton = !nexaIsRoot,"));
     out.line_at(
         depth + 1,
         format_args!(

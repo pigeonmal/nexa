@@ -1624,7 +1624,6 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             }
             Node::TextInput {
                 state,
-                focused,
                 actions,
                 on_focus,
                 on_change,
@@ -1638,9 +1637,6 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
                     collect_action_bindings(&change.actions, &mut bindings);
                 }
                 bindings.push(state.clone());
-                if let Some(focused) = focused {
-                    bindings.push(focused.clone());
-                }
             }
             Node::Switch {
                 state, on_change, ..

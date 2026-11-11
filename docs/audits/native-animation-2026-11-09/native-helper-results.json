@@ -1,0 +1,4 @@
+{
+  "swift": "native Swift NumberFlow: formatting, keys, token identity, direction, zero publications passed",
+  "kotlin": "scroll allocations: reference=3200000 optimized=0 iterations=20000 checksum=160000\nnative Kotlin scroll observation: 4000 reference comparisons passed\nmarquee geometry allocations: reference=1600000 optimized=0 unchangedPairs=20000\nnative Kotlin marquee: unchanged snapshots, changed metrics, visibility and content revisions passed\nnative Kotlin NumberFlow: committed direction survives unchanged renders passed"
+}

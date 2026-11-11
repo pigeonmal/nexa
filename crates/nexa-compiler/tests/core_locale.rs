@@ -87,9 +87,9 @@ fn text_literals_are_translation_keys_and_keep_translator_comments() {
     assert!(swift_source.contains("Text(String(format: NexaLocale.localizedString("));
     assert!(swift_source.contains("comment: \"Greeting shown at the top of the screen\""));
     assert!(swift_source.contains("arguments: [String(describing: nexa_name) as CVarArg]))"));
-    assert!(
-        swift_source.contains("Text(\"Your name\", comment: \"Prompt for the person's name\")")
-    );
+    assert!(swift_source.contains(
+        "NexaLocale.localizedString(key: \"Your name\", value: \"Your name\", comment: \"Prompt for the person's name\")"
+    ));
     assert!(
         swift_source.contains("Text(\"Continue\", comment: \"Moves to the next onboarding step\")")
     );

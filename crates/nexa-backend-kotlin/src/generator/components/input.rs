@@ -1,8 +1,8 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
-    Action, AutofillType, Capitalization, ColorValue, KeyboardType, ReturnKeyType, SystemIcon,
-    TextInputChange, TextInputFont,
+    Action, AutofillType, Capitalization, ColorValue, Expr, KeyboardType, ReturnKeyType,
+    SystemIcon, TextInputChange, TextInputFont,
 };
 
 use crate::generator::{
@@ -19,12 +19,14 @@ pub(crate) struct TextInputProps<'a> {
     pub(crate) placeholder: &'a str,
     pub(crate) keyboard: KeyboardType,
     pub(crate) secure: bool,
+    pub(crate) clearable: bool,
     pub(crate) multiline: bool,
     pub(crate) autofill: Option<AutofillType>,
     pub(crate) return_key: Option<ReturnKeyType>,
     pub(crate) autocorrect: Option<bool>,
     pub(crate) capitalization: Option<Capitalization>,
-    pub(crate) focused: Option<&'a str>,
+    pub(crate) focused: Option<&'a Expr>,
+    pub(crate) component_ref: Option<&'a Expr>,
     pub(crate) max_length: Option<i32>,
     pub(crate) font: Option<TextInputFont>,
     pub(crate) font_size: Option<f32>,
@@ -45,6 +47,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
     imports.add(true, "androidx.compose.foundation.layout.size");
     imports.add(features.uses_text_input, "androidx.compose.ui.unit.sp");
+    imports.add(features.uses_text_input, "kotlinx.coroutines.flow.collect");
     imports.add(
         features.uses_text_input,
         "androidx.compose.ui.res.stringResource",
@@ -58,16 +61,8 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.text.KeyboardActions",
     );
     imports.add(
-        features.uses_focus,
-        "androidx.compose.ui.focus.FocusRequester",
-    );
-    imports.add(
-        features.uses_focus,
+        features.uses_text_input,
         "androidx.compose.ui.focus.focusRequester",
-    );
-    imports.add(
-        features.uses_focus,
-        "androidx.compose.ui.focus.onFocusChanged",
     );
     imports.add(
         features.uses_text_input,
@@ -82,11 +77,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.ime",
     );
     imports.add(
-        features.uses_focus,
-        "androidx.compose.runtime.LaunchedEffect",
-    );
-    imports.add(
-        features.uses_capitalization,
+        features.uses_text_input,
         "androidx.compose.ui.text.input.KeyboardCapitalization as NativeKeyboardCapitalization",
     );
     imports.add(
@@ -135,12 +126,14 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         placeholder,
         keyboard,
         secure,
+        clearable,
         multiline,
         autofill,
         return_key,
         autocorrect,
         capitalization,
         focused,
+        component_ref,
         max_length,
         font,
         font_size,
@@ -181,13 +174,19 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     }
     indent(out, depth);
     out.push_str("NexaTextInputPrimitive(\n");
+    let initial_focus = focused
+        .map(crate::generator::engine::expressions::expression)
+        .unwrap_or_else(|| "false".to_owned());
+    out.line_at(depth + 1, format_args!("initialFocus = {initial_focus},"));
+    let component_ref = component_ref
+        .map(crate::generator::engine::expressions::expression)
+        .unwrap_or_else(|| "null".to_owned());
+    out.line_at(depth + 1, format_args!("componentRef = {component_ref},"));
     out.line_at(depth + 1, format_args!("value = {},", state_name(state)));
     indent(out, depth + 1);
     out.push_str("onValueChange = { value ->\n");
     if let Some(change) = on_change {
-        let updated_value = max_length
-            .map(|limit| format!("value.take({limit})"))
-            .unwrap_or_else(|| "value".to_owned());
+        let updated_value = "value";
         out.line_at(
             depth + 2,
             format_args!("val {} = {}", state_name(&change.parameter), updated_value),
@@ -209,13 +208,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     } else {
         out.line_at(
             depth + 2,
-            format_args!(
-                "{} = {}",
-                state_name(state),
-                max_length
-                    .map(|limit| format!("value.take({limit})"))
-                    .unwrap_or_else(|| "value".to_owned())
-            ),
+            format_args!("{} = {}", state_name(state), "value"),
         );
     }
     out.line_at(depth + 1, format_args!("}},"));
@@ -236,6 +229,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     } else {
         out.line_at(depth + 1, format_args!("searchable = false,"));
     }
+    out.line_at(depth + 1, format_args!("clearable = {clearable},"));
     out.line_at(depth + 1, format_args!("secure = {secure},"));
     if weight_in_row || horizontal_padding.is_some() || !searchable {
         indent(out, depth + 1);
@@ -255,23 +249,9 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         }
         out.push_str(",\n");
     }
-    if focused.is_some() || autofill.is_some() || on_focus.is_some() {
+    if autofill.is_some() || on_focus.is_some() {
         indent(out, depth + 1);
         out.push_str("focusModifier = Modifier");
-        if let Some(focused) = focused {
-            out.push('\n');
-            indent(out, depth + 2);
-            out.push_str(&format!(
-                ".focusRequester({})",
-                focus_requester_name(focused)
-            ));
-            out.push('\n');
-            indent(out, depth + 2);
-            out.push_str(&format!(
-                ".onFocusChanged {{ {} = it.isFocused }}",
-                state_name(focused)
-            ));
-        }
         if let Some(actions) = on_focus {
             out.push('\n');
             indent(out, depth + 2);
@@ -296,13 +276,16 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     }
     let base_style = match font {
         Some(TextInputFont::Body) => {
-            "androidx.compose.material3.MaterialTheme.typography.bodyLarge".to_owned()
+            "androidx.compose.material3.MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp)"
+                .to_owned()
         }
         Some(TextInputFont::Title3) => format!(
             "androidx.compose.material3.MaterialTheme.typography.titleMedium.copy(fontSize = {}.sp)",
             nexa_codegen::design_system::TEXT_INPUT_TITLE3_FONT_SIZE
         ),
-        None => "androidx.compose.material3.LocalTextStyle.current".to_owned(),
+        None => {
+            "androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 17.sp)".to_owned()
+        }
     };
     let style_overrides = [
         font_size.map(|size| format!("fontSize = {}.sp", number(size))),
@@ -342,6 +325,9 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             placeholder_color.map_or_else(|| "null".to_owned(), colors::expression)
         ),
     );
+    if let Some(max_length) = max_length {
+        out.line_at(depth + 1, format_args!("maxLength = {max_length},"));
+    }
     if let Some(min_lines) = min_lines {
         out.line_at(depth + 1, format_args!("minLines = {min_lines},"));
     }
@@ -357,15 +343,17 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         depth + 2,
         format_args!("keyboardType = {},", kotlin_keyboard(keyboard)),
     );
-    if let Some(capitalization) = capitalization {
-        out.line_at(
-            depth + 2,
-            format_args!(
-                "capitalization = {},",
-                kotlin_capitalization(capitalization)
-            ),
-        );
-    }
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "capitalization = {},",
+            kotlin_capitalization(capitalization.unwrap_or(if secure {
+                Capitalization::None
+            } else {
+                Capitalization::Sentences
+            }))
+        ),
+    );
     if let Some(autocorrect) = autocorrect {
         out.line_at(
             depth + 2,
@@ -404,10 +392,6 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     out.push('\n');
     indent(out, depth);
     out.push(')');
-}
-
-pub(crate) fn focus_requester_name(name: &str) -> String {
-    format!("{}Requester", state_name(name))
 }
 
 pub(crate) fn kotlin_keyboard(keyboard: KeyboardType) -> &'static str {
@@ -462,12 +446,14 @@ mod tests {
                 placeholder: "Search songs",
                 keyboard: KeyboardType::Text,
                 secure: false,
+                clearable: true,
                 multiline: false,
                 autofill: None,
                 return_key: Some(ReturnKeyType::Search),
                 autocorrect: Some(false),
                 capitalization: None,
                 focused: None,
+                component_ref: None,
                 max_length: Some(50),
                 font: None,
                 font_size: Some(16.38),
@@ -502,6 +488,7 @@ mod tests {
         assert!(source.contains("R.font.gilroy_regular"));
         assert!(source.contains("textColor = Color(0xFFFFFFFF)"));
         assert!(source.contains("placeholderColor = Color(0xFF9F9F9F)"));
+        assert!(source.contains("clearable = true"));
     }
 
     #[test]
@@ -513,12 +500,14 @@ mod tests {
                 placeholder: "Search items",
                 keyboard: KeyboardType::Text,
                 secure: false,
+                clearable: false,
                 multiline: false,
                 autofill: None,
                 return_key: None,
                 autocorrect: None,
                 capitalization: None,
                 focused: None,
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -555,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_actions_run_only_when_a_tracked_text_input_gains_focus() {
+    fn initial_focus_and_focus_event_are_independent_of_app_focus_state() {
         let focus_actions = [Action::Assign {
             name: "didFocus".to_owned(),
             value: Expr::Bool(true),
@@ -567,12 +556,14 @@ mod tests {
                 placeholder: "Search",
                 keyboard: KeyboardType::Text,
                 secure: false,
+                clearable: false,
                 multiline: false,
                 autofill: None,
                 return_key: None,
                 autocorrect: None,
                 capitalization: None,
-                focused: Some("focused"),
+                focused: Some(&Expr::Bool(true)),
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -593,9 +584,12 @@ mod tests {
         );
 
         let source = output.as_str();
-        assert!(source.contains(".onFocusChanged { nexa_focused = it.isFocused }"));
+        assert!(source.contains(".onFocusChanged { focusState ->"));
         assert!(source.contains("if (focusState.isFocused) {"));
         assert!(source.contains("nexa_didFocus = true"));
+        assert!(source.contains("initialFocus = true"));
+        assert!(!source.contains("HasNativeFocus"));
+        assert!(!source.contains("nexa_focused ="));
     }
 
     #[test]
@@ -608,12 +602,14 @@ mod tests {
                 placeholder: "Message",
                 keyboard: KeyboardType::Text,
                 secure: false,
+                clearable: false,
                 multiline: false,
                 autofill: None,
                 return_key: Some(ReturnKeyType::Done),
                 autocorrect: None,
                 capitalization: None,
                 focused: None,
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -648,12 +644,14 @@ mod tests {
                 placeholder: "Email",
                 keyboard: KeyboardType::Email,
                 secure: false,
+                clearable: false,
                 multiline: false,
                 autofill: None,
                 return_key: Some(ReturnKeyType::Next),
                 autocorrect: None,
                 capitalization: None,
                 focused: None,
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,

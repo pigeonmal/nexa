@@ -1,0 +1,86 @@
+{
+  "format": 1,
+  "sourceLanguage": "en",
+  "strings": {
+    "Advance caption": {
+      "source": "Advance caption",
+      "translations": {}
+    },
+    "Advance timed caption": {
+      "source": "Advance timed caption",
+      "translations": {}
+    },
+    "Decrease total": {
+      "source": "Decrease total",
+      "translations": {}
+    },
+    "Discover independent artists and the stories behind your favorite songs": {
+      "source": "Discover independent artists and the stories behind your favorite songs",
+      "translations": {}
+    },
+    "Discover your next favorite artist": {
+      "source": "Discover your next favorite artist",
+      "translations": {}
+    },
+    "Increase total": {
+      "source": "Increase total",
+      "translations": {}
+    },
+    "Library groups · {total}": {
+      "source": "Library groups · {total}",
+      "arguments": [
+        "total"
+      ],
+      "argument_types": [
+        "Float64"
+      ],
+      "translations": {}
+    },
+    "Performance audit": {
+      "source": "Performance audit",
+      "translations": {}
+    },
+    "Performance library groups": {
+      "source": "Performance library groups",
+      "translations": {}
+    },
+    "Performance rows": {
+      "source": "Performance rows",
+      "translations": {}
+    },
+    "Track {index}": {
+      "source": "Track {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Visible position: {position}": {
+      "source": "Visible position: {position}",
+      "arguments": [
+        "position"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "{section} · {index} — {item}": {
+      "source": "{section} · {index} — {item}",
+      "arguments": [
+        "section",
+        "index",
+        "item"
+      ],
+      "argument_types": [
+        "Int32",
+        "Int32",
+        "String"
+      ],
+      "translations": {}
+    }
+  }
+}

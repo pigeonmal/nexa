@@ -2715,7 +2715,7 @@ fn lower_call(
                     .first()
                     .map(ast::TypeSyntax::span)
                     .unwrap_or(span),
-                "ComponentRef target must be `FastList`, a reusable component with declared methods, or a native component such as `Media.VideoView`",
+                "ComponentRef target must be `FastList`, `ScrollView`, `BottomSheet`, `TextInput`, a reusable component with declared methods, or a native component such as `Media.VideoView`",
             ));
         };
         if namespace != "Nexa"
@@ -2730,7 +2730,9 @@ fn lower_call(
         }
         if namespace == "Nexa"
             && name != "FastList"
+            && name != "ScrollView"
             && name != "BottomSheet"
+            && name != "TextInput"
             && !ctx
                 .functions
                 .contains_key(&format!("Nexa.{name}.__component_ref"))
@@ -2931,6 +2933,104 @@ fn lower_component_ref_method_call(
             namespace: "NexaBottomSheetRef".to_owned(),
             name: name.to_owned(),
             arguments: Vec::new(),
+            codecs: Vec::new(),
+            return_type,
+            source_span: Some(span),
+            is_async: false,
+            is_throwing: false,
+        });
+    }
+    if namespace == "Nexa" && component == "TextInput" {
+        if !matches!(name, "focus" | "blur") {
+            return Err(CompileError::new(
+                span,
+                format!("unknown TextInput ref method `{name}`"),
+            ));
+        }
+        if !arguments.is_empty() || !named_arguments.is_empty() {
+            return Err(CompileError::new(
+                span,
+                format!("TextInput ref method `{name}` takes no arguments"),
+            ));
+        }
+        let error = Type::ComponentRefError(Box::new(Type::Void));
+        let return_type = Type::Result(Box::new(Type::Void), Box::new(error));
+        require_expected(expected, &return_type, span)?;
+        return Ok(Expr::NativeCall {
+            receiver: Some(Box::new(lower_expr(base, None, ctx)?)),
+            namespace: "NexaTextInputRef".to_owned(),
+            name: name.to_owned(),
+            arguments: Vec::new(),
+            codecs: Vec::new(),
+            return_type,
+            source_span: Some(span),
+            is_async: false,
+            is_throwing: false,
+        });
+    }
+    if namespace == "Nexa" && component == "ScrollView" {
+        let signature: &[(&str, Type)] = match name {
+            "scrollToTop" | "scrollToEnd" => &[("animated", Type::Bool)],
+            "scrollToOffset" => &[
+                ("offset", Type::Numeric(NumericType::Float64)),
+                ("animated", Type::Bool),
+            ],
+            _ => {
+                return Err(CompileError::new(
+                    span,
+                    format!("unknown ScrollView ref method `{name}`"),
+                ));
+            }
+        };
+        if arguments.len() > signature.len() {
+            return Err(CompileError::new(
+                span,
+                format!(
+                    "ScrollView ref method `{name}` accepts at most {} argument(s)",
+                    signature.len()
+                ),
+            ));
+        }
+        let mut supplied = vec![None; signature.len()];
+        for (index, argument) in arguments.iter().enumerate() {
+            supplied[index] = Some(argument);
+        }
+        for (parameter, argument) in named_arguments {
+            let Some(index) = signature.iter().position(|(name, _)| name == parameter) else {
+                return Err(CompileError::new(
+                    argument.span(),
+                    format!("unknown argument `{parameter}` for ScrollView ref method `{name}`"),
+                ));
+            };
+            if supplied[index].replace(argument).is_some() {
+                return Err(CompileError::new(
+                    argument.span(),
+                    format!("argument `{parameter}` was provided more than once to `{name}`"),
+                ));
+            }
+        }
+        let mut lowered = Vec::with_capacity(signature.len());
+        for ((parameter, ty), argument) in signature.iter().zip(supplied) {
+            let value = if let Some(argument) = argument {
+                lower_expr(argument, Some(ty), ctx)?
+            } else if *parameter == "animated" {
+                Expr::Bool(true)
+            } else {
+                return Err(CompileError::new(
+                    span,
+                    format!("ScrollView ref method `{name}` requires `{parameter}`"),
+                ));
+            };
+            lowered.push(((*parameter).to_owned(), value));
+        }
+        let error = Type::ComponentRefError(Box::new(Type::Void));
+        let return_type = Type::Result(Box::new(Type::Void), Box::new(error));
+        require_expected(expected, &return_type, span)?;
+        return Ok(Expr::NativeCall {
+            receiver: Some(Box::new(lower_expr(base, None, ctx)?)),
+            namespace: "NexaScrollViewRef".to_owned(),
+            name: name.to_owned(),
+            arguments: lowered,
             codecs: Vec::new(),
             return_type,
             source_span: Some(span),
@@ -5535,7 +5635,7 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
                 return component_ref_target(target).ok_or_else(|| {
                     CompileError::new(
                         target.span(),
-                        "ComponentRef target must be `FastList`, a reusable component with declared methods, or a native component such as `Media.VideoView`",
+                        "ComponentRef target must be `FastList`, `ScrollView`, `TextInput`, a reusable component with declared methods, or a native component such as `Media.VideoView`",
                     )
                 });
             }
@@ -5594,7 +5694,10 @@ fn component_ref_target(syntax: &ast::TypeSyntax) -> Option<Type> {
     let ast::TypeSyntax::Named(target, _) = syntax else {
         return None;
     };
-    if matches!(target.as_str(), "FastList" | "BottomSheet") {
+    if matches!(
+        target.as_str(),
+        "FastList" | "ScrollView" | "BottomSheet" | "TextInput"
+    ) {
         return Some(Type::ComponentRef {
             namespace: "Nexa".to_owned(),
             name: target.to_owned(),

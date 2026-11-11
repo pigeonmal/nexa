@@ -5,6 +5,8 @@ use nexa_ir::adaptive_layout::{LayoutEdge, ScrollOwnerId, ScrollOwnerKind};
 fn form() -> Node {
     Node::Form {
         show_dividers: true,
+        hide_horizontal_scrollbar: false,
+        hide_vertical_scrollbar: false,
         background: None,
         children: Vec::new(),
     }

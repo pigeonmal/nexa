@@ -316,6 +316,21 @@ const SPECIAL_API_ROWS: &[(&str, &str, &str)] = &[
         "Scrolls to an absolute logical offset when the list is attached.",
     ),
     (
+        "ComponentRef<ScrollView>.scrollToTop",
+        "`(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>`",
+        "Scrolls to the logical start of the attached scroll view.",
+    ),
+    (
+        "ComponentRef<ScrollView>.scrollToEnd",
+        "`(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>`",
+        "Scrolls to the logical end of the attached scroll view.",
+    ),
+    (
+        "ComponentRef<ScrollView>.scrollToOffset",
+        "`(offset: Float64, animated: Bool = true) -> Result<Void, ComponentRefError<Void>>`",
+        "Scrolls from the logical content start by a non-negative logical-unit offset.",
+    ),
+    (
         "ComponentRef<BottomSheet>.present",
         "`() -> Result<Void, ComponentRefError<Void>>`",
         "Presents the attached sheet; returns `notAttached` when its view is not mounted.",
@@ -324,6 +339,16 @@ const SPECIAL_API_ROWS: &[(&str, &str, &str)] = &[
         "ComponentRef<BottomSheet>.dismiss",
         "`() -> Result<Void, ComponentRefError<Void>>`",
         "Dismisses the attached sheet; returns `notAttached` when its view is not mounted.",
+    ),
+    (
+        "ComponentRef<TextInput>.focus",
+        "`() -> Result<Void, ComponentRefError<Void>>`",
+        "Focuses the mounted text input and opens its keyboard; returns `notAttached` before mount.",
+    ),
+    (
+        "ComponentRef<TextInput>.blur",
+        "`() -> Result<Void, ComponentRefError<Void>>`",
+        "Removes focus from the mounted text input and dismisses its keyboard; returns `notAttached` before mount.",
     ),
     (
         "Reusable and plugin component ref methods",

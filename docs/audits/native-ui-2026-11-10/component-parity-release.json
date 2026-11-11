@@ -1,0 +1,51 @@
+{
+  "format": 2,
+  "tool": "nexa audit",
+  "performance": {"dependencyResolutionMicros": 2001, "compilerMicros": 57493},
+  "entry": "examples/component-parity/App.nx",
+  "targets": [
+    {
+      "target": "ios",
+      "app": "ComponentParity",
+      "codegenMicros": 114687,
+      "generatedSourceBytes": 1141842,
+      "capabilities": {
+        "remoteImage": true,
+        "network": false,
+        "path": false,
+        "file": false,
+        "fileAsync": false,
+        "storage": false,
+        "secureStorage": false
+      },
+      "dependencies": ["Combine", "Foundation", "ImageIO", "SwiftUI", "UIKit", "os"],
+      "nativePlugins": [],
+      "permissions": {"app": [], "plugins": []},
+      "optimizations": null
+    },
+    {
+      "target": "android",
+      "app": "ComponentParity",
+      "codegenMicros": 127567,
+      "generatedSourceBytes": 1474308,
+      "capabilities": {
+        "remoteImage": true,
+        "network": false,
+        "path": false,
+        "file": false,
+        "fileAsync": false,
+        "storage": false,
+        "secureStorage": false
+      },
+      "dependencies": ["androidx.activity:activity-compose", "androidx.compose.animation:animation", "androidx.compose.material3:material3", "androidx.compose.ui:ui", "androidx.compose.ui:ui-graphics", "androidx.lifecycle:lifecycle-runtime-compose", "androidx.navigation:navigation-compose", "com.google.android.gms:play-services-cronet", "io.coil-kt.coil3:coil-compose", "io.coil-kt.coil3:coil-network-core", "org.jetbrains.kotlinx:kotlinx-coroutines-android"],
+      "nativePlugins": [],
+      "permissions": {"app": [], "plugins": []},
+      "optimizations": null
+    }
+  ],
+  "warnings": ["examples/component-parity/App.nx:2095:21: warning[NEXA-W1010]: FastList collection rows use positional identity without `key`; add a stable `key: .id` or `key: .self` if rows can move, be inserted, or be removed", "examples/component-parity/App.nx:2858:29: warning[NEXA-W1010]: FastList collection rows use positional identity without `key`; add a stable `key: .id` or `key: .self` if rows can move, be inserted, or be removed"],
+  "releaseMeasurements": {
+      "ios": {"status": "measured", "reason": null, "sdk": "iphoneos", "configuration": "Release", "xcodeVersion": "Xcode 27.2; Build version 27B52", "nativeBuildMicros": 23345553, "mainExecutableBytes": 9029784, "appBundleBytes": 9303676, "bundleOtherBytes": 273892},
+      "android": {"status": "measured", "reason": null, "configuration": "Release", "gradleVersion": "Gradle 9.4.1", "nativeBuildMicros": 57029438, "minificationEnabled": true, "resourceShrinkingEnabled": true, "apkBytes": 2942841, "aabBytes": 6297176, "apkEntryCount": 119, "dexCompressedBytes": 1993450, "dexUncompressedBytes": 4004908, "resourcesCompressedBytes": 814346, "resourcesUncompressedBytes": 941998, "assetsCompressedBytes": 8976, "assetsUncompressedBytes": 8976, "nativeLibrariesCompressedBytes": 37392, "nativeLibrariesUncompressedBytes": 37392, "nativeLibrariesByAbi": [{"abi": "arm64-v8a", "compressedBytes": 10096, "uncompressedBytes": 10096}, {"abi": "armeabi-v7a", "compressedBytes": 7252, "uncompressedBytes": 7252}, {"abi": "x86", "compressedBytes": 9284, "uncompressedBytes": 9284}, {"abi": "x86_64", "compressedBytes": 10760, "uncompressedBytes": 10760}], "nativeLibraries": [{"path": "lib/x86_64/libandroidx.graphics.path.so", "compressedBytes": 10760, "uncompressedBytes": 10760}, {"path": "lib/arm64-v8a/libandroidx.graphics.path.so", "compressedBytes": 10096, "uncompressedBytes": 10096}, {"path": "lib/x86/libandroidx.graphics.path.so", "compressedBytes": 9284, "uncompressedBytes": 9284}, {"path": "lib/armeabi-v7a/libandroidx.graphics.path.so", "compressedBytes": 7252, "uncompressedBytes": 7252}], "otherCompressedBytes": 33950, "r8MappingBytes": 60099631, "r8UsageReportBytes": 5316688, "resourceShrinkerReportBytes": 163033}
+    }
+}

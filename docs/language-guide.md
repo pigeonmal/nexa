@@ -638,7 +638,7 @@ app ArtistHero {
 
 Use `width: screenWidthFraction(0.5)` or `height: screenHeightFraction(0.5)` for a fraction of the current window. The same axis functions are accepted by its min/max constraints. Percentages and `Fill` use intrinsic sizing when the parent has no finite size on that axis. Window size and safe insets come from one root snapshot, shared by components and updated on resize or rotation.
 
-`padding` applies inside a component; `margin` applies outside it. A number applies to every edge. Use `Insets(top:, bottom:, leading:, trailing:)`, or the `horizontal:` and `vertical:` pair shorthands for selected edges. Omitted edges are zero, and `leading`/`trailing` follow right-to-left direction. Layout containers and `FastList` use `gap` for child-to-child or item-to-item separation. A child's margin and its parent's gap add together. `Spacer()` expands; `Spacer(height: 24)` is a fixed space.
+`padding` applies inside a component; `margin` applies outside it. A number applies to every edge. Use `Insets(top:, bottom:, leading:, trailing:)`, or the `horizontal:` and `vertical:` pair shorthands for selected edges. Omitted edges are zero, and `leading`/`trailing` follow right-to-left direction. Negative inset values clamp to zero on iOS and Android. Layout containers and `FastList` use `gap` for child-to-child or item-to-item separation. A child's margin and its parent's gap add together. `Spacer()` expands; `Spacer(height: 24)` is a fixed space.
 
 ```nx
 app SearchOverlay {
@@ -1023,8 +1023,13 @@ All callable built-in APIs below execute at runtime. Compile-time values come fr
 | `ComponentRef<FastList>.scrollToTop` | `(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls to the first row when the list is attached. |
 | `ComponentRef<FastList>.scrollToEnd` | `(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls to the final row when the list is attached. |
 | `ComponentRef<FastList>.scrollToOffset` | `(offset: Float64, animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls to an absolute logical offset when the list is attached. |
+| `ComponentRef<ScrollView>.scrollToTop` | `(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls to the logical start of the attached scroll view. |
+| `ComponentRef<ScrollView>.scrollToEnd` | `(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls to the logical end of the attached scroll view. |
+| `ComponentRef<ScrollView>.scrollToOffset` | `(offset: Float64, animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls from the logical content start by a non-negative logical-unit offset. |
 | `ComponentRef<BottomSheet>.present` | `() -> Result<Void, ComponentRefError<Void>>` | Presents the attached sheet; returns `notAttached` when its view is not mounted. |
 | `ComponentRef<BottomSheet>.dismiss` | `() -> Result<Void, ComponentRefError<Void>>` | Dismisses the attached sheet; returns `notAttached` when its view is not mounted. |
+| `ComponentRef<TextInput>.focus` | `() -> Result<Void, ComponentRefError<Void>>` | Focuses the mounted text input and opens its keyboard; returns `notAttached` before mount. |
+| `ComponentRef<TextInput>.blur` | `() -> Result<Void, ComponentRefError<Void>>` | Removes focus from the mounted text input and dismisses its keyboard; returns `notAttached` before mount. |
 | `Reusable and plugin component ref methods` | `(parameters...) -> Result<T, ComponentRefError<Failure>>`; async methods require `await` | Reusable `.nx` methods can return `Result<T, AppError>` with an app enum or propagate a plugin error with `throws Namespace.ErrorType`; ref calls flatten either failure into `ComponentRefError<Failure>`. Plugin native methods use their IDL signatures. Detached calls return `notAttached`. |
 
 | Built-in type | Values or fields |

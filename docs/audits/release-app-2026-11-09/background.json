@@ -1,0 +1,84 @@
+{
+  "bounds": [
+    {
+      "start_ts": 8884870132938,
+      "end_ts": 8896857126027
+    }
+  ],
+  "processes": [
+    {
+      "pid": 4196,
+      "name": "dev.nexa.performanceprofile"
+    }
+  ],
+  "issues": [],
+  "threadCpu": [],
+  "sampleCount": [
+    {
+      "samples": 0
+    }
+  ],
+  "sampleLeaves": [],
+  "mainSlices": [],
+  "layoutSlices": [],
+  "frames": [],
+  "memoryCounters": [
+    {
+      "name": "mem.locked",
+      "min_value": 0.0,
+      "max_value": 0.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss",
+      "min_value": 135442432.0,
+      "max_value": 135442432.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss.anon",
+      "min_value": 59469824.0,
+      "max_value": 59469824.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss.file",
+      "min_value": 73699328.0,
+      "max_value": 73699328.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss.shmem",
+      "min_value": 2273280.0,
+      "max_value": 2273280.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss.watermark",
+      "min_value": 145616896.0,
+      "max_value": 145616896.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.swap",
+      "min_value": 0.0,
+      "max_value": 0.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.virt",
+      "min_value": 15183298560.0,
+      "max_value": 15183298560.0,
+      "samples": 13
+    },
+    {
+      "name": "oom_score_adj",
+      "min_value": 700.0,
+      "max_value": 700.0,
+      "samples": 13
+    }
+  ],
+  "traceSha256": "b0d82dbe690f872705afbf26b5152419c60e80cc8394407ec07990de12566687",
+  "package": "dev.nexa.performanceprofile",
+  "scope": "Release app trace; no hardware frame-rate or battery guarantee"
+}

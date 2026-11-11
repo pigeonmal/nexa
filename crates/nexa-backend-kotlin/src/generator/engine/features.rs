@@ -39,6 +39,7 @@ pub(crate) struct Features {
     pub(crate) uses_accessibility_heading: bool,
     pub(crate) uses_list: bool,
     pub(crate) uses_fast_list: bool,
+    pub(crate) uses_scroll_view: bool,
     pub(crate) uses_linear_list: bool,
     pub(crate) uses_reverse_layout: bool,
     pub(crate) uses_page_snap: bool,
@@ -64,6 +65,7 @@ pub(crate) struct Features {
     pub(crate) uses_button: bool,
     pub(crate) uses_button_loading: bool,
     pub(crate) uses_text_node: bool,
+    pub(crate) uses_text_reveal: bool,
     pub(crate) uses_spacer: bool,
     pub(crate) uses_divider: bool,
     pub(crate) uses_text_input: bool,
@@ -146,8 +148,7 @@ pub(crate) struct Features {
     pub(crate) uses_tasks: bool,
     pub(crate) uses_task_launch: bool,
     /// Target-neutral facts from the single analysis pass. Renderers read
-    /// per-scope data (such as focus bindings) from here instead of
-    /// re-walking subtrees.
+    /// UI and capability observations from here instead of re-walking subtrees.
     pub(crate) facts: nexa_ir::facts::ModuleFacts,
     component_theme: HashSet<String>,
     components_using_navigation: HashSet<String>,
@@ -236,6 +237,7 @@ impl Features {
 
         let text = &ui.text;
         self.uses_text_node = text.present;
+        self.uses_text_reveal = text.reveal;
         self.uses_color |= text.color;
         self.uses_font_weight = text.font_weight;
         self.uses_text_sp = text.sp;
@@ -316,6 +318,7 @@ impl Features {
 
         let layout = &ui.layout;
         self.uses_form = layout.form;
+        self.uses_scroll_view = layout.scroll_view;
         self.uses_safe_area_inset = layout.safe_area_inset;
         self.uses_scroll_header = layout.scroll_header;
         // Compose lazy lists need explicit content padding to match SwiftUI's

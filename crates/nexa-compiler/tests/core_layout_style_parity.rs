@@ -41,7 +41,7 @@ fn explicit_layout_spacing_and_padding_are_preserved_once_on_both_targets() {
     assert_eq!(swift.matches("NexaViewInsetsPrimitive(padding:").count(), 3);
     for padding in ["13", "5", "3"] {
         assert!(
-            swift.contains(&format!("CGFloat(Double({padding}))")),
+            swift.contains(&format!("max(0, CGFloat(Double({padding})))")),
             "{swift}"
         );
     }

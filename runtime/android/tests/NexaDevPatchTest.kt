@@ -18,6 +18,15 @@ import org.junit.Test
  * commit paths are exercised without an emulator.
  */
 class NexaDevPatchTest {
+    @Test
+    fun optionalStringTreatsJsonNullAsAbsent() {
+        val fields = JSONObject().put("focused", JSONObject.NULL)
+
+        assertNull(fields.nexaDevOptionalString("focused"))
+        assertNull(JSONObject().nexaDevOptionalString("focused"))
+        assertEquals("emailFocused", JSONObject().put("focused", "emailFocused").nexaDevOptionalString("focused"))
+    }
+
     private fun module(
         body: String = "[]",
         screens: String = "[]",

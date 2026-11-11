@@ -1,0 +1,7 @@
+{
+  "scope": "Native Marquee controller lifecycle; no app frame-time claim",
+  "ios": {
+    "animationBeforeDisposal": true,
+    "restartedAfterDisposal": true
+  }
+}

@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Run the generated marquee geometry kernel on Android ART without touching UI."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import uuid
+import zipfile
+
+from native_ui_hotpaths import ROOT, kotlin_jars, run
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--android-device")
+    parser.add_argument("--require-device", action="store_true")
+    args = parser.parse_args()
+    sdk = Path(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", Path.home() / "Library/Android/sdk")))
+    adb = sdk / "platform-tools/adb"
+    device = args.android_device
+    dependencies = kotlin_jars()
+    if not device and adb.is_file():
+        result = subprocess.run([str(adb), "devices"], capture_output=True, text=True)
+        device = next((line.split()[0] for line in result.stdout.splitlines()[1:] if len(line.split()) == 2 and line.split()[1] == "device"), None)
+    if not device or not dependencies or not shutil.which("java"):
+        if args.require_device:
+            raise SystemExit("A connected Android device and cached Kotlin compiler are required")
+        print(json.dumps({"android": "unavailable: device or toolchain missing"}))
+        return
+    with tempfile.TemporaryDirectory(prefix="nexa-marquee-native-") as directory:
+        scratch = Path(directory)
+        android = sorted((sdk / "platforms").glob("android-*/android.jar"))[-1]
+        d8 = sorted((sdk / "build-tools").glob("*/lib/d8.jar"))[-1]
+        source = (ROOT / "crates/nexa-backend-kotlin/src/generator/components/marquee.kt").read_text().split("@androidx.compose.runtime.Composable", 1)[0]
+        path = scratch / "Check.kt"
+        path.write_text(source + (ROOT / "tests/fixtures/native-ui/MarqueeGeometryCheck.kt").read_text())
+        classpath = os.pathsep.join(str(path) for path in dependencies)
+        classes = scratch / "check.jar"
+        run(["java", "-cp", classpath, "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler", "-no-stdlib", "-no-reflect", "-classpath", str(android) + os.pathsep + classpath, path, "-d", classes])
+        dex = scratch / "dex"
+        dex.mkdir()
+        runtime = [path for path in dependencies if path.name.startswith(("kotlin-stdlib-", "kotlinx-coroutines-core-jvm-"))]
+        run(["java", "-cp", d8, "com.android.tools.r8.D8", "--lib", android, "--min-api", "24", "--output", dex, classes, *runtime])
+        archive = scratch / "check-dex.jar"
+        with zipfile.ZipFile(archive, "w") as output:
+            for path in dex.glob("*.dex"):
+                output.write(path, path.name)
+        remote = "/data/local/tmp/nexa-marquee-" + uuid.uuid4().hex + ".jar"
+        run([adb, "-s", device, "push", archive, remote])
+        try:
+            result = run([adb, "-s", device, "shell", f"CLASSPATH={remote} app_process /system/bin Check"])
+            print(json.dumps(json.loads(result.splitlines()[-1]), indent=2))
+        finally:
+            run([adb, "-s", device, "shell", "rm", remote])
+
+
+if __name__ == "__main__":
+    main()

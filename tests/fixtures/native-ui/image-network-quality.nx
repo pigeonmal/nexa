@@ -1,0 +1,23 @@
+app ImageNetworkQuality {
+    state groups: Array<Array<String>> = [["Saved music"]]
+    state selected: String = ""
+    body {
+        OnAppear async {
+            try {
+                await Network.fetch(url: "https://example.invalid/library", maxResponseBytes: 4096)
+            } catch {}
+        }
+        Column {
+            Image(url: "https://example.invalid/cover.png", description: "Library cover", maxHeight: 80)
+            FastList(sections: groups, key: .self) { item, index, section in
+                Text("Saved track")
+            }.sectionHeader {
+                Text(sectionItems[0])
+                Text("Library group $section")
+            }.swipeActions {
+                Button("Select") { selected = item }
+            }
+            Text(selected)
+        }
+    }
+}

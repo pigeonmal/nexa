@@ -1,0 +1,254 @@
+[
+  {
+    "name": "unchanged",
+    "previous": "task",
+    "proposed": "task",
+    "expected": "task",
+    "maxLength": null,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "empty",
+    "previous": "",
+    "proposed": "",
+    "expected": "",
+    "maxLength": null,
+    "maxLines": 1,
+    "multiline": true
+  },
+  {
+    "name": "ascii cap",
+    "previous": "",
+    "proposed": "abcdef",
+    "expected": "abc",
+    "maxLength": 3,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "surrogate emoji",
+    "previous": "",
+    "proposed": "😀x",
+    "expected": "😀",
+    "maxLength": 1,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "combining accent",
+    "previous": "",
+    "proposed": "éx",
+    "expected": "é",
+    "maxLength": 1,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "family emoji",
+    "previous": "",
+    "proposed": "👨‍👩‍👧‍👦x",
+    "expected": "👨‍👩‍👧‍👦",
+    "maxLength": 1,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "regional flag",
+    "previous": "",
+    "proposed": "🇫🇷x",
+    "expected": "🇫🇷",
+    "maxLength": 1,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "skin tone",
+    "previous": "",
+    "proposed": "👍🏽x",
+    "expected": "👍🏽",
+    "maxLength": 1,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "one line accepted",
+    "previous": "",
+    "proposed": "hello",
+    "expected": "hello",
+    "maxLength": null,
+    "maxLines": 1,
+    "multiline": true
+  },
+  {
+    "name": "extra return rejected",
+    "previous": "hello",
+    "proposed": "hello\n",
+    "expected": "hello",
+    "maxLength": null,
+    "maxLines": 1,
+    "multiline": true
+  },
+  {
+    "name": "extra pasted lines rejected",
+    "previous": "draft",
+    "proposed": "first\nsecond\nthird",
+    "expected": "draft",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "two lines accepted",
+    "previous": "first",
+    "proposed": "first\nsecond",
+    "expected": "first\nsecond",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "crlf counts once",
+    "previous": "",
+    "proposed": "first\r\nsecond",
+    "expected": "first\r\nsecond",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "crlf overflow rejected",
+    "previous": "draft",
+    "proposed": "a\r\nb\r\nc",
+    "expected": "draft",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "carriage return overflow rejected",
+    "previous": "draft",
+    "proposed": "a\rb\rc",
+    "expected": "draft",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "unicode separators rejected",
+    "previous": "draft",
+    "proposed": "a b c",
+    "expected": "draft",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "existing data can shrink",
+    "previous": "a\nb\nc\nd",
+    "proposed": "a\nb\nc",
+    "expected": "a\nb\nc",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "existing data may be edited",
+    "previous": "a\nb\nc",
+    "proposed": "A\nb\nc",
+    "expected": "A\nb\nc",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "existing data cannot grow",
+    "previous": "a\nb\nc",
+    "proposed": "a\nb\nc\nd",
+    "expected": "a\nb\nc",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "singleline paste",
+    "previous": "",
+    "proposed": "first\r\nsecond\nthird\rfourth fifth",
+    "expected": "first second third fourth fifth",
+    "maxLength": null,
+    "maxLines": null,
+    "multiline": false
+  },
+  {
+    "name": "singleline length after normalize",
+    "previous": "",
+    "proposed": "a\r\nbc",
+    "expected": "a b",
+    "maxLength": 3,
+    "maxLines": null,
+    "multiline": false
+  },
+  {
+    "name": "clear",
+    "previous": "a\nb",
+    "proposed": "",
+    "expected": "",
+    "maxLength": null,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "length and line cap",
+    "previous": "draft",
+    "proposed": "a\nb\nc",
+    "expected": "a\nb",
+    "maxLength": 3,
+    "maxLines": 2,
+    "multiline": true
+  },
+  {
+    "name": "middle insertion preserves tail",
+    "previous": "abcd",
+    "proposed": "abXcd",
+    "expected": "abcd",
+    "maxLength": 4,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "middle paste preserves tail",
+    "previous": "abcd",
+    "proposed": "abXYZcd",
+    "expected": "abXYcd",
+    "maxLength": 6,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "replace selection at cap",
+    "previous": "abcd",
+    "proposed": "aXYZd",
+    "expected": "aXYd",
+    "maxLength": 4,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "unicode replacement preserves tail",
+    "previous": "a😀b",
+    "proposed": "a👍🏽XYb",
+    "expected": "a👍🏽Xb",
+    "maxLength": 4,
+    "maxLines": null,
+    "multiline": true
+  },
+  {
+    "name": "reduce existing over-limit text",
+    "previous": "abcdef",
+    "proposed": "abcde",
+    "expected": "abcde",
+    "maxLength": 3,
+    "maxLines": null,
+    "multiline": true
+  }
+]

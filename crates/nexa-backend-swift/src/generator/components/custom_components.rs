@@ -146,13 +146,6 @@ fn render_component(
 ) {
     let name = nexa_codegen::names::component_name(&component.name);
     let ref_type = component_ref_type_name(&component.name);
-    let focus_bindings = features
-        .facts
-        .focus_bindings
-        .components
-        .get(&component.name)
-        .cloned()
-        .unwrap_or_default();
     let has_content_slot = component_has_content_slot(component);
     let needs_ios16 = component_uses_fast_list(component);
     if needs_ios16 {
@@ -214,7 +207,7 @@ fn render_component(
             ));
             continue;
         }
-        if state.mutable && !focus_bindings.contains(&state.name) {
+        if state.mutable {
             out.push_str(&format!(
                 "    @State private var {}: {} = {}\n",
                 nexa_codegen::names::state_name(&state.name),
@@ -224,12 +217,6 @@ fn render_component(
         }
     }
     render_immutable_state(&component.states, 1, out);
-    for binding in &focus_bindings {
-        out.push_str(&format!(
-            "    @FocusState private var {}: Bool\n",
-            nexa_codegen::names::state_name(binding),
-        ));
-    }
     let uses_adaptive_color = features.component_uses_adaptive_color(&component.name);
     let uses_size_class = features.component_uses_size_class(&component.name);
     if uses_adaptive_color {

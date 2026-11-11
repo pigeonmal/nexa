@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "sourceLanguage": "en",
+  "strings": {
+    "Library group {section}": {
+      "source": "Library group {section}",
+      "arguments": [
+        "section"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Saved track": {
+      "source": "Saved track",
+      "translations": {}
+    },
+    "Select": {
+      "source": "Select",
+      "translations": {}
+    }
+  }
+}

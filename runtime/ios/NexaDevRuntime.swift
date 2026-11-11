@@ -56,8 +56,9 @@ extension EnvironmentValues {
 }
 
 private final class NexaDevSafeAreaInsetsProbeView: UIView {
-    var onInsetsChange: ((UIEdgeInsets) -> Void)?
+    var onInsetsChange: ((UIEdgeInsets, CGSize) -> Void)?
     private var lastReportedInsets: UIEdgeInsets?
+    private var lastReportedWindowSize: CGSize?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -77,17 +78,19 @@ private final class NexaDevSafeAreaInsetsProbeView: UIView {
     func reportInsets() {
         guard let window else { return }
         let insets = window.safeAreaInsets
-        guard insets != lastReportedInsets else { return }
+        let windowSize = window.bounds.size
+        guard insets != lastReportedInsets || windowSize != lastReportedWindowSize else { return }
         lastReportedInsets = insets
+        lastReportedWindowSize = windowSize
         DispatchQueue.main.async { [weak self] in
             guard self?.window != nil else { return }
-            self?.onInsetsChange?(insets)
+            self?.onInsetsChange?(insets, windowSize)
         }
     }
 }
 
 private struct NexaDevSafeAreaInsetsProbe: UIViewRepresentable {
-    let onChange: (UIEdgeInsets) -> Void
+    let onChange: (UIEdgeInsets, CGSize) -> Void
 
     func makeUIView(context: Context) -> NexaDevSafeAreaInsetsProbeView {
         let view = NexaDevSafeAreaInsetsProbeView()
@@ -202,10 +205,13 @@ private extension Edge {
 }
 
 private struct NexaDevEdgeToEdgeRoot<Content: View>: View {
+    private let edgeToEdge: Bool
     private let content: Content
     @State private var containerSafeInsets = NexaDevVisualSafeAreaSnapshot()
+    @State private var viewportSize = CGSize.zero
 
-    init(@ViewBuilder content: () -> Content) {
+    init(edgeToEdge: Bool = true, @ViewBuilder content: () -> Content) {
+        self.edgeToEdge = edgeToEdge
         self.content = content()
     }
 
@@ -224,29 +230,54 @@ private struct NexaDevEdgeToEdgeRoot<Content: View>: View {
                     \.nexaWindowSafeAreaInsets,
                     sharedSafeInsets
                 )
-                .environment(\.nexaDevViewportSize, proxy.size)
+                .environment(\.nexaDevViewportSize, viewportSize == .zero ? proxy.size : viewportSize)
                 .environment(
                     \.nexaWindowMetrics,
-                    NexaWindowMetricsSnapshot(viewportSize: proxy.size, safeInsets: sharedSafeInsets)
+                    NexaWindowMetricsSnapshot(
+                        viewportSize: viewportSize == .zero ? proxy.size : viewportSize,
+                        safeInsets: sharedSafeInsets
+                    )
                 )
         }
         .background {
-            NexaDevSafeAreaInsetsProbe { insets in
+            NexaDevSafeAreaInsetsProbe { insets, windowSize in
                 let next = NexaDevVisualSafeAreaSnapshot(
                     top: insets.top,
                     bottom: insets.bottom,
                     left: insets.left,
                     right: insets.right
                 )
-                guard containerSafeInsets != next else { return }
+                guard containerSafeInsets != next || viewportSize != windowSize else { return }
                 containerSafeInsets = next
+                viewportSize = windowSize
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
-        .ignoresSafeArea(.container, edges: .all)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .modifier(NexaDevEdgeToEdgeRootModifier(enabled: edgeToEdge))
+    }
+}
+
+private struct NexaDevEdgeToEdgeRootModifier: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .ignoresSafeArea(.container, edges: .all)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+        } else {
+            content
+        }
+    }
+}
+
+private func nexaDevRootOwnsNavigationSafeArea(_ nodes: [Any]) -> Bool {
+    nodes.contains { node in
+        guard let tagged = node as? [String: Any] else { return false }
+        return tagged["NavigationStack"] != nil || tagged["NavigationSplitView"] != nil
     }
 }
 
@@ -272,7 +303,6 @@ private struct NexaDevFrameFenceProbe: View {
 public struct NexaDevRuntimeRoot: View {
     @StateObject private var runtime: NexaDevRuntime
     @StateObject private var performance = NexaDevPerformanceMonitor()
-    @FocusState private var activeInput: String?
     @Namespace private var nexaSharedNamespace
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
@@ -306,6 +336,8 @@ public struct NexaDevRuntimeRoot: View {
     }
 
     public var body: some View {
+        let rootNodes = runtime.module?["body"] as? [Any] ?? []
+        let rootOwnsNavigationSafeArea = nexaDevRootOwnsNavigationSafeArea(rootNodes)
         let screens = runtime.module?["screens"] as? [[String: Any]] ?? []
         let hasScreenStatusBarConfiguration = screens.contains {
             $0["status_bar"] as? [String: Any] != nil
@@ -313,20 +345,15 @@ public struct NexaDevRuntimeRoot: View {
         let rootStatusBar = hasScreenStatusBarConfiguration
             ? nil
             : runtime.module?["status_bar"] as? [String: Any]
-        NexaDevEdgeToEdgeRoot {
+        NexaDevEdgeToEdgeRoot(edgeToEdge: !rootOwnsNavigationSafeArea) {
         Group {
             if let module = runtime.module {
-                NexaDevNodeList(
-                    nodes: module["body"] as? [Any] ?? [],
+                let appBody = NexaDevNodeList(
+                    nodes: rootNodes,
                     module: module,
-                    store: runtime.store,
-                    focusedField: $activeInput
+                    store: runtime.store
                 )
-                // AOT wraps every screen root with ignoresSafeArea. The Dev
-                // root is that same screen boundary, so apply it here too;
-                // otherwise SwiftUI constrains the interpreted tree to the
-                // safe frame before its Nexa safe-area modifiers run.
-                .ignoresSafeArea(.container, edges: .all)
+                appBody
             } else {
                 ProgressView("Connecting to Nexa…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -398,8 +425,6 @@ public struct NexaDevRuntimeRoot: View {
         .onChange(of: scenePhase) { phase in
             if phase == .active { runtime.startConnection() }
         }
-        .onChange(of: activeInput) { runtime.store.focusChanged(to: $0) }
-        .onChange(of: runtime.store.focusedFieldKey) { activeInput = $0 }
         .onChange(of: runtime.performanceOverlayEnabled) { enabled in
             performance.setEnabled(enabled)
         }

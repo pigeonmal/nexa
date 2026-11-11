@@ -32,6 +32,7 @@ pub(crate) mod navigation;
 #[path = "components.rs"]
 pub(crate) mod node_renderer;
 pub(crate) mod refresh;
+pub(crate) mod scroll_view;
 pub(crate) mod shared_elements;
 pub(crate) mod split_view;
 pub(crate) mod status_bar;

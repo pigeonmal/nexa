@@ -1,0 +1,63 @@
+struct AuditTimedWord {
+    text: String,
+    startTimeSeconds: Float64,
+    endTimeSeconds: Float64,
+    hasTrailingSpace: Bool?,
+}
+
+app PerformanceAudit {
+    state total: Float64 = 999.99
+    state position: Int32 = 0
+    state auditSections: Array<Array<String>> = [["Latest releases", "Saved albums"], ["Liked tracks"]]
+    state captionPosition: Float64 = 0.8
+    state captionWords: Array<AuditTimedWord> = [
+    AuditTimedWord(text: "Discover", startTimeSeconds: 0.0, endTimeSeconds: 0.5, hasTrailingSpace: true),
+    AuditTimedWord(text: "your", startTimeSeconds: 0.5, endTimeSeconds: 0.8, hasTrailingSpace: true),
+    AuditTimedWord(text: "next", startTimeSeconds: 0.8, endTimeSeconds: 1.2, hasTrailingSpace: true),
+    AuditTimedWord(text: "favorite", startTimeSeconds: 1.2, endTimeSeconds: 1.7, hasTrailingSpace: true),
+    AuditTimedWord(text: "artist", startTimeSeconds: 1.7, endTimeSeconds: 2.2, hasTrailingSpace: false),
+    ]
+
+    body {
+        ScrollView {
+            Column(gap: 12, padding: Insets(top: 12 + SystemInsets.top, horizontal: 16, bottom: SystemInsets.bottom)) {
+                Text("Performance audit", fontSize: 28, fontWeight: Bold)
+                Row(gap: 12) {
+                    Button("Increase total", accessibilityLabel: "Increase total") {
+                        total = total + 1.0
+                    }
+                    Button("Decrease total", accessibilityLabel: "Decrease total") {
+                        total = total - 1.0
+                    }
+                }
+                NumberFlow(value: total, format: Currency, currencyCode: "EUR", maximumFractionDigits: 2, fontSize: 32)
+                Row(width: Fill, height: 28, animation: Marquee(speed: 32, gap: 24, delay: 1, edgeFade: 16)) {
+                    Text("Discover independent artists and the stories behind your favorite songs")
+                }
+                TextReveal("Discover your next favorite artist", segments: captionWords,
+                position: captionPosition, isActive: true, isPlaying: false, revealEnabled: true, seekRevision: 0,
+                fontSize: 20, color: "#047df6")
+                Button("Advance caption", accessibilityLabel: "Advance timed caption") {
+                    captionPosition = captionPosition + 0.5
+                }
+                Column(width: Fill, height: 240) {
+                    FastList(sections: auditSections, key:.self, rowHeight: 48, gap: 4, accessibilityLabel: "Performance library groups") {
+                        item, index, section in
+                        Text("$section · $index — $item")
+                    }.sectionHeader {
+                        Text("Library groups · $total", fontWeight: Semibold)
+                    }
+                }
+                Text("Visible position: $position")
+                Column(width: Fill, height: 420) {
+                    FastList(count: 10000, rowHeight: 56, gap: 4, scrollPosition: position, accessibilityLabel: "Performance rows") {
+                        index in
+                        Row(width: Fill, padding: 12) {
+                            Text("Track $index")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

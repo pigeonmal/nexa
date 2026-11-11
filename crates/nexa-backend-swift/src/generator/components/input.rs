@@ -1,7 +1,7 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::{
-    Action, AutofillType, Capitalization, ColorValue, KeyboardType, ReturnKeyType, TextInputChange,
-    TextInputFont,
+    Action, AutofillType, Capitalization, ColorValue, Expr, KeyboardType, ReturnKeyType,
+    TextInputChange, TextInputFont,
 };
 
 use nexa_codegen::names::state_name;
@@ -23,7 +23,8 @@ pub(crate) struct TextInputProps<'a> {
     pub(crate) return_key: Option<ReturnKeyType>,
     pub(crate) autocorrect: Option<bool>,
     pub(crate) capitalization: Option<Capitalization>,
-    pub(crate) focused: Option<&'a str>,
+    pub(crate) focused: Option<&'a Expr>,
+    pub(crate) component_ref: Option<&'a Expr>,
     pub(crate) max_length: Option<i32>,
     pub(crate) font: Option<TextInputFont>,
     pub(crate) font_size: Option<f32>,
@@ -53,6 +54,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         autocorrect,
         capitalization,
         focused,
+        component_ref,
         max_length,
         font,
         font_size,
@@ -68,42 +70,63 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         on_focus,
         on_change,
     } = props;
-    let binding = format!("${}", state_name(state));
-    let next_action_is_handled_by_primitive =
-        return_key == Some(ReturnKeyType::Next) && focused.is_none();
-    let placeholder = match comment {
-        Some(comment) => format!(
-            "Text({}, comment: {})",
-            swift_string(placeholder),
-            swift_string(comment)
-        ),
-        None => format!("Text({})", swift_string(placeholder)),
-    };
-    let max_length = max_length.map_or_else(|| "nil".to_owned(), |limit| limit.to_string());
+    let placeholder = format!(
+        "NexaLocale.localizedString(key: {}, value: {}, comment: {})",
+        swift_string(placeholder),
+        swift_string(placeholder),
+        swift_string(comment.unwrap_or(""))
+    );
+    let optional_int =
+        |value: Option<i32>| value.map_or_else(|| "nil".to_owned(), |value| value.to_string());
+    let min_lines = optional_int(min_lines);
+    let max_lines = optional_int(max_lines);
+    let max_length = optional_int(max_length);
     let font_size = font_size.map_or_else(|| "nil".to_owned(), |size| size.to_string());
     let font_family = font_family.map_or_else(|| "nil".to_owned(), swift_string);
-    let font_relative_to = match font {
-        Some(TextInputFont::Title3) => ".title3",
-        Some(TextInputFont::Body) | None => ".body",
-    };
-    let default_font_size = match font {
-        Some(TextInputFont::Title3) => nexa_codegen::design_system::TEXT_INPUT_TITLE3_FONT_SIZE,
-        Some(TextInputFont::Body) | None => nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+    let (font_relative_to, default_font_size) = match font {
+        Some(TextInputFont::Title3) => (
+            ".title3",
+            nexa_codegen::design_system::TEXT_INPUT_TITLE3_FONT_SIZE,
+        ),
+        _ => (".body", nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE),
     };
     let text_color = text_color.map_or_else(|| "nil".to_owned(), colors::expression);
     let placeholder_color = placeholder_color.map_or_else(|| "nil".to_owned(), colors::expression);
-    let keeps_focus_on_next = return_key == Some(ReturnKeyType::Next) && focused.is_none();
+    let keyboard = swift_keyboard(keyboard).unwrap_or(".default");
+    let return_key = return_key.map_or(".default", swift_return_key);
+    let autofill = autofill.map_or("nil", swift_autofill);
+    let capitalization = match capitalization {
+        Some(Capitalization::None) => ".none",
+        Some(Capitalization::Words) => ".words",
+        Some(Capitalization::Characters) => ".allCharacters",
+        _ => ".sentences",
+    };
+    let autocorrect = autocorrect.map_or_else(|| "nil".to_owned(), |value| value.to_string());
+    let initial_focus = focused.map_or_else(
+        || "false".to_owned(),
+        crate::generator::engine::expressions::expression,
+    );
+    let component_ref = component_ref.map_or_else(
+        || "nil".to_owned(),
+        crate::generator::engine::expressions::expression,
+    );
     indent(out, depth);
     out.push_str(&format!(
-        "NexaTextInputPrimitive(text: {binding}, placeholder: {placeholder}, secure: {secure}, multiline: {multiline}, searchable: {searchable}, maxLength: {max_length}, fontSize: {font_size}, fontFamily: {font_family}, fontRelativeTo: {font_relative_to}, fontDefaultSize: {default_font_size}, textColor: {text_color}, placeholderColor: {placeholder_color}, clearable: {clearable}, keepsFocusOnNext: {keeps_focus_on_next}"
+        "NexaTextInputPrimitive(text: ${}, placeholder: {placeholder}, secure: {secure}, multiline: {multiline}, searchable: {searchable}, maxLength: {max_length}, fontSize: {font_size}, fontFamily: {font_family}, fontRelativeTo: {font_relative_to}, fontDefaultSize: {default_font_size}, textColor: {text_color}, placeholderColor: {placeholder_color}, clearable: {clearable}, minLines: {min_lines}, maxLines: {max_lines}, keyboard: {keyboard}, returnKey: {return_key}, autofill: {autofill}, autocorrect: {autocorrect}, capitalization: {capitalization}, initialFocus: {initial_focus}, componentRef: {component_ref}", state_name(state)
     ));
-    if next_action_is_handled_by_primitive && !actions.is_empty() {
+    if let Some(actions) = on_focus {
+        out.push_str(", onFocusAction: {\n");
+        render_actions(actions, depth + 2, out);
+        indent(out, depth + 1);
+        out.push('}');
+    }
+    if actions.is_empty() {
+        out.push_str(", onSubmitAction: nil");
+    } else {
         out.push_str(", onSubmitAction: {\n");
         render_actions(actions, depth + 2, out);
         indent(out, depth + 1);
         out.push('}');
-    } else {
-        out.push_str(", onSubmitAction: nil");
     }
     if let Some(change) = on_change {
         out.push_str(&format!(
@@ -117,100 +140,6 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         out.push_str(", onChange: nil");
     }
     out.push(')');
-    if let Some(font) = font {
-        let font = match font {
-            TextInputFont::Body => ".body",
-            TextInputFont::Title3 => ".title3",
-        };
-        out.push_str(&format!("\n{}.font({font})", "    ".repeat(depth + 1)));
-    }
-    let line_limit = match (min_lines, max_lines) {
-        (Some(minimum), Some(maximum)) => Some(format!("{minimum}...{maximum}")),
-        (Some(minimum), None) => Some(format!("{minimum}...")),
-        (None, Some(maximum)) => Some(format!("...{maximum}")),
-        (None, None) => None,
-    };
-    if let Some(line_limit) = line_limit {
-        out.push_str(&format!(
-            "\n{}.lineLimit({line_limit})",
-            "    ".repeat(depth + 1)
-        ));
-    }
-    if let Some(keyboard) = swift_keyboard(keyboard) {
-        out.push_str(&format!(
-            "\n{}.keyboardType({keyboard})",
-            "    ".repeat(depth + 1)
-        ));
-    }
-    if let Some(autofill) = autofill {
-        out.push_str(&format!(
-            "\n{}.textContentType({})",
-            "    ".repeat(depth + 1),
-            swift_autofill(autofill)
-        ));
-    }
-    if let Some(return_key) = return_key {
-        out.push_str(&format!(
-            "\n{}.submitLabel({})",
-            "    ".repeat(depth + 1),
-            swift_return_key(return_key)
-        ));
-    }
-    if let Some(capitalization) = capitalization {
-        out.push_str(&format!(
-            "\n{}.textInputAutocapitalization({})",
-            "    ".repeat(depth + 1),
-            swift_capitalization(capitalization)
-        ));
-    }
-    if let Some(autocorrect) = autocorrect {
-        out.push_str(&format!(
-            "\n{}.autocorrectionDisabled({})",
-            "    ".repeat(depth + 1),
-            !autocorrect
-        ));
-    }
-    if let Some(focused) = focused {
-        out.push_str(&format!(
-            "\n{}.focused(${})",
-            "    ".repeat(depth + 1),
-            state_name(focused)
-        ));
-        if let Some(actions) = on_focus {
-            out.push_str(&format!(
-                "\n{}.onChange(of: {}) {{ isFocused in\n",
-                "    ".repeat(depth + 1),
-                state_name(focused)
-            ));
-            indent(out, depth + 2);
-            out.push_str("if isFocused {\n");
-            render_actions(actions, depth + 3, out);
-            indent(out, depth + 2);
-            out.push_str("}\n");
-            indent(out, depth + 1);
-            out.push('}');
-        }
-    }
-    if (!actions.is_empty() && !next_action_is_handled_by_primitive)
-        || (return_key == Some(ReturnKeyType::Next) && focused.is_some())
-    {
-        out.push_str(&format!("\n{}.onSubmit {{\n", "    ".repeat(depth + 1)));
-        if !actions.is_empty() {
-            render_actions(actions, depth + 2, out);
-        }
-        if return_key == Some(ReturnKeyType::Next)
-            && let Some(focused) = focused
-        {
-            indent(out, depth + 2);
-            out.push_str("DispatchQueue.main.async {\n");
-            indent(out, depth + 3);
-            out.push_str(&format!("{} = true\n", state_name(focused)));
-            indent(out, depth + 2);
-            out.push('}');
-        }
-        indent(out, depth + 1);
-        out.push('}');
-    }
     if let Some(horizontal_padding) = horizontal_padding {
         out.push_str(&format!(
             "\n{}.padding(.horizontal, {horizontal_padding})",
@@ -226,15 +155,6 @@ pub(crate) fn swift_keyboard(keyboard: KeyboardType) -> Option<&'static str> {
         KeyboardType::Email => Some(".emailAddress"),
         KeyboardType::Phone => Some(".phonePad"),
         KeyboardType::Url => Some(".URL"),
-    }
-}
-
-pub(crate) fn swift_capitalization(capitalization: Capitalization) -> &'static str {
-    match capitalization {
-        Capitalization::None => ".never",
-        Capitalization::Sentences => ".sentences",
-        Capitalization::Words => ".words",
-        Capitalization::Characters => ".characters",
     }
 }
 
@@ -281,6 +201,7 @@ mod tests {
                 autocorrect: Some(false),
                 capitalization: Some(Capitalization::None),
                 focused: None,
+                component_ref: None,
                 max_length: Some(50),
                 font: None,
                 font_size: Some(16.38),
@@ -334,6 +255,7 @@ mod tests {
                 autocorrect: Some(false),
                 capitalization: Some(Capitalization::None),
                 focused: None,
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -375,6 +297,7 @@ mod tests {
                 autocorrect: None,
                 capitalization: None,
                 focused: None,
+                component_ref: None,
                 max_length: Some(1200),
                 font: None,
                 font_size: None,
@@ -418,6 +341,7 @@ mod tests {
                 autocorrect: None,
                 capitalization: None,
                 focused: None,
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -443,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_actions_run_only_when_a_tracked_text_input_gains_focus() {
+    fn initial_focus_and_focus_event_are_separate_from_mutable_state() {
         let focus_actions = [Action::Assign {
             name: "didFocus".to_owned(),
             value: Expr::Bool(true),
@@ -461,7 +385,8 @@ mod tests {
                 return_key: None,
                 autocorrect: None,
                 capitalization: None,
-                focused: Some("focused"),
+                focused: Some(&Expr::Bool(true)),
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -482,9 +407,10 @@ mod tests {
         );
 
         let source = output.as_str();
-        assert!(source.contains(".focused($nexa_focused)"));
-        assert!(source.contains(".onChange(of: nexa_focused) { isFocused in"));
-        assert!(source.contains("if isFocused {") && source.contains("nexa_didFocus = true"));
+        assert!(source.contains("initialFocus: true"));
+        assert!(!source.contains("focusBinding"));
+        assert!(source.contains("onFocusAction: {"));
+        assert!(source.contains("nexa_didFocus = true"));
     }
 
     #[test]
@@ -503,6 +429,7 @@ mod tests {
                 autocorrect: None,
                 capitalization: None,
                 focused: None,
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -522,13 +449,13 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.as_str().contains("keepsFocusOnNext: true"));
+        assert!(output.as_str().contains("returnKey: .next"));
         assert!(output.as_str().contains("onSubmitAction: {"));
         assert!(!output.as_str().contains(".onSubmit {"));
     }
 
     #[test]
-    fn controlled_next_return_key_restores_its_focus_binding_after_submit() {
+    fn initial_focus_does_not_change_next_return_key_behavior() {
         let action = [nexa_ir::Action::Expression(nexa_ir::Expr::Bool(true))];
         let mut output = SourceWriter::new();
         render_text_input(
@@ -543,7 +470,8 @@ mod tests {
                 return_key: Some(ReturnKeyType::Next),
                 autocorrect: None,
                 capitalization: None,
-                focused: Some("emailFocused"),
+                focused: Some(&Expr::Bool(true)),
+                component_ref: None,
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -564,9 +492,9 @@ mod tests {
         );
 
         let source = output.as_str();
-        assert!(source.contains("keepsFocusOnNext: false"));
-        assert!(source.contains(".focused($nexa_emailFocused)"));
-        assert!(source.contains("DispatchQueue.main.async {"));
-        assert!(source.contains("nexa_emailFocused = true"));
+        assert!(source.contains("returnKey: .next"));
+        assert!(source.contains("initialFocus: true"));
+        assert!(source.contains("onSubmitAction: {"));
+        assert!(!source.contains("DispatchQueue.main.async"));
     }
 }

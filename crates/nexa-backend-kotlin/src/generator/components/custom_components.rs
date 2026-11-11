@@ -217,29 +217,6 @@ fn render_component(
         1,
         out,
     );
-    let focus_bindings = features
-        .facts
-        .focus_bindings
-        .components
-        .get(&component.name)
-        .cloned()
-        .unwrap_or_default();
-    for binding in &focus_bindings {
-        out.push_str(&format!(
-            "    val {} = remember {{ FocusRequester() }}\n",
-            crate::generator::components::input::focus_requester_name(binding)
-        ));
-    }
-    for binding in &focus_bindings {
-        let state_name = nexa_codegen::names::state_name(binding);
-        let requester_name = crate::generator::components::input::focus_requester_name(binding);
-        out.push_str(&format!(
-            "    LaunchedEffect({state_name}) {{\n        if ({state_name}) {requester_name}.requestFocus() else {requester_name}.freeFocus()\n    }}\n"
-        ));
-    }
-    if !focus_bindings.is_empty() {
-        out.push('\n');
-    }
     render_body(&component.body, module, features, 1, out);
     if component.on_appear.is_some() || component.on_disappear.is_some() {
         out.push('\n');

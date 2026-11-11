@@ -90,6 +90,8 @@ public enum NexaDevKeys {
     public static let children = "children"
     public static let plan = "plan"
     public static let content = "content"
+    public static let axis = "axis"
+    public static let style = "style"
 
     // Pressable fields
     public static let dragParameters = "drag_parameters"
@@ -109,6 +111,8 @@ public enum NexaDevKeys {
     // FastList fields
     public static let reverseLayout = "reverse_layout"
     public static let pageSnap = "page_snap"
+    public static let hideHorizontalScrollbar = "hide_horizontal_scrollbar"
+    public static let hideVerticalScrollbar = "hide_vertical_scrollbar"
 
     // Diagnostic fields
     public static let file = "file"
@@ -141,6 +145,7 @@ public enum NexaDevNodeKind {
     public static let pressable = "Pressable"
     public static let textInput = "TextInput"
     public static let fastList = "FastList"
+    public static let scrollView = "ScrollView"
     public static let switchNode = "Switch"
     public static let slider = "Slider"
     public static let progressBar = "ProgressBar"

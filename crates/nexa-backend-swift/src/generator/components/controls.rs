@@ -353,6 +353,7 @@ pub(crate) fn render_slider(
     min: &nexa_ir::Expr,
     max: &nexa_ir::Expr,
     step: f64,
+    show_step_indicators: bool,
     tint: Option<&nexa_ir::ColorExpression>,
     track_color: Option<&nexa_ir::ColorExpression>,
     thumb_color: Option<&nexa_ir::ColorExpression>,
@@ -376,11 +377,12 @@ pub(crate) fn render_slider(
     out.line_at(
         depth + 1,
         format_args!(
-            "value: ${}, minValue: {}, maxValue: {}, step: {},",
+            "value: ${}, minValue: {}, maxValue: {}, step: {}, showStepIndicators: {},",
             state_name(state),
             expression(min),
             expression(max),
-            step
+            step,
+            show_step_indicators
         ),
     );
     out.line_at(
@@ -799,6 +801,7 @@ pub(crate) fn render_pressable(
     else {
         return;
     };
+
     let root_depth = depth;
     let has_long_press = !long_press_actions.is_empty();
     let has_drag = drag_parameters.len() == 4;
@@ -808,6 +811,7 @@ pub(crate) fn render_pressable(
             drag_actions,
             &[drag_parameters[2].as_str(), drag_parameters[3].as_str()],
         );
+
     if has_drag || has_pinch {
         indent(out, root_depth);
         out.push_str("NexaDragGestureView(enabled: !( ");
@@ -844,30 +848,31 @@ pub(crate) fn render_pressable(
         }
         out.push_str(") {\n");
     }
+
     let depth = root_depth + usize::from(has_drag || has_pinch);
     indent(out, depth);
-    out.push_str(if double_tap_actions.is_empty() && !has_long_press {
-        "Button(action: {"
+    out.push_str("Group {\n");
+    render_children(children, module, features, depth + 1, out);
+    out.push('\n');
+    indent(out, depth);
+    out.push('}');
+    if *fill_max_size {
+        out.push_str(".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(.interaction, Rectangle())");
     } else {
-        "Button(action: {}) {"
-    });
-    if !double_tap_actions.is_empty() || has_long_press {
-        out.push('\n');
-        render_children(children, module, features, depth + 1, out);
-        out.push('\n');
-        indent(out, depth);
-        out.push('}');
-        out.push_str(".buttonStyle(.plain)");
-        if *fill_max_size {
-            out.push_str(
-                ".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())",
-            );
-        }
-        if !matches!(disabled, nexa_ir::Expr::Bool(false)) {
-            out.push_str(".disabled(");
-            out.push_str(&expression(disabled));
-            out.push(')');
-        }
+        out.push_str(
+            ".frame(minHeight: 48, alignment: .topLeading).contentShape(.interaction, Rectangle())",
+        );
+    }
+    if !matches!(disabled, nexa_ir::Expr::Bool(false)) {
+        out.push_str(".disabled(");
+        out.push_str(&expression(disabled));
+        out.push(')');
+        out.push_str(".opacity((");
+        out.push_str(&expression(disabled));
+        out.push_str(") ? 0.5 : 1.0)");
+    }
+
+    if has_long_press || !double_tap_actions.is_empty() {
         out.push_str(if has_long_press {
             ".highPriorityGesture(\n"
         } else {
@@ -908,7 +913,7 @@ pub(crate) fn render_pressable(
         indent(out, single_tap_depth);
         out.push_str("TapGesture(count: 1)\n");
         indent(out, single_tap_depth + 1);
-        out.push_str(".onEnded {\n");
+        out.push_str(".onEnded { _ in\n");
         render_pressable_gesture_actions(disabled, *haptic, actions, single_tap_depth + 2, out);
         indent(out, single_tap_depth + 1);
         out.push_str("}\n");
@@ -922,58 +927,32 @@ pub(crate) fn render_pressable(
         }
         indent(out, depth);
         out.push(')');
-        out.push_str(".accessibilityAction(.default) {");
-        if let Some(haptic) = haptic {
-            out.push('\n');
-            render_haptic(*haptic, depth + 1, out);
-        }
-        if !actions.is_empty() {
-            out.push('\n');
-            render_actions(actions, depth + 1, out);
-            indent(out, depth);
-        }
-        out.push('}');
-        out.push_str(".accessibilityAddTraits(.isButton)");
-        render_context_menu(context_menu, module, features, depth, out);
-        if has_drag || has_pinch {
-            out.push('\n');
-            indent(out, root_depth);
-            out.push('}');
-        }
-        return;
-    }
-    if actions.is_empty() {
-        if let Some(haptic) = haptic {
-            out.push('\n');
-            render_haptic(*haptic, depth + 1, out);
-            indent(out, depth);
-            out.push_str("}) {");
-        } else {
-            out.push_str(" }) {");
-        }
     } else {
-        out.push('\n');
-        if let Some(haptic) = haptic {
-            render_haptic(*haptic, depth + 1, out);
-        }
-        render_actions(actions, depth + 1, out);
+        out.push_str(".overlay {\n");
+        indent(out, depth + 1);
+        out.push_str("GeometryReader { nexaPressableGeometry in\n");
+        indent(out, depth + 2);
+        out.push_str("Color.clear\n");
+        indent(out, depth + 3);
+        out.push_str(".contentShape(.interaction, Rectangle())\n");
+        indent(out, depth + 3);
+        out.push_str(".gesture(SpatialTapGesture(coordinateSpace: .local).onEnded { nexaTap in\n");
+        indent(out, depth + 4);
+        out.push_str("guard CGRect(origin: .zero, size: nexaPressableGeometry.size).contains(nexaTap.location) else { return }\n");
+        render_pressable_gesture_actions(disabled, *haptic, actions, depth + 4, out);
+        indent(out, depth + 3);
+        out.push_str("})\n");
+        indent(out, depth + 2);
+        out.push_str("}\n");
         indent(out, depth);
-        out.push_str("}) {");
+        out.push('}');
     }
-    out.push('\n');
-    render_children(children, module, features, depth + 1, out);
-    out.push('\n');
-    indent(out, depth);
+
+    out.push_str(".accessibilityAction(.default) {");
+    render_pressable_gesture_actions(disabled, *haptic, actions, depth + 1, out);
     out.push('}');
-    if !matches!(disabled, nexa_ir::Expr::Bool(false)) {
-        out.push_str(".disabled(");
-        out.push_str(&expression(disabled));
-        out.push(')');
-    }
-    out.push_str(".buttonStyle(.plain)");
-    if *fill_max_size {
-        out.push_str(".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())");
-    }
+    out.push_str(".accessibilityAddTraits(.isButton)");
+    out.push_str(".contentShape(.interaction, Rectangle())");
     render_context_menu(context_menu, module, features, depth, out);
     if has_drag || has_pinch {
         out.push('\n');
@@ -2300,6 +2279,7 @@ mod tests {
             &min,
             &max,
             0.1,
+            true,
             None,
             None,
             None,
@@ -2313,7 +2293,7 @@ mod tests {
         );
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(\n    value: $nexa_volume, minValue: Double(0.0), maxValue: Double(1.0), step: 0.1,\n    tint: nil, trackColor: nil, thumbColor: nil,\n    trackHeight: nil, thumbSize: nil, hitSlop: nil,\n    onChange: \n    nil,\n    onEditingChanged: \n    nil,\n)\n"
+            "NexaSliderPrimitive(\n    value: $nexa_volume, minValue: Double(0.0), maxValue: Double(1.0), step: 0.1, showStepIndicators: true,\n    tint: nil, trackColor: nil, thumbColor: nil,\n    trackHeight: nil, thumbSize: nil, hitSlop: nil,\n    onChange: \n    nil,\n    onEditingChanged: \n    nil,\n)\n"
         );
     }
 

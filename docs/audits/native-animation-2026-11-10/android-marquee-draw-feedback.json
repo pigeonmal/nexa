@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-10",
+  "androidApi": 31,
+  "fixture": "NexaMarqueeMetrics and NexaMarqueeGeometry extracted from the generated Kotlin primitive",
+  "unchangedMeasurementVisibilityPairsPerSample": 20000,
+  "referenceAllocatedBytes": [950272, 966656, 966656, 950272, 966656, 966656, 966656],
+  "optimizedAllocatedBytes": [0, 0, 0, 0, 0, 16384, 0],
+  "counterOverheadBytes": [0, 0, 0, 0, 0, 0, 0],
+  "scope": "ART cumulative allocation statistics are approximate. This measures unchanged geometry helper calls, not complete frames or app CPU."
+}

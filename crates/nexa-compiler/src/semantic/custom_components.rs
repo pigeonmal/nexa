@@ -855,6 +855,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::ContentUnavailable { .. } => {}
         Node::ViewInsets { child, .. } => collect_ir_component_calls(child, calls),
         Node::Layout { children, .. }
+        | Node::ScrollView { children, .. }
         | Node::Form { children, .. }
         | Node::FormSection { children, .. }
         | Node::Toolbar { children, .. }

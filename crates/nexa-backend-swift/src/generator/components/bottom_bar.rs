@@ -1,6 +1,7 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{BottomBarTab, Module, Node, ToolbarPlacement, walk::walk_ir};
+use std::collections::HashSet;
 
 use crate::generator::{
     components::{
@@ -41,6 +42,7 @@ pub(crate) fn render_bottom_bar_helpers(
                                 autocorrect: Some(false),
                                 capitalization: Some(nexa_ir::Capitalization::None),
                                 focused: None,
+                                component_ref: None,
                                 max_length: None,
                                 font: None,
                                 font_size: None,
@@ -357,6 +359,8 @@ fn render_app_tab_navigation_modifiers(
         {
             patterns.push(format!("\"{}\"", role.to_lowercase()));
         }
+        let mut seen = HashSet::with_capacity(patterns.len());
+        patterns.retain(|pattern| seen.insert(pattern.clone()));
         out.push_str(&format!(
             "    case {}:\n        {selected} = Int32({})\n",
             patterns.join(", "),
@@ -579,7 +583,9 @@ mod tests {
 
         assert!(output.contains("VStack(spacing: 0) {"));
         assert!(output.contains("NexaTextInputPrimitive(text: $nexa_query"));
-        assert!(output.contains("placeholder: Text(\"Search tasks...\")"));
+        assert!(
+            output.contains("placeholder: NexaLocale.localizedString(key: \"Search tasks...\"")
+        );
         assert!(output.contains("searchable: true"));
         assert!(output.contains(".padding(.horizontal, 16)"));
         assert!(
@@ -677,6 +683,41 @@ mod tests {
         assert!(output.contains(".toolbar {"));
         assert!(output.contains("ToolbarItemGroup(placement: .navigationBarTrailing)"));
         assert!(!output.contains("NexaNavigationChromeModifier"));
+    }
+
+    #[test]
+    fn tab_notification_aliases_are_unique_when_index_matches_position() {
+        let mut module = empty_module_with_search_tab();
+        let Node::AppBottomBar { tabs, .. } = &mut module.body[0] else {
+            unreachable!("test module contains an app bottom bar")
+        };
+        tabs[0].index = 0;
+        tabs[0].label = "Inbox".to_owned();
+        tabs[0].role = Some("inbox".to_owned());
+
+        let Node::AppBottomBar {
+            state,
+            tint,
+            tabs,
+            custom_bar,
+        } = &module.body[0]
+        else {
+            unreachable!()
+        };
+        let mut output = SourceWriter::new();
+        render_app_bottom_bar(
+            state,
+            tint.as_ref(),
+            tabs,
+            custom_bar.as_deref(),
+            &module,
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("case \"0\", \"tab_0\", \"tab0\", \"inbox\", \"tab_inbox\":"));
+        assert!(!output.contains("case \"0\", \"tab_0\", \"tab0\", \"0\", \"tab_0\", \"tab0\""));
     }
 
     #[test]

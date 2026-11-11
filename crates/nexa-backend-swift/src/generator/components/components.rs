@@ -4,6 +4,7 @@ use nexa_ir::{Dimension, EdgeInsets, Expr, LayoutKind, Module, Node, ToolbarPlac
 
 use super::RenderScope;
 use super::{adaptive_layout, conditional, content_unavailable, dialogs};
+use crate::generator::components::scroll_view;
 use crate::generator::components::split_view;
 use crate::generator::{
     accessibility, bottom_bar, bottom_sheet, colors, controls,
@@ -28,13 +29,19 @@ pub(crate) fn render_node(
         } => {
             if let Node::Form {
                 show_dividers,
+                hide_horizontal_scrollbar,
+                hide_vertical_scrollbar,
                 background,
                 children,
             } = child.as_ref()
             {
                 render_form(
-                    *show_dividers,
-                    *background,
+                    FormRenderOptions {
+                        show_dividers: *show_dividers,
+                        hide_horizontal_scrollbar: *hide_horizontal_scrollbar,
+                        hide_vertical_scrollbar: *hide_vertical_scrollbar,
+                        background: *background,
+                    },
                     children,
                     Some((padding, margin)),
                     &scope,
@@ -45,15 +52,17 @@ pub(crate) fn render_node(
                 let scroll_content = matches!(
                     child.as_ref(),
                     Node::FastList { .. }
+                        | Node::ScrollView { .. }
                         | Node::KeyboardAware { .. }
                         | Node::RefreshControl { .. }
                 );
+                let uses_scroll_margin_layout = matches!(child.as_ref(), Node::ScrollView { .. });
                 let padding = swift_insets(padding.as_ref());
                 let margin = swift_insets(margin.as_ref());
                 out.line_at(
                     depth,
                     format_args!(
-                        "NexaViewInsetsPrimitive(padding: {padding}, margin: {margin}, scrollContent: {scroll_content}) {{"
+                        "NexaViewInsetsPrimitive(padding: {padding}, margin: {margin}, scrollContent: {scroll_content}, usesScrollMarginLayout: {uses_scroll_margin_layout}) {{"
                     ),
                 );
                 render_node(child, module, features, depth + 1, out);
@@ -116,13 +125,39 @@ pub(crate) fn render_node(
             style,
             children,
         } => layout::render_layout(*kind, *gap, style, children, &scope, depth, out),
+        Node::ScrollView {
+            axis,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
+            style,
+            component_ref,
+            children,
+        } => scroll_view::render_scroll_view(
+            scroll_view::ScrollViewOptions {
+                axis: *axis,
+                hide_horizontal_scrollbar: *hide_horizontal_scrollbar,
+                hide_vertical_scrollbar: *hide_vertical_scrollbar,
+                style,
+                component_ref: component_ref.as_ref(),
+            },
+            children,
+            &scope,
+            depth,
+            out,
+        ),
         Node::Form {
             show_dividers,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
             background,
             children,
         } => render_form(
-            *show_dividers,
-            *background,
+            FormRenderOptions {
+                show_dividers: *show_dividers,
+                hide_horizontal_scrollbar: *hide_horizontal_scrollbar,
+                hide_vertical_scrollbar: *hide_vertical_scrollbar,
+                background: *background,
+            },
             children,
             None,
             &scope,
@@ -195,7 +230,18 @@ pub(crate) fn render_node(
             out,
         ),
         Node::Spacer { width, height } => {
-            out.line_at(depth, format_args!("Spacer(minLength: 0)"));
+            let flexible = width.is_none() && height.is_none();
+            if flexible {
+                out.line_at(
+                    depth,
+                    format_args!("Spacer(minLength: 0).layoutPriority(-1)"),
+                );
+            } else {
+                // SwiftUI Spacer remains flexible inside a fixed frame and can
+                // consume the VStack's leftover height. A clear frame gives
+                // dimensioned Nexa spacers a truly fixed footprint.
+                out.line_at(depth, format_args!("Color.clear"));
+            }
             let mut frame_width = "nil".to_owned();
             let mut frame_height = "nil".to_owned();
             let mut relative = Vec::new();
@@ -369,6 +415,7 @@ pub(crate) fn render_node(
             autocorrect,
             capitalization,
             focused,
+            component_ref,
             max_length,
             font,
             font_size,
@@ -396,7 +443,8 @@ pub(crate) fn render_node(
                 return_key: *return_key,
                 autocorrect: *autocorrect,
                 capitalization: *capitalization,
-                focused: focused.as_deref(),
+                focused: focused.as_ref(),
+                component_ref: component_ref.as_ref(),
                 max_length: *max_length,
                 font: *font,
                 font_size: *font_size,
@@ -425,6 +473,7 @@ pub(crate) fn render_node(
             min,
             max,
             step,
+            show_step_indicators,
             tint,
             track_color,
             thumb_color,
@@ -439,6 +488,7 @@ pub(crate) fn render_node(
             min,
             max,
             *step,
+            *show_step_indicators,
             tint.as_ref(),
             track_color.as_ref(),
             thumb_color.as_ref(),
@@ -634,9 +684,20 @@ pub(crate) fn render_node(
         Node::KeyboardAware {
             dismiss,
             behavior,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
             children,
         } => keyboard::render_keyboard_aware(
-            *dismiss, *behavior, children, module, features, depth, out,
+            keyboard::KeyboardAwareOptions {
+                dismiss: *dismiss,
+                behavior: *behavior,
+                hide_horizontal_scrollbar: *hide_horizontal_scrollbar,
+                hide_vertical_scrollbar: *hide_vertical_scrollbar,
+            },
+            children,
+            &scope,
+            depth,
+            out,
         ),
         Node::BottomSheet {
             component_ref,
@@ -842,7 +903,7 @@ fn swift_insets(insets: Option<&EdgeInsets>) -> String {
         expression
             .map(|expression| {
                 format!(
-                    "CGFloat({})",
+                    "max(0, CGFloat({}))",
                     crate::generator::engine::expressions::expression(expression)
                 )
             })
@@ -858,15 +919,27 @@ fn swift_insets(insets: Option<&EdgeInsets>) -> String {
     )
 }
 
-fn render_form(
+struct FormRenderOptions {
     show_dividers: bool,
+    hide_horizontal_scrollbar: bool,
+    hide_vertical_scrollbar: bool,
     background: Option<nexa_ir::ColorValue>,
+}
+
+fn render_form(
+    options: FormRenderOptions,
     children: &[Node],
     insets: Option<(&Option<EdgeInsets>, &Option<EdgeInsets>)>,
     scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let FormRenderOptions {
+        show_dividers,
+        hide_horizontal_scrollbar,
+        hide_vertical_scrollbar,
+        background,
+    } = options;
     let background = background
         .map(crate::generator::engine::colors::expression)
         .unwrap_or_else(|| "nil".to_owned());
@@ -887,7 +960,7 @@ fn render_form(
     out.line_at(
         depth,
         format_args!(
-            "NexaFormPrimitive(background: {background}{form_insets}{first_section_padding}) {{"
+            "NexaFormPrimitive(background: {background}, hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}{form_insets}{first_section_padding}) {{"
         ),
     );
     for (index, child) in children.iter().enumerate() {
@@ -985,13 +1058,73 @@ fn render_text(
     } else {
         crate::generator::expressions::localized_text_view(value, None)
     };
-    let primitive = if style.reveal.is_some() {
+    let primitive = if style.number_flow.is_some() {
+        "NexaNumberFlowPrimitive("
+    } else if style.reveal.is_some() {
         "NexaTextRevealPrimitive("
     } else {
         "NexaTextPrimitive("
     };
     out.line_at(depth, format_args!("{primitive}"));
-    append_text_argument(out, depth + 1, format_args!("text: {text}"));
+    if let Some(number_flow) = &style.number_flow {
+        let format = match number_flow.format {
+            nexa_ir::NumberFlowFormat::Number => "Number",
+            nexa_ir::NumberFlowFormat::Currency => "Currency",
+            nexa_ir::NumberFlowFormat::Percent => "Percent",
+            nexa_ir::NumberFlowFormat::Compact => "Compact",
+        };
+        let currency = number_flow
+            .currency_code
+            .as_deref()
+            .map_or("nil".to_owned(), |code| {
+                crate::generator::engine::utils::swift_string(code).to_string()
+            });
+        append_text_argument(
+            out,
+            depth + 1,
+            format_args!(
+                "value: Double({})",
+                crate::generator::engine::expressions::expression(value)
+            ),
+        );
+        append_text_argument(out, depth + 1, format_args!("format: \"{format}\""));
+        append_text_argument(out, depth + 1, format_args!("currencyCode: {currency}"));
+        append_text_argument(
+            out,
+            depth + 1,
+            format_args!(
+                "minimumFractionDigits: {}",
+                number_flow
+                    .minimum_fraction_digits
+                    .map_or("nil".to_owned(), |value| value.to_string())
+            ),
+        );
+        append_text_argument(
+            out,
+            depth + 1,
+            format_args!(
+                "maximumFractionDigits: {}",
+                number_flow
+                    .maximum_fraction_digits
+                    .map_or("nil".to_owned(), |value| value.to_string())
+            ),
+        );
+        append_text_argument(
+            out,
+            depth + 1,
+            format_args!(
+                "animation: {}",
+                controls::swift_animation(number_flow.animation)
+            ),
+        );
+        append_text_argument(
+            out,
+            depth + 1,
+            format_args!("fontSize: {}", number(base_font_size)),
+        );
+    } else {
+        append_text_argument(out, depth + 1, format_args!("text: {text}"));
+    }
     if let Some(reveal) = &style.reveal {
         let expression = crate::generator::engine::expressions::expression;
         let segment_field = |name: &str| nexa_codegen::names::struct_field_name(name);
@@ -1099,11 +1232,11 @@ fn render_text(
             out,
             depth + 1,
             format_args!(
-                "position: Double({}), active: {}, playing: {}, enabled: {}, seekRevision: Int64({}), dimOpacity: {}, leadTime: {}, targetOffset: {}, smoothingDuration: {}, fontName: {font_name}, fontSize: {}, fontWeight: {}, fontDesign: \"{design}\", color: UIColor({color}), alignment: \"{alignment}\", lineHeight: {}, letterSpacing: {}, maxLines: {line_limit}, italic: {}, underline: {}, strikethrough: {}",
+                "position: Double({}), isActive: {}, isPlaying: {}, revealEnabled: {}, seekRevision: Int64({}), dimOpacity: {}, leadTime: {}, targetOffset: {}, smoothingDuration: {}, fontName: {font_name}, fontSize: {}, fontWeight: {}, fontDesign: \"{design}\", color: UIColor({color}), alignment: \"{alignment}\", lineHeight: {}, letterSpacing: {}, maxLines: {line_limit}, italic: {}, underline: {}, strikethrough: {}",
                 expression(&reveal.position),
-                expression(&reveal.active),
-                expression(&reveal.playing),
-                expression(&reveal.enabled),
+                expression(&reveal.is_active),
+                expression(&reveal.is_playing),
+                expression(&reveal.reveal_enabled),
                 expression(&reveal.seek_revision),
                 number(reveal.dim_opacity),
                 number(reveal.lead_time),
@@ -1188,6 +1321,8 @@ fn render_text(
             depth + 1,
             format_args!("style: NexaTextStyle(){}", style_modifiers.join("")),
         );
+    } else if style.number_flow.is_some() {
+        append_text_argument(out, depth + 1, format_args!("style: NexaTextStyle()"));
     }
     out.line_at(depth, format_args!(")"));
 }

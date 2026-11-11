@@ -2274,17 +2274,10 @@ fn coalesce_source_changes(
     receiver: &Receiver<DevConsoleCommand>,
     pending: &mut VecDeque<DevConsoleCommand>,
 ) -> Vec<PathBuf> {
-    let quiet_window = std::env::var("NEXA_DEV_DEBOUNCE_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .map(Duration::from_millis)
-        .unwrap_or_else(|| {
-            if paths.len() == 1 {
-                Duration::from_millis(5)
-            } else {
-                Duration::from_millis(40)
-            }
-        });
+    // Editors often save one file through multiple writes or a temporary-file
+    // rename. Wait for the complete save burst before compiling, even when the
+    // first notification names only one path.
+    let quiet_window = Duration::from_millis(40);
     let mut changed = paths.into_iter().collect::<BTreeSet<_>>();
     let mut deadline = Instant::now() + quiet_window;
     loop {
@@ -3981,20 +3974,80 @@ fn set_flavor(current: &mut Option<String>, requested: &str) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        DashboardLine, DevDashboard, DeviceLogDeduplicator, DeviceLogLine,
+        DashboardLine, DevConsoleCommand, DevDashboard, DeviceLogDeduplicator, DeviceLogLine,
         android_log_line_matches_pid, android_platform_name_matches_api,
         android_sdk_has_compile_platform, android_sdk_path, changed_paths, clip_terminal_text,
-        doctor_minimum_version, doctor_repair_hint, has_available_simulator, is_relevant_dev_path,
-        parse_android_devices, parse_android_process_id, parse_dev_diagnostic,
-        parse_ios_simulator_devices, parse_version, preflight_native_toolchains_with,
-        release_build_arguments, requires_native_rebuild, run, run_in_language_tests,
-        sanitize_terminal_text, select_native_platform, source_fingerprint, write_dashboard_row,
+        coalesce_source_changes, doctor_minimum_version, doctor_repair_hint,
+        has_available_simulator, is_relevant_dev_path, parse_android_devices,
+        parse_android_process_id, parse_dev_diagnostic, parse_ios_simulator_devices, parse_version,
+        preflight_native_toolchains_with, release_build_arguments, requires_native_rebuild, run,
+        run_in_language_tests, sanitize_terminal_text, select_native_platform, source_fingerprint,
+        write_dashboard_row,
     };
     use crossterm::style::Color;
     use nexa_testkit::{TempDir, TestProject};
     use std::collections::{HashMap, VecDeque};
     use std::fs;
+    use std::path::PathBuf;
+    use std::sync::mpsc;
+    use std::thread;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn dev_watcher_coalesces_a_single_file_save_burst_for_40ms() {
+        let (sender, receiver) = mpsc::channel();
+        let second_sender = sender.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(10));
+            second_sender
+                .send(DevConsoleCommand::SourceChanges(vec![PathBuf::from(
+                    "src/Second.nx",
+                )]))
+                .expect("the watcher is still coalescing the save");
+        });
+        let first_paths = vec![PathBuf::from("src/First.nx")];
+        let start = Instant::now();
+        let changed = coalesce_source_changes(first_paths, &receiver, &mut VecDeque::new());
+
+        assert!(start.elapsed() >= Duration::from_millis(40));
+        assert_eq!(
+            changed,
+            [
+                PathBuf::from("src/First.nx"),
+                PathBuf::from("src/Second.nx")
+            ]
+        );
+    }
+
+    #[test]
+    fn dev_watcher_detects_atomic_replacement_of_an_existing_source_file() {
+        let project = TestProject::new("nexa-dev-watcher-atomic-save");
+        let app = fs::canonicalize(project.write_app("app Demo { body { Text(\"Initial\") } }\n"))
+            .expect("canonicalize the watched source");
+        let (sender, receiver) = mpsc::channel();
+        let watcher = super::start_dev_source_watcher(project.path(), &HashMap::new(), sender)
+            .expect("watch the project directory");
+
+        let replacement = project.join("App.nx.tmp");
+        fs::write(&replacement, "app Demo { body { Text(\"Saved once\") } }\n")
+            .expect("write the editor temporary file");
+        fs::rename(&replacement, &app).expect("atomically replace the source file");
+
+        let mut saw_replacement = false;
+        while let Ok(DevConsoleCommand::SourceChanges(paths)) =
+            receiver.recv_timeout(Duration::from_secs(2))
+        {
+            saw_replacement |= paths.contains(&app);
+            if saw_replacement {
+                break;
+            }
+        }
+        drop(watcher);
+        assert!(
+            saw_replacement,
+            "the renamed .nx source must trigger a reload"
+        );
+    }
 
     #[test]
     fn doctor_finds_sdk_from_project_properties_before_environment() {

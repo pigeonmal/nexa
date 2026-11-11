@@ -18,6 +18,8 @@ struct SectionedPieces<'a> {
     element_type: &'a nexa_ir::Type,
     uses_platform_list: bool,
     show_dividers: bool,
+    hide_horizontal_scrollbar: bool,
+    hide_vertical_scrollbar: bool,
     item_extent: Option<f32>,
     spacing: f32,
     scroll_enabled: Option<&'a Expr>,
@@ -37,6 +39,8 @@ struct OpenListConfig<'a> {
     uses_platform_list: bool,
     reorder_enabled: bool,
     show_dividers: bool,
+    hide_horizontal_scrollbar: bool,
+    hide_vertical_scrollbar: bool,
     row_count: String,
     row_key: Option<String>,
     item_extent: Option<f32>,
@@ -61,6 +65,8 @@ struct ListConstructorConfig<'a> {
     spacing: f32,
     scroll_enabled: &'a str,
     show_dividers: bool,
+    hide_horizontal_scrollbar: bool,
+    hide_vertical_scrollbar: bool,
     reverse_layout: bool,
     page_snap: bool,
     component_ref: Option<&'a Expr>,
@@ -103,6 +109,8 @@ pub(crate) fn render_virtualized_list(
                     element_type,
                     uses_platform_list: common.swipe_actions.is_some(),
                     show_dividers: common.show_dividers,
+                    hide_horizontal_scrollbar: common.hide_horizontal_scrollbar,
+                    hide_vertical_scrollbar: common.hide_vertical_scrollbar,
                     item_extent: common.item_extent,
                     spacing: common.gap,
                     scroll_enabled: common.scroll_enabled.as_ref(),
@@ -124,18 +132,18 @@ pub(crate) fn render_virtualized_list(
         }
         ListPlan::Count { count, common } => {
             let uses_platform_list = common.swipe_actions.is_some();
-            let row_key = common.key.as_ref().map(|key| {
-                format!(
-                    "AnyHashable({})",
-                    render_key(key, &common.index, None, None, "listPosition")
-                )
-            });
+            let row_key = common
+                .key
+                .as_ref()
+                .map(|key| render_key(key, &common.index, None, None, "listPosition"));
             open_list(
                 OpenListConfig {
                     axis: common.axis,
                     uses_platform_list,
                     reorder_enabled: common.on_move.is_some(),
                     show_dividers: common.show_dividers,
+                    hide_horizontal_scrollbar: common.hide_horizontal_scrollbar,
+                    hide_vertical_scrollbar: common.hide_vertical_scrollbar,
                     row_count: format!("max(0, Int({}))", expression(count)),
                     row_key,
                     item_extent: common.item_extent,
@@ -182,15 +190,12 @@ pub(crate) fn render_virtualized_list(
                 ),
             );
             let row_key = common.key.as_ref().map(|key| {
-                format!(
-                    "AnyHashable({})",
-                    render_key(
-                        key,
-                        &common.index,
-                        Some(item),
-                        Some(&collection),
-                        "listPosition"
-                    )
+                render_key(
+                    key,
+                    &common.index,
+                    Some(item),
+                    Some(&collection),
+                    "listPosition",
                 )
             });
             open_list(
@@ -199,6 +204,8 @@ pub(crate) fn render_virtualized_list(
                     uses_platform_list,
                     reorder_enabled: common.on_move.is_some(),
                     show_dividers: common.show_dividers,
+                    hide_horizontal_scrollbar: common.hide_horizontal_scrollbar,
+                    hide_vertical_scrollbar: common.hide_vertical_scrollbar,
                     row_count: format!("{collection}.count"),
                     row_key,
                     item_extent: common.item_extent,
@@ -330,6 +337,8 @@ fn render_sectioned_list(
         element_type,
         uses_platform_list,
         show_dividers,
+        hide_horizontal_scrollbar,
+        hide_vertical_scrollbar,
         item_extent,
         spacing,
         scroll_enabled,
@@ -355,6 +364,10 @@ fn render_sectioned_list(
             swift_type(element_type)
         ),
     );
+    let row_uses = |binding: &str| {
+        row_references_binding(children, binding)
+            || swipe_actions.is_some_and(|nodes| row_references_binding(nodes, binding))
+    };
     let section_starts = format!("nexa_list_section_starts_{}", out.next_id());
     if uses_platform_list {
         out.line_at(depth, format_args!("let {section_starts}: [Int] = {{"));
@@ -389,7 +402,7 @@ fn render_sectioned_list(
         indent(out, depth);
         out.push_str("NexaNativeListPrimitive(");
         out.push_str(&format!(
-            "spacing: {}, scrollEnabled: {scroll_enabled}, rowCount: {collection}.reduce(0) {{ $0 + $1.count }}, componentRef: {}",
+            "spacing: {}, scrollEnabled: {scroll_enabled}, hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}, rowCount: {collection}.reduce(0) {{ $0 + $1.count }}, componentRef: {}",
             format_float(spacing),
             component_ref
                 .map(expression)
@@ -413,16 +426,11 @@ fn render_sectioned_list(
             out.line_at(
                 depth + 2,
                 format_args!(
-                    "let {rows} = {}.indices.map {{ itemPosition in",
+                    "let {rows} = NexaIdentifiedListRows(count: {}.count) {{ itemPosition in",
                     state_name("sectionItems")
                 ),
             );
-            out.line_at(
-                depth + 3,
-                format_args!(
-                    "NexaIdentifiedListRow(id: AnyHashable({identity}), position: itemPosition)"
-                ),
-            );
+            out.line_at(depth + 3, format_args!("{identity}"));
             out.line_at(depth + 2, format_args!("}}"));
             rows
         });
@@ -445,29 +453,35 @@ fn render_sectioned_list(
                 ),
             );
         }
-        out.line_at(
-            depth + 4,
-            format_args!(
-                "let {}: Int32 = Int32(clamping: sectionPosition)",
-                state_name(section)
-            ),
-        );
-        out.line_at(
-            depth + 4,
-            format_args!(
-                "let {}: Int32 = Int32(clamping: itemPosition)",
-                state_name(index)
-            ),
-        );
-        out.line_at(
-            depth + 4,
-            format_args!(
-                "let {}: {} = {}[itemPosition]",
-                state_name(item),
-                swift_type(element_type),
-                state_name("sectionItems")
-            ),
-        );
+        if row_uses(section) {
+            out.line_at(
+                depth + 4,
+                format_args!(
+                    "let {}: Int32 = Int32(clamping: sectionPosition)",
+                    state_name(section)
+                ),
+            );
+        }
+        if row_uses(index) {
+            out.line_at(
+                depth + 4,
+                format_args!(
+                    "let {}: Int32 = Int32(clamping: itemPosition)",
+                    state_name(index)
+                ),
+            );
+        }
+        if row_uses(item) {
+            out.line_at(
+                depth + 4,
+                format_args!(
+                    "let {}: {} = {}[itemPosition]",
+                    state_name(item),
+                    swift_type(element_type),
+                    state_name("sectionItems")
+                ),
+            );
+        }
         out.line_at(
             depth + 4,
             format_args!("NexaNativeListRowPrimitive(position: {section_starts}[sectionPosition] + itemPosition, showDividers: {show_dividers}, prioritizeSwipeActions: {}) {{", swipe_actions.is_some()),
@@ -493,21 +507,15 @@ fn render_sectioned_list(
         indent(out, depth + 2);
         if let Some(header) = section_header {
             out.push_str("} header: {\n");
-            out.line_at(
-                depth + 3,
-                format_args!(
-                    "let {}: [{}] = {collection}[sectionPosition]",
-                    state_name("sectionItems"),
-                    swift_type(element_type)
-                ),
-            );
-            out.line_at(
-                depth + 3,
-                format_args!(
-                    "let {}: Int32 = Int32(clamping: sectionPosition)",
-                    state_name(section)
-                ),
-            );
+            if row_references_binding(header, section) {
+                out.line_at(
+                    depth + 3,
+                    format_args!(
+                        "let {}: Int32 = Int32(clamping: sectionPosition)",
+                        state_name(section)
+                    ),
+                );
+            }
             out.line_at(depth + 3, format_args!("VStack(spacing: 0) {{"));
             render_children(header, scope.module, scope.features, depth + 4, out);
             out.push('\n');
@@ -548,6 +556,14 @@ fn render_sectioned_list(
         );
     }
     out.line_at(depth + 1, format_args!("showDividers: {show_dividers},"));
+    out.line_at(
+        depth + 1,
+        format_args!("hideHorizontalScrollbar: {hide_horizontal_scrollbar},"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("hideVerticalScrollbar: {hide_vertical_scrollbar},"),
+    );
     out.line_at(depth + 1, format_args!("scrollEnabled: {scroll_enabled},"));
     if let Some(component_ref) = component_ref {
         out.line_at(
@@ -557,7 +573,7 @@ fn render_sectioned_list(
     }
     if let Some(key) = key {
         indent(out, depth + 1);
-        out.push_str("rowKey: { sectionPosition, itemPosition in AnyHashable(");
+        out.push_str("rowKey: { sectionPosition, itemPosition in ");
         out.push_str(&render_sectioned_key(
             key,
             section,
@@ -567,7 +583,7 @@ fn render_sectioned_list(
             "sectionPosition",
             "itemPosition",
         ));
-        out.push_str(") },\n");
+        out.push_str(" },\n");
     }
     if let Some(refresh) = refresh {
         indent(out, depth + 1);
@@ -583,23 +599,27 @@ fn render_sectioned_list(
     if let Some(header) = section_header {
         indent(out, depth + 1);
         out.push_str("headerContent: { sectionPosition in\n");
-        out.line_at(
-            depth + 2,
-            format_args!(
-                "let {}: [{}] = {collection}[sectionPosition]",
-                state_name("sectionItems"),
-                swift_type(element_type)
-            ),
-        );
+        if row_references_binding(header, "sectionItems") {
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "let {}: [{}] = {collection}[sectionPosition]",
+                    state_name("sectionItems"),
+                    swift_type(element_type)
+                ),
+            );
+        }
         indent(out, depth + 2);
         out.push_str("return VStack(spacing: 0) {\n");
-        out.line_at(
-            depth + 3,
-            format_args!(
-                "let {}: Int32 = Int32(clamping: sectionPosition)",
-                state_name(section)
-            ),
-        );
+        if row_references_binding(header, section) {
+            out.line_at(
+                depth + 3,
+                format_args!(
+                    "let {}: Int32 = Int32(clamping: sectionPosition)",
+                    state_name(section)
+                ),
+            );
+        }
         render_children(header, scope.module, scope.features, depth + 3, out);
         out.push('\n');
         indent(out, depth + 2);
@@ -609,28 +629,34 @@ fn render_sectioned_list(
     }
     indent(out, depth + 1);
     out.push_str("rowContent: { sectionPosition, itemPosition in\n");
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "let {}: Int32 = Int32(clamping: sectionPosition)",
-            state_name(section)
-        ),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "let {}: Int32 = Int32(clamping: itemPosition)",
-            state_name(index)
-        ),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "let {}: {} = {collection}[sectionPosition][itemPosition]",
-            state_name(item),
-            swift_type(element_type)
-        ),
-    );
+    if row_uses(section) {
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "let {}: Int32 = Int32(clamping: sectionPosition)",
+                state_name(section)
+            ),
+        );
+    }
+    if row_uses(index) {
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "let {}: Int32 = Int32(clamping: itemPosition)",
+                state_name(index)
+            ),
+        );
+    }
+    if row_uses(item) {
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "let {}: {} = {collection}[sectionPosition][itemPosition]",
+                state_name(item),
+                swift_type(element_type)
+            ),
+        );
+    }
     render_children(children, scope.module, scope.features, depth + 2, out);
     out.push('\n');
     indent(out, depth + 1);
@@ -648,6 +674,8 @@ fn list_constructor(config: ListConstructorConfig<'_>) -> String {
         spacing,
         scroll_enabled,
         show_dividers,
+        hide_horizontal_scrollbar,
+        hide_vertical_scrollbar,
         reverse_layout,
         page_snap,
         component_ref,
@@ -664,6 +692,9 @@ fn list_constructor(config: ListConstructorConfig<'_>) -> String {
         String::new()
     };
     let scroll_enabled_argument = format!(", scrollEnabled: {scroll_enabled}");
+    let scrollbar_arguments = format!(
+        ", hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}"
+    );
     let component_ref_argument = component_ref
         .map(|reference| format!(", componentRef: {}", expression(reference)))
         .unwrap_or_default();
@@ -676,27 +707,27 @@ fn list_constructor(config: ListConstructorConfig<'_>) -> String {
             };
             let page_snap = if page_snap { ", pageSnap: true" } else { "" };
             format!(
-                "NexaFastListPrimitive(rowCount: {row_count}, rowHeight: {extent}{spacing_argument}, showDividers: {show_dividers}{scroll_enabled_argument}{key}{reverse}{page_snap}{component_ref_argument})"
+                "NexaFastListPrimitive(rowCount: {row_count}, rowHeight: {extent}{spacing_argument}, showDividers: {show_dividers}{scrollbar_arguments}{scroll_enabled_argument}{key}{reverse}{page_snap}{component_ref_argument})"
             )
         }
         ListAxis::Horizontal => {
             format!(
-                "NexaFastHorizontalListPrimitive(rowCount: {row_count}, itemExtent: {extent}{spacing_argument}{scroll_enabled_argument}{key}{component_ref_argument})"
+                "NexaFastHorizontalListPrimitive(rowCount: {row_count}, itemExtent: {extent}{spacing_argument}{scrollbar_arguments}{scroll_enabled_argument}{key}{component_ref_argument})"
             )
         }
         ListAxis::Grid { columns } => {
             format!(
-                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key}{component_ref_argument})"
+                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{spacing_argument}{scrollbar_arguments}{scroll_enabled_argument}{key}{component_ref_argument})"
             )
         }
         ListAxis::AutoGrid { min_cell_width } => {
             format!(
-                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: 1, minCellWidth: {min_cell_width}, itemHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key}{component_ref_argument})"
+                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: 1, minCellWidth: {min_cell_width}, itemHeight: {extent}{spacing_argument}{scrollbar_arguments}{scroll_enabled_argument}{key}{component_ref_argument})"
             )
         }
         ListAxis::Masonry { columns } => {
             format!(
-                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key}{component_ref_argument}, masonry: true)"
+                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{spacing_argument}{scrollbar_arguments}{scroll_enabled_argument}{key}{component_ref_argument}, masonry: true)"
             )
         }
     }
@@ -713,6 +744,8 @@ fn open_list(
         uses_platform_list,
         reorder_enabled,
         show_dividers,
+        hide_horizontal_scrollbar,
+        hide_vertical_scrollbar,
         row_count,
         row_key,
         item_extent,
@@ -736,12 +769,11 @@ fn open_list(
             let rows = format!("nexa_list_rows_{}", out.next_id());
             out.line_at(
                 depth,
-                format_args!("let {rows} = (0..<({row_count})).map {{ listPosition in"),
+                format_args!(
+                    "let {rows} = NexaIdentifiedListRows(count: {row_count}) {{ listPosition in"
+                ),
             );
-            out.line_at(
-                depth + 1,
-                format_args!("NexaIdentifiedListRow(id: {identity}, position: listPosition)"),
-            );
+            out.line_at(depth + 1, format_args!("{identity}"));
             out.line_at(depth, format_args!("}}"));
             rows
         });
@@ -752,7 +784,7 @@ fn open_list(
         };
         let arguments = if spacing > 0.0 {
             format!(
-                "spacing: {}, scrollEnabled: {scroll_enabled}{reorder_argument}, rowCount: {row_count}{}",
+                "spacing: {}, scrollEnabled: {scroll_enabled}, hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}{reorder_argument}, rowCount: {row_count}{}",
                 format_float(spacing),
                 component_ref
                     .map(|reference| format!(", componentRef: {}", expression(reference)))
@@ -760,7 +792,7 @@ fn open_list(
             )
         } else {
             format!(
-                "scrollEnabled: {scroll_enabled}{reorder_argument}, rowCount: {row_count}{}",
+                "scrollEnabled: {scroll_enabled}, hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}{reorder_argument}, rowCount: {row_count}{}",
                 component_ref
                     .map(|reference| format!(", componentRef: {}", expression(reference)))
                     .unwrap_or_default(),
@@ -803,6 +835,8 @@ fn open_list(
             spacing,
             scroll_enabled: &scroll_enabled,
             show_dividers,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
             reverse_layout,
             page_snap,
             component_ref: None,
@@ -874,6 +908,8 @@ fn open_list(
             spacing,
             scroll_enabled: &scroll_enabled,
             show_dividers,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
             reverse_layout,
             page_snap,
             component_ref,
@@ -1025,6 +1061,8 @@ mod tests {
                 uses_platform_list: false,
                 reorder_enabled: false,
                 show_dividers: false,
+                hide_horizontal_scrollbar: false,
+                hide_vertical_scrollbar: false,
                 row_count: "4".to_owned(),
                 row_key: None,
                 item_extent: None,

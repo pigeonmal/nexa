@@ -1,0 +1,80 @@
+{
+  "date": "2026-11-10",
+  "device": "Android 12 ARM64 QEMU emulator (emulator-5554)",
+  "workload": "AOT Release PerformanceAudit; 12-second foreground trace after startup settle; includes NumberFlow, TextReveal, Marquee, sectioned content, and 10,000-row FastList",
+  "package": "dev.nexa.performanceprofile",
+  "apkBytes": 1090047,
+  "apkSha256": "2313214927bcc73d1700f198a463b44c2c58246f528fe43c34d213145150d8d5",
+  "sourceSha256": "ec3c81e3198ac291a45e44bf75d97e45df730d92ad58d2c029dccc83e683d54e",
+  "traceSha256": "74f5d1baaa1823fda944f04355be03f000106d203360eac5eb20cd5777afe56f",
+  "traceBytes": 11557697,
+  "traceDurationSeconds": 12.182,
+  "sampleCount": 556,
+  "issues": [],
+  "threadCpuMs": {
+    "main": 648.122,
+    "renderThread": 4678.677
+  },
+  "renderThreadTopLeaf": {
+    "frame": "transfer_max_buffers",
+    "samples": 315
+  },
+  "recompositionMs": 13.544,
+  "measureAndLayoutSlices": [],
+  "frameMarkers": [
+    {
+      "jank_type": "App Deadline Missed, Buffer Stuffing",
+      "count": 9,
+      "avg_ms": 70.505,
+      "max_ms": 108.582
+    },
+    {
+      "jank_type": "Buffer Stuffing",
+      "count": 53,
+      "avg_ms": 59.73,
+      "max_ms": 148.53
+    },
+    {
+      "jank_type": "Prediction Error, App Deadline Missed",
+      "count": 1,
+      "avg_ms": 27.006,
+      "max_ms": 27.006
+    },
+    {
+      "jank_type": "Prediction Error, App Deadline Missed, Buffer Stuffing",
+      "count": 61,
+      "avg_ms": 78.264,
+      "max_ms": 171.718
+    },
+    {
+      "jank_type": "Prediction Error, Buffer Stuffing",
+      "count": 220,
+      "avg_ms": 50.815,
+      "max_ms": 144.886
+    },
+    {
+      "jank_type": "SurfaceFlinger CPU Deadline Missed, App Deadline Missed, Buffer Stuffing",
+      "count": 50,
+      "avg_ms": 69.304,
+      "max_ms": 153.975
+    },
+    {
+      "jank_type": "SurfaceFlinger CPU Deadline Missed, Buffer Stuffing",
+      "count": 23,
+      "avg_ms": 69.018,
+      "max_ms": 159.319
+    }
+  ],
+  "rssBytes": {
+    "min": 134250496,
+    "max": 135888896,
+    "samples": 12
+  },
+  "interpretation": "Most RenderThread CPU samples were in transfer_max_buffers, an emulator graphics buffer-transfer path. Compose recomposition CPU was small and no measure/layout slices were recorded. Frame deadline and buffer-stuffing markers make the simulator run unsuitable as a 120 Hz acceptance result; no app-level rendering rewrite is justified by this trace alone.",
+  "limits": [
+    "simulator-only",
+    "no interaction or list-scroll workload",
+    "short RSS window does not prove leak absence",
+    "no physical-device 120 Hz or battery result"
+  ]
+}

@@ -11,6 +11,7 @@ use crate::generator::{
 
 use super::conditional;
 use super::{RenderScope, adaptive_layout, appearance};
+use crate::generator::components::scroll_view;
 use crate::generator::components::split_view;
 use crate::generator::components::text;
 
@@ -32,6 +33,7 @@ pub(crate) fn render_node(
                 show_dividers,
                 background,
                 children,
+                ..
             } = child.as_ref()
             {
                 let content_padding = padding.as_ref().map(kotlin_padding_values);
@@ -57,6 +59,7 @@ pub(crate) fn render_node(
                 let scroll_content = matches!(
                     child.as_ref(),
                     Node::FastList { .. }
+                        | Node::ScrollView { .. }
                         | Node::KeyboardAware { .. }
                         | Node::RefreshControl { .. }
                 );
@@ -119,10 +122,26 @@ pub(crate) fn render_node(
             style,
             children,
         } => layout::render_layout(*kind, *gap, style, children, &scope, depth, out),
+        Node::ScrollView {
+            axis,
+            style,
+            component_ref,
+            children,
+            ..
+        } => scroll_view::render_scroll_view(
+            *axis,
+            style,
+            component_ref.as_ref(),
+            children,
+            &scope,
+            depth,
+            out,
+        ),
         Node::Form {
             show_dividers,
             background,
             children,
+            ..
         } => layout::render_form(
             *show_dividers,
             *background,
@@ -425,6 +444,7 @@ pub(crate) fn render_node(
             min,
             max,
             step,
+            show_step_indicators,
             tint,
             track_color,
             thumb_color,
@@ -439,6 +459,7 @@ pub(crate) fn render_node(
             min,
             max,
             *step,
+            *show_step_indicators,
             tint.as_ref(),
             track_color.as_ref(),
             thumb_color.as_ref(),
@@ -628,6 +649,7 @@ pub(crate) fn render_node(
             dismiss,
             behavior,
             children,
+            ..
         } => keyboard::render_keyboard_aware(
             *dismiss, *behavior, children, module, features, depth, out,
         ),
@@ -831,7 +853,7 @@ fn kotlin_insets(prefix: &str, insets: Option<&EdgeInsets>) -> String {
         expression
             .map(|expression| {
                 format!(
-                    "({}).toFloat().dp",
+                    "({}).toFloat().coerceAtLeast(0f).dp",
                     crate::generator::engine::expressions::expression(expression)
                 )
             })
@@ -854,7 +876,7 @@ fn kotlin_padding_values(insets: &EdgeInsets) -> String {
         expression
             .map(|expression| {
                 format!(
-                    "androidx.compose.ui.unit.Dp(({}).toFloat())",
+                    "androidx.compose.ui.unit.Dp(({}).toFloat().coerceAtLeast(0f))",
                     crate::generator::engine::expressions::expression(expression)
                 )
             })
@@ -944,12 +966,14 @@ fn render_text_input_node(node: &Node, weight_in_row: bool, depth: usize, out: &
         placeholder,
         keyboard,
         secure,
+        clearable,
         multiline,
         autofill,
         return_key,
         autocorrect,
         capitalization,
         focused,
+        component_ref,
         max_length,
         font,
         font_size,
@@ -974,12 +998,14 @@ fn render_text_input_node(node: &Node, weight_in_row: bool, depth: usize, out: &
             placeholder,
             keyboard: *keyboard,
             secure: *secure,
+            clearable: *clearable,
             multiline: *multiline,
             autofill: *autofill,
             return_key: *return_key,
             autocorrect: *autocorrect,
             capitalization: *capitalization,
-            focused: focused.as_deref(),
+            focused: focused.as_ref(),
+            component_ref: component_ref.as_ref(),
             max_length: *max_length,
             font: *font,
             font_size: *font_size,

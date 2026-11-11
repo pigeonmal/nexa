@@ -53,7 +53,6 @@ app TodoArchetype {
     state detectedDate: DataExtractor.ExtractedData? = null
     state dateSuggestionDismissed: Bool = false
     state taskDescription: String = ""
-    state taskTitleFocused: Bool = false
     state hasDueDate: Bool = false
     state dueTimestamp: Int64 = Time.now()
     state hasTime: Bool = false
@@ -95,7 +94,6 @@ app TodoArchetype {
                     priority = task.priority
                     if !task.isCompleted {
                         selectedTab = task.dueTimestamp == null ? 0 : (Time.startOfDay(task.dueTimestamp ?? 0) == Time.startOfDay(Time.now()) ? 1 : 2)
-                        taskTitleFocused = editingID < 0
                         taskEditorSheetRef.present()
                     }
                 } else {

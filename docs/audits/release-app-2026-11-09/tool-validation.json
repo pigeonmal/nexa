@@ -1,0 +1,5 @@
+{
+  "rejectsMissingProcess": true,
+  "rejectsTraceDiagnostics": true,
+  "preservesUnownedDirectory": true
+}

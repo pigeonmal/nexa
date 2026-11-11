@@ -57,7 +57,7 @@ fn unified_padding_margin_and_layout_gap_lower_to_typed_insets() {
         );
         assert!(
             swift.contains(
-                "margin: EdgeInsets(top: 0, leading: 0, bottom: CGFloat(Double(12)), trailing: 0)"
+                "margin: EdgeInsets(top: 0, leading: 0, bottom: max(0, CGFloat(Double(12))), trailing: 0)"
             ),
             "{swift}"
         );
@@ -101,11 +101,11 @@ fn form_padding_and_margin_keep_distinct_inset_contracts_on_both_backends() {
         );
 
         assert!(
-            swift.contains("contentPadding: EdgeInsets(top: CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top))"),
+            swift.contains("contentPadding: EdgeInsets(top: max(0, CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top)))"),
             "Form padding must stay in the scroll content: {swift}"
         );
         assert!(
-            swift.contains("margin: EdgeInsets(top: CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top))"),
+            swift.contains("margin: EdgeInsets(top: max(0, CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top)))"),
             "Form margin must stay outside the scroll content: {swift}"
         );
         assert!(
@@ -279,7 +279,7 @@ fn system_insets_are_reactive_values_in_explicit_padding_on_both_targets() {
             "{kotlin}"
         );
         assert!(
-            swift.contains("NexaFormPrimitive(background: nil, contentPadding: EdgeInsets(top:"),
+            swift.contains("NexaFormPrimitive(background: nil, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, contentPadding: EdgeInsets(top:"),
             "{swift}"
         );
         assert!(swift.contains("isFirstSection: true"), "{swift}");
@@ -288,7 +288,7 @@ fn system_insets_are_reactive_values_in_explicit_padding_on_both_targets() {
             "{kotlin}"
         );
         assert!(swift.contains(
-            "margin: EdgeInsets(top: 0, leading: 0, bottom: CGFloat(Double(8)), trailing: 0)"
+            "margin: EdgeInsets(top: 0, leading: 0, bottom: max(0, CGFloat(Double(8))), trailing: 0)"
         ));
         assert!(kotlin.contains(
             "modifier = Modifier.padding(androidx.compose.foundation.layout.PaddingValues("
@@ -382,7 +382,7 @@ fn component_margin_stays_outside_while_parent_gap_separates_children() {
             2
         );
         assert!(swift.contains(
-            "margin: EdgeInsets(top: 0, leading: 0, bottom: CGFloat(Double(5)), trailing: 0)"
+            "margin: EdgeInsets(top: 0, leading: 0, bottom: max(0, CGFloat(Double(5))), trailing: 0)"
         ));
         assert!(kotlin.contains("marginTop = "));
     }
@@ -793,4 +793,100 @@ fn scroll_header_defaults_to_pinned_and_rejects_missing_or_ambiguous_owners() {
             error.message
         );
     }
+}
+
+#[test]
+fn scroll_view_participates_in_insets_headers_and_keyboard_ownership() {
+    let bottom_inset = compile(
+        r#"app ScrollInsetOwner {
+            body {
+                ScrollView(axis: Vertical, height: Fill) { Text("Article") }
+                    .safeAreaInset(edge: Bottom) { Button("Continue") { } }
+            }
+        }"#,
+        Target::Swift,
+    )
+    .expect("ScrollView should be a safe-area inset owner")
+    .module;
+    let Node::SafeAreaInset { plan, children, .. } = &bottom_inset.body[0] else {
+        panic!("expected SafeAreaInset");
+    };
+    assert!(matches!(
+        plan.scroll_owner,
+        nexa_ir::adaptive_layout::ScrollOwnerResolution::Unique(owner)
+            if owner.kind == nexa_ir::adaptive_layout::ScrollOwnerKind::ScrollView
+                && owner.axes == nexa_ir::adaptive_layout::ScrollAxis::Vertical
+    ));
+    assert!(matches!(children.first(), Some(Node::ScrollView { .. })));
+
+    let horizontal_inset = compile(
+        r#"app HorizontalScrollInsetOwner {
+            body {
+                ScrollView(axis: Horizontal, width: Fill) { Row { Text("A") Text("B") } }
+                    .safeAreaInset(edge: Trailing) { Text("Attached") }
+            }
+        }"#,
+        Target::Swift,
+    )
+    .expect("horizontal ScrollView should own horizontal insets")
+    .module;
+    assert!(matches!(
+        &horizontal_inset.body[0],
+        Node::SafeAreaInset { plan, .. }
+            if matches!(plan.scroll_owner, nexa_ir::adaptive_layout::ScrollOwnerResolution::Unique(owner)
+                if owner.axes == nexa_ir::adaptive_layout::ScrollAxis::Horizontal)
+    ));
+
+    let header = compile(
+        r#"app ScrollViewHeader {
+            body {
+                ScrollView(height: Fill) { Column { Text("Article") } }
+                    .scrollHeader { Text("Reader") }
+            }
+        }"#,
+        Target::Swift,
+    )
+    .expect("vertical ScrollView should support scrollHeader")
+    .module;
+    assert!(matches!(
+        &header.body[0],
+        Node::ScrollHeader { children, .. } if matches!(children.first(), Some(Node::ScrollView { .. }))
+    ));
+    let horizontal_header = compile(
+        r#"app InvalidHorizontalHeader {
+            body {
+                ScrollView(axis: Horizontal, width: Fill) { Row { Text("A") } }
+                    .scrollHeader { Text("Reader") }
+            }
+        }"#,
+        Target::Swift,
+    )
+    .err()
+    .expect("a horizontal-only owner cannot drive vertical header behavior");
+    assert!(
+        horizontal_header
+            .to_string()
+            .contains("requires a vertical scroll owner")
+    );
+
+    let keyboard = compile(
+        r#"app KeyboardScrollView {
+            body {
+                KeyboardAware(behavior: Avoid) {
+                    ScrollView(height: Fill) { Column { Text("Editor") } }
+                }
+            }
+        }"#,
+        Target::Swift,
+    )
+    .expect("KeyboardAware should reuse ScrollView")
+    .module;
+    let swift = SwiftBackend.generate(&keyboard);
+    let kotlin = KotlinBackend.generate(&keyboard);
+    assert!(swift.contains("hasNativeScrollOwner: true"));
+    assert!(
+        kotlin.contains(
+            "NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = true, avoidIme = true)"
+        )
+    );
 }

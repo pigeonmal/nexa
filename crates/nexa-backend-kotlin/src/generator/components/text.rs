@@ -8,29 +8,69 @@ use crate::generator::{
     utils::number,
 };
 
-pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    imports.add(features.uses_text_node, "androidx.compose.material3.Text");
+pub(crate) fn imports(
+    features: &Features,
+    include_all_shared_primitives: bool,
+    imports: &mut ImportSet,
+) {
+    let uses_text_node = features.uses_text_node || include_all_shared_primitives;
+    let uses_text_reveal = features.uses_text_reveal || include_all_shared_primitives;
     imports.add(
-        features.uses_text_node,
-        "androidx.compose.ui.text.style.TextAlign",
+        uses_text_node,
+        "androidx.compose.animation.animateContentSize",
     );
-    imports.add(features.uses_text_node, "androidx.compose.ui.text.drawText");
+    imports.add(uses_text_node, "androidx.compose.animation.togetherWith");
+    imports.add(uses_text_node, "androidx.compose.foundation.layout.height");
+    imports.add(uses_text_node, "androidx.compose.ui.unit.sp");
+    imports.add(uses_text_node, "androidx.compose.ui.semantics.semantics");
     imports.add(
-        features.uses_text_node,
-        "androidx.compose.ui.draw.drawWithContent",
+        uses_text_node,
+        "androidx.compose.ui.semantics.clearAndSetSemantics",
     );
+    imports.add(uses_text_node, "androidx.compose.material3.Text");
+    imports.add(uses_text_node, "androidx.compose.ui.text.style.TextAlign");
+    imports.add(uses_text_reveal, "androidx.compose.ui.text.drawText");
+    imports.add(uses_text_reveal, "androidx.compose.ui.draw.drawWithCache");
     imports.add(
-        features.uses_text_node,
+        uses_text_reveal,
         "androidx.compose.ui.graphics.drawscope.clipRect",
     );
     imports.add(
-        features.uses_font_weight || features.uses_text_node,
+        uses_text_reveal,
+        "androidx.compose.ui.graphics.drawscope.drawIntoCanvas",
+    );
+    imports.add(
+        uses_text_reveal,
+        "androidx.compose.ui.graphics.nativeCanvas",
+    );
+    imports.add(
+        features.uses_font_weight || uses_text_node,
         "androidx.compose.ui.text.font.FontWeight",
     );
 }
 
 pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut SourceWriter) {
-    if style.reveal.is_some() {
+    if let Some(number_flow) = &style.number_flow {
+        let format = match number_flow.format {
+            nexa_ir::NumberFlowFormat::Number => "Number",
+            nexa_ir::NumberFlowFormat::Currency => "Currency",
+            nexa_ir::NumberFlowFormat::Percent => "Percent",
+            nexa_ir::NumberFlowFormat::Compact => "Compact",
+        };
+        let currency = number_flow
+            .currency_code
+            .as_deref()
+            .map_or("null".to_owned(), |code| {
+                format!("\"{}\"", code.replace('\\', "\\\\").replace('"', "\\\""))
+            });
+        let expression = crate::generator::engine::expressions::expression(value);
+        let animation =
+            crate::generator::components::controls::kotlin_animation(number_flow.animation);
+        out.text_at(depth, format_args!("NexaNumberFlowPrimitive(value = ({expression}).toDouble(), format = \"{format}\", currencyCode = {currency}, minimumFractionDigits = {}, maximumFractionDigits = {}, animationSpec = {animation}",
+            number_flow.minimum_fraction_digits.map_or("null".to_owned(), |value| value.to_string()),
+            number_flow.maximum_fraction_digits.map_or("null".to_owned(), |value| value.to_string()),
+        ));
+    } else if style.reveal.is_some() {
         out.text_at(
             depth,
             format_args!("NexaTextRevealPrimitive(text = {}", text_expression(value)),
@@ -159,11 +199,11 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
             out.push_str(", hasTrailingSpaceOf = { _ -> true }");
         }
         out.push_str(&format!(
-            ", position = ({}).toDouble(), active = {}, playing = {}, enabled = {}, seekRevision = ({}).toLong(), dimOpacity = {}f, leadTime = {}f, targetOffset = {}f, smoothingDurationMs = {}",
+            ", position = ({}).toDouble(), isActive = {}, isPlaying = {}, revealEnabled = {}, seekRevision = ({}).toLong(), dimOpacity = {}f, leadTime = {}f, targetOffset = {}f, smoothingDurationMs = {}",
             expression(&reveal.position),
-            expression(&reveal.active),
-            expression(&reveal.playing),
-            expression(&reveal.enabled),
+            expression(&reveal.is_active),
+            expression(&reveal.is_playing),
+            expression(&reveal.reveal_enabled),
             expression(&reveal.seek_revision),
             number(reveal.dim_opacity),
             number(reveal.lead_time),
@@ -202,7 +242,10 @@ fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
         super::graphics_layer::append_inline(effects, out);
     }
     if let Some(blur) = effects.blur {
-        out.push_str(&format!(".blur({}.dp)", number(blur)));
+        out.push_str(&format!(
+            ".blur({}.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)",
+            number(blur)
+        ));
     }
     if let Some(radius) = effects.clip_rounded {
         out.push_str(&format!(".clip(RoundedCornerShape({}.dp))", number(radius)));

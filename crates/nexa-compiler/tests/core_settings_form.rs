@@ -38,7 +38,7 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
         .expect("settings form should lower for iOS")
         .module;
     assert!(
-        matches!(swift_module.body.first(), Some(Node::Form { show_dividers: false, background: Some(_), children }) if matches!(children.first(), Some(Node::FormSection { title: Some(_), footer: Some(_), show_dividers: Some(true), background: Some(_), .. })) && matches!(children.get(1), Some(Node::FormSection { show_dividers: Some(false), .. })))
+        matches!(swift_module.body.first(), Some(Node::Form { show_dividers: false, background: Some(_), children, .. }) if matches!(children.first(), Some(Node::FormSection { title: Some(_), footer: Some(_), show_dividers: Some(true), background: Some(_), .. })) && matches!(children.get(1), Some(Node::FormSection { show_dividers: Some(false), .. })))
     );
     let swift = nexa_backend_swift::SwiftBackend
         .generate_units(&swift_module)
@@ -143,7 +143,7 @@ fn form_dividers_can_be_disabled_and_section_can_override() {
 
         if target == Target::Swift {
             let swift = nexa_backend_swift::SwiftBackend.generate(&module);
-            assert!(swift.contains("NexaFormPrimitive(background: nil) {"));
+            assert!(swift.contains("NexaFormPrimitive(background: nil, hideHorizontalScrollbar: false, hideVerticalScrollbar: false) {"));
             assert!(swift.contains("background: nil,"));
             assert!(swift.contains("showDividers: false"));
             assert!(swift.contains("showDividers: true"));
@@ -184,12 +184,12 @@ fn form_padding_and_margin_keep_their_authored_values_on_both_targets() {
     let swift = nexa_backend_swift::SwiftBackend.generate(&swift_module);
     assert!(
         swift.contains(
-            "contentPadding: EdgeInsets(top: CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top))"
+            "contentPadding: EdgeInsets(top: max(0, CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top)))"
         ),
         "{swift}"
     );
     assert!(
-        swift.contains("margin: EdgeInsets(top: CGFloat(Double(4))"),
+        swift.contains("margin: EdgeInsets(top: max(0, CGFloat(Double(4)))"),
         "{swift}"
     );
     assert!(swift.contains("firstChildIsSection: true"), "{swift}");
@@ -253,8 +253,8 @@ fn scroll_insets_reach_native_content_instead_of_outer_padding() {
         matches!(&module.body[0], Node::ViewInsets { child, .. } if matches!(child.as_ref(), Node::FastList { .. }))
     );
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
-    assert!(swift.contains("scrollContent: true) {"));
-    assert!(swift.contains("scrollContent: false) {"));
+    assert!(swift.contains("scrollContent: true, usesScrollMarginLayout: false) {"));
+    assert!(swift.contains("scrollContent: false, usesScrollMarginLayout: false) {"));
     assert!(swift.contains("scrollView.contentInset = insets"));
     assert!(swift.contains("environment: context.environment, reverseLayout: reverseLayout"));
     assert!(swift.contains("content().environment(\\.nexaScrollContentPadding, padding)"));

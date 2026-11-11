@@ -42,7 +42,6 @@ pub struct ModuleFacts {
     pub ui: UiFacts,
     pub permissions: PermissionFacts,
     pub component_calls: ComponentCallGraph,
-    pub focus_bindings: BindingSet,
 }
 
 /// UI scopes containing a task-launch action.
@@ -131,16 +130,6 @@ impl ComponentCallGraph {
         }
         required
     }
-}
-
-/// Focus bindings per scope. Backends render focus machinery per scope, so a
-/// module-wide union would emit declarations for bindings that do not exist
-/// in that scope; the sets stay separated here.
-#[derive(Clone, Debug, Default)]
-pub struct BindingSet {
-    pub app: BTreeSet<String>,
-    pub screens: BTreeMap<String, BTreeSet<String>>,
-    pub components: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// UI observations that backends need split by scope: the app group (app
@@ -282,6 +271,7 @@ pub struct ListFacts {
 #[derive(Clone, Debug, Default)]
 pub struct TextFacts {
     pub present: bool,
+    pub reveal: bool,
     pub font_weight: bool,
     pub sp: bool,
     pub line_height: bool,
@@ -333,6 +323,8 @@ pub struct PressableFacts {
 #[derive(Clone, Debug, Default)]
 pub struct LayoutFacts {
     pub form: bool,
+    pub scroll_view: bool,
+    pub scroll_view_ref: bool,
     pub safe_area_inset: bool,
     pub safe_area_endpoint: bool,
     pub scroll_header: bool,
@@ -349,6 +341,7 @@ pub struct LayoutFacts {
 
 #[derive(Clone, Debug, Default)]
 pub struct StyleFacts {
+    pub marquee: bool,
     pub alignment: bool,
     pub padding: bool,
     pub width: bool,
@@ -644,7 +637,6 @@ impl ModuleFacts {
                         node,
                         &mut facts.ui,
                         Scope::App,
-                        &mut facts.focus_bindings.app,
                         None,
                         &mut remote_hit,
                         &mut style_geometry_hit,
@@ -692,11 +684,6 @@ impl ModuleFacts {
                         node,
                         &mut facts.ui,
                         Scope::App,
-                        facts
-                            .focus_bindings
-                            .screens
-                            .entry(screen.name.clone())
-                            .or_default(),
                         None,
                         &mut remote_hit,
                         &mut style_geometry_hit,
@@ -776,11 +763,6 @@ impl ModuleFacts {
                         node,
                         &mut facts.ui,
                         Scope::Component(&component.name),
-                        facts
-                            .focus_bindings
-                            .components
-                            .entry(component.name.clone())
-                            .or_default(),
                         Some(calls),
                         &mut remote_hit,
                         &mut style_geometry_hit,
@@ -950,7 +932,6 @@ fn observe_node(
     node: &Node,
     ui: &mut UiFacts,
     scope: Scope<'_>,
-    focus: &mut BTreeSet<String>,
     calls: Option<&mut Vec<String>>,
     remote_hit: &mut bool,
     style_geometry_hit: &mut bool,
@@ -1021,8 +1002,32 @@ fn observe_node(
             *style_geometry_hit |= style_uses_screen_fraction(style);
             observe_style(style, &mut ui.style);
         }
+        Node::ScrollView {
+            style,
+            component_ref,
+            ..
+        } => {
+            ui.layout.scroll_view = true;
+            ui.layout.scroll_view_ref |= component_ref.is_some();
+            {
+                let scope = scope_of(ui, scope);
+                scope.adaptive_background |= style
+                    .background
+                    .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                scope.adaptive_border |= style
+                    .border_color
+                    .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                scope.adaptive_background |= style
+                    .effects
+                    .shadow
+                    .is_some_and(|shadow| matches!(shadow.color, ColorValue::Adaptive { .. }));
+            }
+            *style_geometry_hit |= style_uses_screen_fraction(style);
+            observe_style(style, &mut ui.style);
+        }
         Node::Text { style, .. } => {
             ui.text.present = true;
+            ui.text.reveal |= style.reveal.is_some();
             ui.text.font_weight |= style.font_weight.is_some();
             ui.text.line_height |= style.line_height.is_some();
             ui.text.sp |= style.font_size.is_some()
@@ -1119,10 +1124,12 @@ fn observe_node(
         Node::FormSection { children, .. } => record_child_layout(children, ui),
         Node::TextInput {
             secure,
+            clearable,
             capitalization,
             autofill,
             return_key,
             focused,
+            component_ref,
             searchable,
             actions,
             ..
@@ -1134,14 +1141,15 @@ fn observe_node(
                 ui.system_icons
                     .insert(SystemIcon::Shared("search".to_owned()));
             }
-            ui.text_input.focus |= focused.is_some();
+            if *clearable {
+                ui.system_icons
+                    .insert(SystemIcon::Shared("cancel".to_owned()));
+            }
+            ui.text_input.focus |= focused.is_some() || component_ref.is_some();
             ui.text_input.secure |= *secure;
             ui.text_input.capitalization |= capitalization.is_some();
             ui.text_input.autofill |= autofill.is_some();
             ui.text_input.return_key |= return_key.is_some();
-            if let Some(name) = focused {
-                focus.insert(name.clone());
-            }
         }
         Node::Toolbar { children, .. } => {
             ui.layout.row = true;
@@ -1585,6 +1593,7 @@ fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
     facts.corner_radius |= style.border_color.is_some();
     facts.opacity |= style.opacity.is_some();
     observe_effects(&style.effects, facts);
+    facts.marquee |= style.marquee.is_some();
     if let Some(animation) = style.animation {
         observe_animation(animation, facts);
     }
@@ -2205,6 +2214,8 @@ mod tests {
             item: "item".to_owned(),
             common: SectionedListCommon {
                 show_dividers: true,
+                hide_horizontal_scrollbar: false,
+                hide_vertical_scrollbar: false,
                 item_extent: None,
                 index: "index".to_owned(),
                 key: None,
@@ -2355,7 +2366,7 @@ mod tests {
     }
 
     #[test]
-    fn component_calls_and_focus_stay_per_scope() {
+    fn component_calls_are_scoped_without_controlled_input_focus_state() {
         use crate::Component;
         let callee = Component {
             name: "Callee".to_owned(),
@@ -2374,7 +2385,7 @@ mod tests {
                 return_key: None,
                 autocorrect: None,
                 capitalization: None,
-                focused: Some("query".to_owned()),
+                focused: Some(crate::Expr::Bool(true)),
                 max_length: None,
                 font: None,
                 font_size: None,
@@ -2388,6 +2399,7 @@ mod tests {
                 actions: Vec::new(),
                 on_focus: None,
                 on_change: None,
+                component_ref: None,
             }],
             on_appear: None,
             on_appear_async: false,
@@ -2423,13 +2435,5 @@ mod tests {
                 .requiring(&["Callee".to_owned()].into_iter().collect())
                 .contains("Caller")
         );
-        assert!(
-            facts
-                .focus_bindings
-                .components
-                .get("Callee")
-                .is_some_and(|bindings| bindings.contains("query"))
-        );
-        assert!(facts.focus_bindings.app.is_empty());
     }
 }

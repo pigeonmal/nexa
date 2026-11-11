@@ -421,6 +421,29 @@ private fun nexaDevInvokeFastListRef(
     return nexaDevComponentRefResult(result)
 }
 
+private fun nexaDevInvokeScrollViewRef(
+    reference: NexaScrollViewRef,
+    name: String,
+    options: Map<String, Any>,
+): Any {
+    val animated = options["animated"] as? Boolean ?: true
+    val result = when (name) {
+        "scrollToTop" -> reference.scrollToTop(animated)
+        "scrollToEnd" -> reference.scrollToEnd(animated)
+        "scrollToOffset" -> reference.scrollToOffset(
+            (options["offset"] as? Number)?.toDouble() ?: 0.0,
+            animated,
+        )
+        else -> return JSONObject.NULL
+    }
+    return nexaDevComponentRefResult(result)
+}
+
+private fun nexaDevInvokeTextInputRef(reference: NexaTextInputRef, name: String): Any {
+    val result = if (name == "focus") reference.focus() else reference.blur()
+    return nexaDevComponentRefResult(result)
+}
+
 internal suspend fun NexaDevStateStore.invokeNativeAsync(
     call: JSONObject,
     locals: Map<String, Any>,
@@ -447,6 +470,16 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         val reference = evaluateAsync(call.opt("receiver"), locals, scope) as? NexaFastListRef
             ?: return JSONObject.NULL
         return nexaDevInvokeFastListRef(reference, name, options)
+    }
+    if (namespace == "NexaScrollViewRef" && !call.isNull("receiver")) {
+        val reference = evaluateAsync(call.opt("receiver"), locals, scope) as? NexaScrollViewRef
+            ?: return JSONObject.NULL
+        return nexaDevInvokeScrollViewRef(reference, name, options)
+    }
+    if (namespace == "NexaTextInputRef" && !call.isNull("receiver")) {
+        val reference = evaluateAsync(call.opt("receiver"), locals, scope) as? NexaTextInputRef
+            ?: return JSONObject.NULL
+        return nexaDevInvokeTextInputRef(reference, name)
     }
     if (namespace == "NexaBottomSheetRef" && !call.isNull("receiver")) {
         val reference = evaluateAsync(call.opt("receiver"), locals, scope) as? NexaBottomSheetRef
@@ -707,6 +740,16 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
         val reference = evaluate(call.opt("receiver"), locals, scope) as? NexaFastListRef
             ?: return JSONObject.NULL
         return nexaDevInvokeFastListRef(reference, name, options)
+    }
+    if (namespace == "NexaScrollViewRef" && !call.isNull("receiver")) {
+        val reference = evaluate(call.opt("receiver"), locals, scope) as? NexaScrollViewRef
+            ?: return JSONObject.NULL
+        return nexaDevInvokeScrollViewRef(reference, name, options)
+    }
+    if (namespace == "NexaTextInputRef" && !call.isNull("receiver")) {
+        val reference = evaluate(call.opt("receiver"), locals, scope) as? NexaTextInputRef
+            ?: return JSONObject.NULL
+        return nexaDevInvokeTextInputRef(reference, name)
     }
     if (namespace == "NexaBottomSheetRef" && !call.isNull("receiver")) {
         val reference = evaluate(call.opt("receiver"), locals, scope) as? NexaBottomSheetRef

@@ -128,7 +128,6 @@ final class NexaDevStateStore: ObservableObject {
     /// Disabled by default; the dev console can opt into value-free trace events.
     var runtimeTraceEnabled = false
     var currentModule: [String: Any] = [:]
-    @Published private(set) var focusedFieldKey: String?
     var values: [String: Any] = [:]
     /// Native component handles survive module replacement independently of
     /// app state values, while their key includes the owning UI scope.
@@ -146,7 +145,6 @@ final class NexaDevStateStore: ObservableObject {
     private var navigationRoot: String?
     private var navigationScreensSignature: String?
     var activeFunctions = Set<String>()
-    var focusBindings: [String: (scope: String, state: String?)] = [:]
     var nativeEventSubscriptions: [NexaDevNativeEventSubscription] = []
     var networkStatusSubscriptions: [NexaDevNetworkStatusSubscription] = []
     var foregroundTasks: [String: NexaDevForegroundTask] = [:]
@@ -672,27 +670,6 @@ final class NexaDevStateStore: ObservableObject {
             }
             refreshNativeEventSubscriptions(module: module)
         }
-        var nextFocusBindings: [String: (scope: String, state: String?)] = [:]
-        Self.collectFocusBindings(module["body"] as? [Any] ?? [], scope: "app", into: &nextFocusBindings)
-        for screen in screens {
-            guard let name = screen["name"] as? String else { continue }
-            Self.collectFocusBindings(
-                screen["body"] as? [Any] ?? [],
-                scope: "screen/\(name)",
-                into: &nextFocusBindings
-            )
-        }
-        focusBindings = nextFocusBindings
-        if let focusedFieldKey, nextFocusBindings[focusedFieldKey] == nil {
-            self.focusedFieldKey = nil
-        }
-        if self.focusedFieldKey == nil {
-            self.focusedFieldKey = nextFocusBindings.first { _, binding in
-                guard let state = binding.state else { return false }
-                let identity = "\(binding.scope)/state/\(state)"
-                return values[identity] as? Bool == true
-            }?.key
-        }
         let screensSignature = Self.canonicalJSON(screens.map { $0["name"] ?? NSNull() })
         let rootScreen = screens.first?["name"] as? String
         if navigationRoot != rootScreen || navigationScreensSignature != screensSignature {
@@ -922,10 +899,6 @@ final class NexaDevStateStore: ObservableObject {
         navigationPaths.removeAll(keepingCapacity: true)
         routeArguments.removeAll(keepingCapacity: true)
         routeInstanceTokens.removeAll(keepingCapacity: true)
-        focusedFieldKey = focusBindings.first { _, binding in
-            guard let state = binding.state else { return false }
-            return values["\(binding.scope)/state/\(state)"] as? Bool == true
-        }?.key
         stateReaders.removeAll(keepingCapacity: true)
         invalidateAllScopes()
         appLifecycleEpoch += 1
@@ -1006,16 +979,6 @@ final class NexaDevStateStore: ObservableObject {
         values[storageKey] = value
         runtimeTrace("state_update \(runtimeTraceScope(scope)):\(name)")
         stateCommandRevisions[storageKey, default: 0] += 1
-        if let focused = value as? Bool,
-           let focusIdentity = focusBindings.first(where: { _, binding in
-               binding.scope == scope && binding.state == name
-           })?.key {
-            if focused {
-                focusedFieldKey = focusIdentity
-            } else if focusedFieldKey == focusIdentity {
-                focusedFieldKey = nil
-            }
-        }
         invalidateReaders(of: storageKey, sourceScope: scope)
     }
 
@@ -1042,18 +1005,6 @@ final class NexaDevStateStore: ObservableObject {
         if let current = values[storageKey] as? NSNumber, current.intValue == value { return }
         values[storageKey] = value
         invalidateReaders(of: storageKey, sourceScope: scope)
-    }
-
-    func focusChanged(to nextIdentity: String?) {
-        let previousIdentity = focusedFieldKey
-        focusedFieldKey = nextIdentity
-        guard previousIdentity != nextIdentity else { return }
-        if let previousIdentity, let binding = focusBindings[previousIdentity], let state = binding.state {
-            setValue(state, value: false, scope: binding.scope)
-        }
-        if let nextIdentity, let binding = focusBindings[nextIdentity], let state = binding.state {
-            setValue(state, value: true, scope: binding.scope)
-        }
     }
 
     func screenDidAppear(scope: String, parameters: [String: Any]) {
@@ -1085,15 +1036,7 @@ final class NexaDevStateStore: ObservableObject {
             fastListEndReachedKeys.remove(key)
         }
         scopeRevisions.removeValue(forKey: scope)
-        let removedFocusKeys = focusBindings.compactMap { entry in
-            entry.value.scope == scope ? entry.key : nil
-        }
-        for key in removedFocusKeys {
-            focusBindings.removeValue(forKey: key)
-        }
-        if let focusedFieldKey, removedFocusKeys.contains(focusedFieldKey) {
-            self.focusedFieldKey = nil
-        }
+
     }
 
     func screenDidDisappear(
@@ -1115,34 +1058,6 @@ final class NexaDevStateStore: ObservableObject {
 
         clearScope(scope: scope)
         routeArguments.removeValue(forKey: routeIdentity)
-    }
-
-    static func collectFocusBindings(
-        _ nodes: [Any],
-        scope: String,
-        into bindings: inout [String: (scope: String, state: String?)]
-    ) {
-        for node in nodes {
-            guard let tagged = node as? [String: Any], let (kind, payload) = tagged.first else { continue }
-            let fields = payload as? [String: Any] ?? [:]
-            if kind == "TextInput", let focusedState = fields["focused"] as? String {
-                let stateName = fields["state"] as? String ?? ""
-                let identity = "\(scope)/input/\(stateName)"
-                bindings[identity] = (scope: scope, state: focusedState)
-            }
-            for childListKey in ["children", "then_body", "else_body"] {
-                if let children = fields[childListKey] as? [Any] {
-                    collectFocusBindings(children, scope: scope, into: &bindings)
-                }
-            }
-            if let cases = fields["cases"] as? [[String: Any]] {
-                for caseBranch in cases {
-                    if let children = caseBranch["body"] as? [Any] {
-                        collectFocusBindings(children, scope: scope, into: &bindings)
-                    }
-                }
-            }
-        }
     }
 
     func evaluate(_ expression: Any, locals: [String: Any], scope: String = "app") -> Any {
@@ -1181,6 +1096,10 @@ final class NexaDevStateStore: ObservableObject {
                 reference = NexaBottomSheetRef()
             } else if namespace == "Nexa", name == "FastList" {
                 reference = NexaFastListRef()
+            } else if namespace == "Nexa", name == "ScrollView" {
+                reference = NexaScrollViewRef()
+            } else if namespace == "Nexa", name == "TextInput" {
+                reference = NexaTextInputRef()
             } else if namespace == "Nexa" {
                 reference = NexaDevComponentRef(componentName: name, identity: key)
             } else if let created = NexaDevPluginBridge.constructComponentRef(namespace: namespace, name: name) {

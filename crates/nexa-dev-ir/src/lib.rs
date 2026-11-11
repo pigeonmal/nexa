@@ -11,7 +11,7 @@ use nexa_ir::walk::IrFolder;
 use nexa_ir::{Action, Expr, Function, Module, Node, State, walk};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 79;
+pub const DEV_IR_FORMAT_VERSION: u16 = 85;
 
 /// Template token for native DevRuntime schemas. Native hosts receive this
 /// value from the same constant used to encode and validate Dev IR modules.
@@ -730,6 +730,7 @@ fn node_kind(node: &Node) -> &'static str {
             nexa_ir::LayoutKind::Row => "Row",
             nexa_ir::LayoutKind::Stack => "Stack",
         },
+        Node::ScrollView { .. } => "ScrollView",
         Node::Form { .. } => "Form",
         Node::FormSection { .. } => "FormSection",
         Node::Toolbar { .. } => "Toolbar",
@@ -778,6 +779,7 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
     match node {
         Node::Appearance { children, .. }
         | Node::Layout { children, .. }
+        | Node::ScrollView { children, .. }
         | Node::Form { children, .. }
         | Node::FormSection { children, .. }
         | Node::Toolbar { children, .. }

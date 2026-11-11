@@ -10,8 +10,20 @@
       "source": "0 dp",
       "translations": {}
     },
+    "0.0 s": {
+      "source": "0.0 s",
+      "translations": {}
+    },
+    "0.8 s": {
+      "source": "0.8 s",
+      "translations": {}
+    },
     "1 dp red border": {
       "source": "1 dp red border",
+      "translations": {}
+    },
+    "1.8 s": {
+      "source": "1.8 s",
       "translations": {}
     },
     "100 percent": {
@@ -149,6 +161,16 @@
       ],
       "translations": {}
     },
+    "Actions: {hapticActions}": {
+      "source": "Actions: {hapticActions}",
+      "arguments": [
+        "hapticActions"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "Active upload": {
       "source": "Active upload",
       "translations": {}
@@ -177,6 +199,10 @@
     },
     "Add an optional note": {
       "source": "Add an optional note",
+      "translations": {}
+    },
+    "Add €0.10": {
+      "source": "Add €0.10",
       "translations": {}
     },
     "Additional details make this card taller than its neighbors.": {
@@ -277,6 +303,14 @@
       "source": "Arrangement fills available width",
       "translations": {}
     },
+    "Article end": {
+      "source": "Article end",
+      "translations": {}
+    },
+    "Article start": {
+      "source": "Article start",
+      "translations": {}
+    },
     "At least 2 lines": {
       "source": "At least 2 lines",
       "translations": {}
@@ -333,6 +367,10 @@
     },
     "Blur": {
       "source": "Blur",
+      "translations": {}
+    },
+    "Blur email": {
+      "source": "Blur email",
       "translations": {}
     },
     "Blur radius 2": {
@@ -435,6 +473,18 @@
       "source": "Caption2",
       "translations": {}
     },
+    "Card one": {
+      "source": "Card one",
+      "translations": {}
+    },
+    "Card three": {
+      "source": "Card three",
+      "translations": {}
+    },
+    "Card two": {
+      "source": "Card two",
+      "translations": {}
+    },
     "Category": {
       "source": "Category",
       "comment": "Choose a category",
@@ -456,6 +506,10 @@
       "source": "Change dynamic tint",
       "translations": {}
     },
+    "Change headline": {
+      "source": "Change headline",
+      "translations": {}
+    },
     "Changes saved": {
       "source": "Changes saved",
       "translations": {}
@@ -466,10 +520,6 @@
     },
     "Circle": {
       "source": "Circle",
-      "translations": {}
-    },
-    "Clear email focus": {
-      "source": "Clear email focus",
       "translations": {}
     },
     "Clip": {
@@ -574,6 +624,10 @@
     },
     "Content and lists": {
       "source": "Content and lists",
+      "translations": {}
+    },
+    "Content that fits stays still": {
+      "source": "Content that fits stays still",
       "translations": {}
     },
     "Content unavailable": {
@@ -786,6 +840,22 @@
       ],
       "translations": {}
     },
+    "Disabled: {actionDisabled} · Loading: {actionLoading}": {
+      "source": "Disabled: {actionDisabled} · Loading: {actionLoading}",
+      "arguments": [
+        "actionDisabled",
+        "actionLoading"
+      ],
+      "argument_types": [
+        "Bool",
+        "Bool"
+      ],
+      "translations": {}
+    },
+    "Discover independent artists": {
+      "source": "Discover independent artists",
+      "translations": {}
+    },
     "Dismiss callback ran": {
       "source": "Dismiss callback ran",
       "translations": {}
@@ -842,6 +912,10 @@
       "source": "Dynamic loading",
       "translations": {}
     },
+    "Each changed digit rolls independently using the device locale.": {
+      "source": "Each changed digit rolls independently using the device locale.",
+      "translations": {}
+    },
     "EaseIn": {
       "source": "EaseIn",
       "translations": {}
@@ -886,20 +960,6 @@
     },
     "Effects and behavior tests": {
       "source": "Effects and behavior tests",
-      "translations": {}
-    },
-    "Email focused: {emailFocused} · focus entries: {emailFocusCount} · last submitted: {lastSubmitted}": {
-      "source": "Email focused: {emailFocused} · focus entries: {emailFocusCount} · last submitted: {lastSubmitted}",
-      "arguments": [
-        "emailFocused",
-        "emailFocusCount",
-        "lastSubmitted"
-      ],
-      "argument_types": [
-        "Bool",
-        "Int32",
-        "String"
-      ],
       "translations": {}
     },
     "Email · Next": {
@@ -948,6 +1008,10 @@
       "source": "Explicit 12 dp padding",
       "translations": {}
     },
+    "Explicit ScrollView": {
+      "source": "Explicit ScrollView",
+      "translations": {}
+    },
     "Explicit center": {
       "source": "Explicit center",
       "translations": {}
@@ -962,6 +1026,10 @@
     },
     "Explicit zero padding": {
       "source": "Explicit zero padding",
+      "translations": {}
+    },
+    "Explore live performances": {
+      "source": "Explore live performances",
       "translations": {}
     },
     "External link": {
@@ -986,10 +1054,6 @@
     },
     "FastList parameters": {
       "source": "FastList parameters",
-      "translations": {}
-    },
-    "FastList parity": {
-      "source": "FastList parity",
       "translations": {}
     },
     "FastList parity pages inside sheet": {
@@ -1054,6 +1118,10 @@
     },
     "Finish refresh": {
       "source": "Finish refresh",
+      "translations": {}
+    },
+    "Finite vertical and horizontal viewports; child margin extends the scroll range.": {
+      "source": "Finite vertical and horizontal viewports; child margin extends the scroll range.",
       "translations": {}
     },
     "First child · zIndex 2": {
@@ -1178,6 +1246,18 @@
       "source": "Focus email",
       "translations": {}
     },
+    "Focus entries: {emailFocusCount} · last submitted: {lastSubmitted}": {
+      "source": "Focus entries: {emailFocusCount} · last submitted: {lastSubmitted}",
+      "arguments": [
+        "emailFocusCount",
+        "lastSubmitted"
+      ],
+      "argument_types": [
+        "Int32",
+        "String"
+      ],
+      "translations": {}
+    },
     "Font 13 · Semibold · height 34 · radius 10 · border 2": {
       "source": "Font 13 · Semibold · height 34 · radius 10 · border 2",
       "translations": {}
@@ -1247,12 +1327,20 @@
       "source": "Hairline · 0.5 dp",
       "translations": {}
     },
+    "Haptic feedback": {
+      "source": "Haptic feedback",
+      "translations": {}
+    },
     "Headline": {
       "source": "Headline",
       "translations": {}
     },
     "Headline at 24": {
       "source": "Headline at 24",
+      "translations": {}
+    },
+    "Heavy feedback": {
+      "source": "Heavy feedback",
       "translations": {}
     },
     "Hint: {barAccessibleHint}": {
@@ -1265,8 +1353,16 @@
       ],
       "translations": {}
     },
+    "Horizontal axis": {
+      "source": "Horizontal axis",
+      "translations": {}
+    },
     "Horizontal end": {
       "source": "Horizontal end",
+      "translations": {}
+    },
+    "Horizontal media title": {
+      "source": "Horizontal media title",
       "translations": {}
     },
     "Horizontal offset 160": {
@@ -1475,6 +1571,10 @@
       "source": "Light appearance surface",
       "translations": {}
     },
+    "Light feedback": {
+      "source": "Light feedback",
+      "translations": {}
+    },
     "Line limit\nhides the next line": {
       "source": "Line limit\nhides the next line",
       "translations": {}
@@ -1511,6 +1611,10 @@
       "source": "Link role sample",
       "translations": {}
     },
+    "Listen to this week's new releases": {
+      "source": "Listen to this week's new releases",
+      "translations": {}
+    },
     "Loading": {
       "source": "Loading",
       "translations": {}
@@ -1533,8 +1637,24 @@
       "source": "Map sheet",
       "translations": {}
     },
+    "Margin test 10": {
+      "source": "Margin test 10",
+      "translations": {}
+    },
+    "Margin test 1000": {
+      "source": "Margin test 1000",
+      "translations": {}
+    },
     "Mark complete": {
       "source": "Mark complete",
+      "translations": {}
+    },
+    "Marquee": {
+      "source": "Marquee",
+      "translations": {}
+    },
+    "Marquee animations": {
+      "source": "Marquee animations",
       "translations": {}
     },
     "Masonry card {index}": {
@@ -1587,6 +1707,10 @@
     },
     "Medium and expanded native resting sizes": {
       "source": "Medium and expanded native resting sizes",
+      "translations": {}
+    },
+    "Medium feedback": {
+      "source": "Medium feedback",
       "translations": {}
     },
     "Mid": {
@@ -1684,6 +1808,10 @@
       ],
       "translations": {}
     },
+    "Music news": {
+      "source": "Music news",
+      "translations": {}
+    },
     "Native default range": {
       "source": "Native default range",
       "translations": {}
@@ -1775,6 +1903,10 @@
     },
     "Number · Search": {
       "source": "Number · Search",
+      "translations": {}
+    },
+    "Offset": {
+      "source": "Offset",
       "translations": {}
     },
     "Offset 160": {
@@ -1934,6 +2066,10 @@
       "source": "Password",
       "translations": {}
     },
+    "Pause or resume marquee": {
+      "source": "Pause or resume marquee",
+      "translations": {}
+    },
     "Phone · Send": {
       "source": "Phone · Send",
       "translations": {}
@@ -1962,6 +2098,16 @@
     },
     "Plain": {
       "source": "Plain",
+      "translations": {}
+    },
+    "Playback position: {revealPosition} s": {
+      "source": "Playback position: {revealPosition} s",
+      "arguments": [
+        "revealPosition"
+      ],
+      "argument_types": [
+        "Float64"
+      ],
       "translations": {}
     },
     "Presentation and environment": {
@@ -2032,6 +2178,10 @@
     },
     "Range selection · one native calendar": {
       "source": "Range selection · one native calendar",
+      "translations": {}
+    },
+    "Reachable after scrolling": {
+      "source": "Reachable after scrolling",
       "translations": {}
     },
     "Read the text metadata": {
@@ -2213,6 +2363,10 @@
       "source": "Save keeps this sheet open. Close dismisses it.",
       "translations": {}
     },
+    "Save your favorite albums": {
+      "source": "Save your favorite albums",
+      "translations": {}
+    },
     "Save {titleActions}": {
       "source": "Save {titleActions}",
       "arguments": [
@@ -2297,6 +2451,10 @@
       ],
       "translations": {}
     },
+    "Scroll the content to the final paragraph.": {
+      "source": "Scroll the content to the final paragraph.",
+      "translations": {}
+    },
     "Scroll to collapse": {
       "source": "Scroll to collapse",
       "translations": {}
@@ -2311,6 +2469,10 @@
     },
     "Scroll to top": {
       "source": "Scroll to top",
+      "translations": {}
+    },
+    "ScrollView": {
+      "source": "ScrollView",
       "translations": {}
     },
     "Scrolling enabled": {
@@ -2661,12 +2823,22 @@
       "comment": "Choose the task sort order",
       "translations": {}
     },
-    "Spacer": {
-      "source": "Spacer",
+    "Source mounts: {appearances}": {
+      "source": "Source mounts: {appearances}",
+      "arguments": [
+        "appearances"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
       "translations": {}
     },
     "Spacer distribution": {
       "source": "Spacer distribution",
+      "translations": {}
+    },
+    "Spacersdffsdfsd": {
+      "source": "Spacersdffsdfsd",
       "translations": {}
     },
     "Spring": {
@@ -2743,8 +2915,22 @@
       "source": "StatusBar",
       "translations": {}
     },
+    "Stepped without indicators: {sliderHiddenSteps}": {
+      "source": "Stepped without indicators: {sliderHiddenSteps}",
+      "arguments": [
+        "sliderHiddenSteps"
+      ],
+      "argument_types": [
+        "Float64"
+      ],
+      "translations": {}
+    },
     "Subheadline": {
       "source": "Subheadline",
+      "translations": {}
+    },
+    "Subtract €0.10": {
+      "source": "Subtract €0.10",
       "translations": {}
     },
     "Surface": {
@@ -2871,6 +3057,10 @@
       "source": "TextInput fills its sheet column",
       "translations": {}
     },
+    "TextReveal highlights words as the playback position advances. The app supplies word timings; this preview does not play audio.": {
+      "source": "TextReveal highlights words as the playback position advances. The app supplies word timings; this preview does not play audio.",
+      "translations": {}
+    },
     "The drag handle, Back, and outside dismissal are disabled.": {
       "source": "The drag handle, Back, and outside dismissal are disabled.",
       "translations": {}
@@ -2923,11 +3113,6 @@
     },
     "Time · 24-hour display": {
       "source": "Time · 24-hour display",
-      "translations": {}
-    },
-    "Timed text": {
-      "source": "Timed text",
-      "comment": "Timed text rendering",
       "translations": {}
     },
     "Tint-only range": {
@@ -3238,6 +3423,10 @@
       "source": "Vertical alignment: Start / Center / End",
       "translations": {}
     },
+    "Vertical announcements": {
+      "source": "Vertical announcements",
+      "translations": {}
+    },
     "Vertical row {index}": {
       "source": "Vertical row {index}",
       "arguments": [
@@ -3275,6 +3464,11 @@
     },
     "Wheel · native wheel on iOS, Material input on Android": {
       "source": "Wheel · native wheel on iOS, Material input on Android",
+      "translations": {}
+    },
+    "When the music starts tonight": {
+      "source": "When the music starts tonight",
+      "comment": "Timed lyrics or transcript preview",
       "translations": {}
     },
     "Width + min/max height constraints": {

@@ -17,9 +17,9 @@ app TimedTextExample {
         TimedWord(text: "close", startTimeSeconds: 1.5, endTimeSeconds: 2.0, hasTrailingSpace: false),
     ]
     state position: Float64 = 1.0
-    state active: Bool = true
-    state playing: Bool = true
-    state enabled: Bool = true
+    state isActive: Bool = true
+    state isPlaying: Bool = true
+    state revealEnabled: Bool = true
     state seekRevision: Int32 = 0
 
     body {
@@ -27,9 +27,9 @@ app TimedTextExample {
             "Stay close",
             segments: words,
             position: position,
-            active: active,
-            playing: playing,
-            enabled: enabled,
+            isActive: isActive,
+            isPlaying: isPlaying,
+            revealEnabled: revealEnabled,
             seekRevision: seekRevision,
             fontSize: 29,
             fontFamily: "Gilroy-Regular",
@@ -85,6 +85,9 @@ fn text_reveal_keeps_segment_values_typed_and_generates_both_native_accessors() 
                 assert!(source.contains("textOf: { $0.nexa_field_text }"));
                 assert!(source.contains("Double($0.nexa_field_startTimeSeconds)"));
                 assert!(source.contains("$0.nexa_field_hasTrailingSpace ?? true"));
+                assert!(source.contains("isActive:"));
+                assert!(source.contains("isPlaying:"));
+                assert!(source.contains("revealEnabled:"));
                 assert!(source.contains("CADisplayLink"));
             }
             Target::Kotlin => {
@@ -95,11 +98,27 @@ fn text_reveal_keeps_segment_values_typed_and_generates_both_native_accessors() 
                 assert!(source.contains("textOf = { segment -> segment.nexa_field_text }"));
                 assert!(source.contains("segment.nexa_field_startTimeSeconds.toDouble()"));
                 assert!(source.contains("segment.nexa_field_hasTrailingSpace ?: true"));
+                assert!(source.contains("isActive ="));
+                assert!(source.contains("isPlaying ="));
+                assert!(source.contains("revealEnabled ="));
                 assert!(source.contains("drawText(textLayout, color = resolvedColor)"));
             }
             Target::All => unreachable!("this test compiles one native target at a time"),
         }
     }
+}
+
+#[test]
+fn text_reveal_uses_explicit_boolean_names_and_rejects_ambiguous_legacy_names() {
+    let legacy = SOURCE
+        .replace("isActive:", "active:")
+        .replace("isPlaying:", "playing:")
+        .replace("revealEnabled:", "enabled:");
+    let error = compile(&legacy, Target::Swift).expect_err("legacy boolean names are removed");
+    assert!(
+        error.contains("unknown option `active`"),
+        "unexpected diagnostic: {error}"
+    );
 }
 
 #[test]

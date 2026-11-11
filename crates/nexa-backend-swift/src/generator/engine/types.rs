@@ -242,6 +242,103 @@ public final class NexaFastListRef {
 }
 
 @MainActor
+public final class NexaScrollViewRef {
+    private var generation: UInt64 = 0
+    private weak var attachedView: AnyObject?
+    private var topAction: ((Bool) -> Void)?
+    private var endAction: ((Bool) -> Void)?
+    private var offsetAction: ((Double, Bool) -> Void)?
+
+    public init() {}
+
+    @discardableResult
+    func attach(
+        view: AnyObject,
+        scrollToTop: @escaping (Bool) -> Void,
+        scrollToEnd: @escaping (Bool) -> Void,
+        scrollToOffset: @escaping (Double, Bool) -> Void
+    ) -> UInt64 {
+        generation &+= 1
+        attachedView = view
+        topAction = scrollToTop
+        endAction = scrollToEnd
+        offsetAction = scrollToOffset
+        return generation
+    }
+
+    func detach(generation expected: UInt64) {
+        guard generation == expected else { return }
+        attachedView = nil
+        topAction = nil
+        endAction = nil
+        offsetAction = nil
+    }
+
+    public func scrollToTop(animated: Bool = true) -> Result<Void, NexaComponentRefError<Never>> {
+        guard attachedView != nil, let topAction else { return .failure(.notAttached) }
+        topAction(animated)
+        return .success(())
+    }
+
+    public func scrollToEnd(animated: Bool = true) -> Result<Void, NexaComponentRefError<Never>> {
+        guard attachedView != nil, let endAction else { return .failure(.notAttached) }
+        endAction(animated)
+        return .success(())
+    }
+
+    public func scrollToOffset(
+        _ offset: Double,
+        animated: Bool = true
+    ) -> Result<Void, NexaComponentRefError<Never>> {
+        guard attachedView != nil, let offsetAction else { return .failure(.notAttached) }
+        offsetAction(offset.isFinite ? max(0, offset) : 0, animated)
+        return .success(())
+    }
+}
+
+@MainActor
+public final class NexaTextInputRef {
+    private var generation: UInt64 = 0
+    private weak var attachedView: AnyObject?
+    private var focusAction: (() -> Void)?
+    private var blurAction: (() -> Void)?
+
+    public init() {}
+
+    @discardableResult
+    func attach(
+        view: AnyObject,
+        focus: @escaping () -> Void,
+        blur: @escaping () -> Void
+    ) -> UInt64 {
+        generation &+= 1
+        attachedView = view
+        focusAction = focus
+        blurAction = blur
+        return generation
+    }
+
+    func detach(generation expected: UInt64) {
+        guard generation == expected else { return }
+        attachedView = nil
+        focusAction = nil
+        blurAction = nil
+    }
+
+    public func focus() -> Result<Void, NexaComponentRefError<Never>> {
+        guard attachedView != nil, let focusAction else { return .failure(.notAttached) }
+        focusAction()
+        return .success(())
+    }
+
+    public func blur() -> Result<Void, NexaComponentRefError<Never>> {
+        guard attachedView != nil, let blurAction else { return .failure(.notAttached) }
+        blurAction()
+        return .success(())
+    }
+}
+
+@MainActor
 public final class NexaBottomSheetRef {
     private var generation: UInt64 = 0
     private var presentAction: (() -> Void)?

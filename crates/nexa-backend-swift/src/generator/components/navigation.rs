@@ -85,7 +85,7 @@ pub(crate) fn render_navigation_stack(
     root: ScreenId,
     arguments: &[Expr],
     title: NavigationTitleOptions,
-    features: &Features,
+    _features: &Features,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -119,13 +119,22 @@ pub(crate) fn render_navigation_stack(
         module,
         root,
         arguments,
-        features,
         "__nexaRootScreenIdentity",
     ));
     if !show_native_bar {
         out.push('\n');
         indent(out, depth + 2);
         out.push_str(".ignoresSafeArea(.container, edges: .all)");
+    } else if !root_has_toolbar {
+        // Keep edge-to-edge behavior local to the root screen. Applying this
+        // to NavigationStack also affects pushed destinations, allowing their
+        // content to render beneath the status and navigation bars.
+        out.push('\n');
+        indent(out, depth + 2);
+        out.push_str(".toolbar(.hidden, for: .navigationBar)");
+        out.push('\n');
+        indent(out, depth + 2);
+        out.push_str(".ignoresSafeArea(.container, edges: .top)");
     }
     out.push('\n');
     indent(out, depth + 2);
@@ -160,7 +169,6 @@ pub(crate) fn render_navigation_stack(
                 .iter()
                 .map(|parameter| Expr::State(parameter.name.clone(), parameter.ty.clone()))
                 .collect::<Vec<_>>(),
-            features,
             "routeIdentity",
         );
         let leading_title = match alignment {
@@ -208,10 +216,6 @@ pub(crate) fn render_navigation_stack(
         out.push_str(
             ".toolbar(.hidden, for: .navigationBar).modifier(NexaHideTabBarModifier()).ignoresSafeArea(.container, edges: .all)",
         );
-    } else if !root_has_toolbar {
-        out.push_str(
-            ".toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .top)",
-        );
     }
     out.push('\n');
     indent(out, depth - 1);
@@ -239,8 +243,14 @@ fn screen_has_navigation_toolbar(module: &Module, screen_id: ScreenId) -> bool {
 fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWriter) {
     indent(out, depth);
     out.push_str("let scheme = url.scheme?.lowercased() ?? \"\"\n");
-    indent(out, depth);
-    out.push_str("let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []\n");
+    if module
+        .screens
+        .iter()
+        .any(|screen| !screen.parameters.is_empty())
+    {
+        indent(out, depth);
+        out.push_str("let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []\n");
+    }
     indent(out, depth);
     out.push_str(
         "var segments = url.pathComponents.dropFirst().map { $0.removingPercentEncoding ?? $0 }\n",
@@ -346,7 +356,6 @@ pub(crate) fn render_screen_view(
     out: &mut SourceWriter,
 ) {
     out.push('\n');
-    let focus_bindings = crate::generator::screen_focus_bindings(screen, features);
     out.push_str(&format!(
         "private struct {}: View {{\n",
         screen_view_name(screen.id)
@@ -366,28 +375,21 @@ pub(crate) fn render_screen_view(
         out.push_str("    @State private var nexaTaskScope = NexaTaskScope()\n");
     }
     for state in &module.states {
-        if !screen_state_is_passed_as_binding(state, &focus_bindings) {
+        if !screen_state_is_passed_as_binding(state) {
             continue;
         }
         out.line_at(
             1,
             format_args!(
                 "{} private var {}: {}",
-                if focus_bindings.contains(&state.name) {
-                    "@FocusState.Binding"
-                } else {
-                    "@Binding"
-                },
+                "@Binding",
                 nexa_codegen::names::state_name(&state.name),
                 swift_type(&state.ty)
             ),
         );
     }
     for state in &module.states {
-        if state.is_native_class_constructor_binding()
-            && !state.mutable
-            && !focus_bindings.contains(&state.name)
-        {
+        if state.is_native_class_constructor_binding() && !state.mutable {
             out.line_at(
                 1,
                 format_args!(
@@ -430,7 +432,7 @@ pub(crate) fn render_screen_view(
                     swift_type(&state.ty)
                 ),
             );
-        } else if state.mutable && !focus_bindings.contains(&state.name) {
+        } else if state.mutable {
             out.line_at(
                 1,
                 format_args!(
@@ -444,18 +446,6 @@ pub(crate) fn render_screen_view(
     }
     render_immutable_state(&module.states, 1, out);
     render_immutable_state(&screen.states, 1, out);
-    for binding in &focus_bindings {
-        if module.states.iter().any(|state| state.name == *binding) {
-            continue;
-        }
-        out.line_at(
-            1,
-            format_args!(
-                "@FocusState private var {}: Bool",
-                nexa_codegen::names::state_name(binding)
-            ),
-        );
-    }
     if features.app_uses_adaptive_color {
         indent(out, 1);
         out.push_str("@Environment(\\.colorScheme) private var nexaColorScheme\n");
@@ -480,20 +470,13 @@ pub(crate) fn render_screen_view(
         )
     }));
     init_parameters.extend(module.states.iter().filter_map(|state| {
-        if screen_state_is_passed_as_binding(state, &focus_bindings) {
+        if screen_state_is_passed_as_binding(state) {
             Some(format!(
-                "{}: {}",
+                "{}: Binding<{}>",
                 nexa_codegen::names::state_name(&state.name),
-                if focus_bindings.contains(&state.name) {
-                    "FocusState<Bool>.Binding".to_owned()
-                } else {
-                    format!("Binding<{}>", swift_type(&state.ty))
-                }
+                swift_type(&state.ty)
             ))
-        } else if state.is_native_class_constructor_binding()
-            && !state.mutable
-            && !focus_bindings.contains(&state.name)
-        {
+        } else if state.is_native_class_constructor_binding() && !state.mutable {
             Some(format!(
                 "{}: {}",
                 nexa_codegen::names::state_name(&state.name),
@@ -513,13 +496,10 @@ pub(crate) fn render_screen_view(
             out.push_str(&format!("        self.{name} = {name}\n"));
         }
         for state in &module.states {
-            if screen_state_is_passed_as_binding(state, &focus_bindings) {
+            if screen_state_is_passed_as_binding(state) {
                 let name = nexa_codegen::names::state_name(&state.name);
                 out.push_str(&format!("        self._{name} = {name}\n"));
-            } else if state.is_native_class_constructor_binding()
-                && !state.mutable
-                && !focus_bindings.contains(&state.name)
-            {
+            } else if state.is_native_class_constructor_binding() && !state.mutable {
                 let name = nexa_codegen::names::state_name(&state.name);
                 out.push_str(&format!("        self.{name} = {name}\n"));
             }
@@ -580,31 +560,20 @@ fn screen_call(
     module: &Module,
     screen: ScreenId,
     arguments: &[Expr],
-    features: &Features,
     route_identity: &str,
 ) -> String {
-    let destination = &module.screens[screen.0];
-    let focus_bindings = crate::generator::screen_focus_bindings(destination, features);
-    let app_focus_bindings = crate::generator::app_focus_bindings(module, features);
     let mut values = Vec::new();
     values.extend(arguments.iter().map(expression));
     for state in &module.states {
         let name = nexa_codegen::names::state_name(&state.name);
-        if screen_state_is_passed_as_binding(state, &focus_bindings) {
-            let binding = if focus_bindings.contains(&state.name) {
-                format!("${name}")
-            } else if app_focus_bindings.contains(&state.name)
-                || state.is_native_class_constructor_binding()
-            {
+        if screen_state_is_passed_as_binding(state) {
+            let binding = if state.is_native_class_constructor_binding() {
                 format!("Binding(get: {{ {name} }}, set: {{ {name} = $0 }})")
             } else {
                 format!("${name}")
             };
             values.push(format!("{name}: {binding}"));
-        } else if state.is_native_class_constructor_binding()
-            && !state.mutable
-            && !focus_bindings.contains(&state.name)
-        {
+        } else if state.is_native_class_constructor_binding() && !state.mutable {
             values.push(format!("{name}: {name}"));
         }
     }
@@ -615,10 +584,7 @@ fn screen_call(
     )
 }
 
-fn screen_state_is_passed_as_binding(
-    state: &State,
-    _focus_bindings: &std::collections::BTreeSet<String>,
-) -> bool {
+fn screen_state_is_passed_as_binding(state: &State) -> bool {
     state.mutable
         || (state.is_native_class_instance_binding()
             && !state.is_native_class_constructor_binding())

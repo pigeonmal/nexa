@@ -1031,7 +1031,9 @@ fn render_widget_node(
             }
         }
         Node::Spacer { width, height } => {
-            out.line_at(depth, format_args!("Spacer(minLength: 0)"));
+            let flexible = width.is_none() && height.is_none();
+            let layout_priority = if flexible { ".layoutPriority(-1)" } else { "" };
+            out.line_at(depth, format_args!("Spacer(minLength: 0){layout_priority}"));
             if let Some(width) = width {
                 match width {
                     Dimension::Fixed(value) => {

@@ -1,0 +1,7 @@
+{
+  "host": "macOS-27.0.1-arm64-arm-64bit",
+  "swiftVersion": "swift-driver version: 1.168.6 Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)\nTarget: arm64-apple-macosx27.0.0",
+  "iosRuntime": "iOS 27.0 simulator, iPhone 18 Pro Max",
+  "androidRuntime": "Android 12 emulator, API 31",
+  "scope": "Optimized native helper code; software bitmap drawing and allocation counters. Not whole-app frame or battery measurement."
+}

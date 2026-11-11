@@ -48,7 +48,13 @@ pub fn walk_ir(
             }
             Node::Layout {
                 style, children, ..
+            }
+            | Node::ScrollView {
+                style, children, ..
             } => {
+                if let Some(marquee) = &style.marquee {
+                    walk_expression(&marquee.playing, visit_expression);
+                }
                 if let Some(radius) = &style.corner_radius_expression {
                     walk_expression(radius, visit_expression);
                 }
@@ -63,6 +69,13 @@ pub fn walk_ir(
                 }
                 if let Some(offset_y) = &style.effects.offset_y_expression {
                     walk_expression(offset_y, visit_expression);
+                }
+                if let Node::ScrollView {
+                    component_ref: Some(component_ref),
+                    ..
+                } = node
+                {
+                    walk_expression(component_ref, visit_expression);
                 }
                 walk_ir(children, visit_node, visit_expression);
             }
@@ -281,9 +294,9 @@ pub fn walk_ir(
                     for expression in [
                         &reveal.segments,
                         &reveal.position,
-                        &reveal.active,
-                        &reveal.playing,
-                        &reveal.enabled,
+                        &reveal.is_active,
+                        &reveal.is_playing,
+                        &reveal.reveal_enabled,
                         &reveal.seek_revision,
                     ] {
                         walk_expression(expression, visit_expression);
@@ -513,11 +526,19 @@ pub fn walk_ir(
                 }
             }
             Node::TextInput {
+                focused,
+                component_ref,
                 actions,
                 on_focus,
                 on_change,
                 ..
             } => {
+                if let Some(focused) = focused {
+                    walk_expression(focused, visit_expression);
+                }
+                if let Some(component_ref) = component_ref {
+                    walk_expression(component_ref, visit_expression);
+                }
                 walk_actions(actions, visit_expression);
                 if let Some(actions) = on_focus {
                     walk_actions(actions, visit_expression);
@@ -982,6 +1003,7 @@ pub fn scroll_owners(nodes: &[Node]) -> Vec<ScrollOwnerDescriptor> {
         nodes,
         &mut |node| {
             let (kind, axes) = match node {
+                Node::ScrollView { axis, .. } => (ScrollOwnerKind::ScrollView, *axis),
                 Node::FastList { plan } => {
                     let axes = match plan.axis() {
                         crate::ListAxis::Vertical => ScrollAxis::Vertical,
@@ -1369,7 +1391,13 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         | Node::Dialog { children, .. } => visitor.visit_nodes(children),
         Node::Layout {
             style, children, ..
+        }
+        | Node::ScrollView {
+            style, children, ..
         } => {
+            if let Some(marquee) = &style.marquee {
+                visitor.visit_expr(&marquee.playing);
+            }
             if let Some(radius) = &style.corner_radius_expression {
                 visitor.visit_expr(radius);
             }
@@ -1384,6 +1412,13 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             }
             if let Some(offset_y) = &style.effects.offset_y_expression {
                 visitor.visit_expr(offset_y);
+            }
+            if let Node::ScrollView {
+                component_ref: Some(component_ref),
+                ..
+            } = node
+            {
+                visitor.visit_expr(component_ref);
             }
             visitor.visit_nodes(children);
         }
@@ -1590,9 +1625,9 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             if let Some(reveal) = &style.reveal {
                 visitor.visit_expr(&reveal.segments);
                 visitor.visit_expr(&reveal.position);
-                visitor.visit_expr(&reveal.active);
-                visitor.visit_expr(&reveal.playing);
-                visitor.visit_expr(&reveal.enabled);
+                visitor.visit_expr(&reveal.is_active);
+                visitor.visit_expr(&reveal.is_playing);
+                visitor.visit_expr(&reveal.reveal_enabled);
                 visitor.visit_expr(&reveal.seek_revision);
             }
             if let Some(scale) = &style.effects.scale_expression {
@@ -1827,11 +1862,19 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             }
         }
         Node::TextInput {
+            focused,
+            component_ref,
             actions,
             on_focus,
             on_change,
             ..
         } => {
+            if let Some(focused) = focused {
+                visitor.visit_expr(focused);
+            }
+            if let Some(component_ref) = component_ref {
+                visitor.visit_expr(component_ref);
+            }
             visitor.visit_actions(actions);
             if let Some(actions) = on_focus {
                 visitor.visit_actions(actions);
@@ -2231,10 +2274,14 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         }),
         Node::Form {
             show_dividers,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
             background,
             children,
         } => Some(Node::Form {
             show_dividers,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
             background,
             children: folder.fold_nodes(children),
         }),
@@ -2256,6 +2303,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             min,
             max,
             step,
+            show_step_indicators,
             tint,
             track_color,
             thumb_color,
@@ -2270,6 +2318,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             min: folder.fold_expr(min),
             max: folder.fold_expr(max),
             step,
+            show_step_indicators,
             tint: tint.map(|color| fold_color_expression(color, folder)),
             track_color: track_color.map(|color| fold_color_expression(color, folder)),
             thumb_color: thumb_color.map(|color| fold_color_expression(color, folder)),
@@ -2323,10 +2372,54 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 .effects
                 .offset_y_expression
                 .map(|offset_y| Box::new(folder.fold_expr(*offset_y)));
+            if let Some(marquee) = &mut style.marquee {
+                let playing = std::mem::replace(marquee.playing.as_mut(), Expr::Bool(true));
+                *marquee.playing = folder.fold_expr(playing);
+            }
             Some(Node::Layout {
                 kind,
                 gap,
                 style,
+                children: folder.fold_nodes(children),
+            })
+        }
+        Node::ScrollView {
+            axis,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
+            mut style,
+            component_ref,
+            children,
+        } => {
+            style.corner_radius_expression = style
+                .corner_radius_expression
+                .map(|radius| Box::new(folder.fold_expr(*radius)));
+            style.effects.scale_expression = style
+                .effects
+                .scale_expression
+                .map(|scale| Box::new(folder.fold_expr(*scale)));
+            style.effects.scale_y_expression = style
+                .effects
+                .scale_y_expression
+                .map(|scale_y| Box::new(folder.fold_expr(*scale_y)));
+            style.effects.opacity_expression = style
+                .effects
+                .opacity_expression
+                .map(|opacity| Box::new(folder.fold_expr(*opacity)));
+            style.effects.offset_y_expression = style
+                .effects
+                .offset_y_expression
+                .map(|offset_y| Box::new(folder.fold_expr(*offset_y)));
+            if let Some(marquee) = &mut style.marquee {
+                let playing = std::mem::replace(marquee.playing.as_mut(), Expr::Bool(true));
+                *marquee.playing = folder.fold_expr(playing);
+            }
+            Some(Node::ScrollView {
+                axis,
+                hide_horizontal_scrollbar,
+                hide_vertical_scrollbar,
+                style,
+                component_ref: component_ref.map(|reference| folder.fold_expr(reference)),
                 children: folder.fold_nodes(children),
             })
         }
@@ -2340,10 +2433,14 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::KeyboardAware {
             dismiss,
             behavior,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
             children,
         } => Some(Node::KeyboardAware {
             dismiss,
             behavior,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
             children: folder.fold_nodes(children),
         }),
         Node::BottomSheet {
@@ -2571,9 +2668,9 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             style.reveal = style.reveal.map(|mut reveal| {
                 reveal.segments = folder.fold_expr(reveal.segments);
                 reveal.position = folder.fold_expr(reveal.position);
-                reveal.active = folder.fold_expr(reveal.active);
-                reveal.playing = folder.fold_expr(reveal.playing);
-                reveal.enabled = folder.fold_expr(reveal.enabled);
+                reveal.is_active = folder.fold_expr(reveal.is_active);
+                reveal.is_playing = folder.fold_expr(reveal.is_playing);
+                reveal.reveal_enabled = folder.fold_expr(reveal.reveal_enabled);
                 reveal.seek_revision = folder.fold_expr(reveal.seek_revision);
                 reveal
             });
@@ -2789,6 +2886,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             autocorrect,
             capitalization,
             focused,
+            component_ref,
             max_length,
             font,
             font_size,
@@ -2814,7 +2912,8 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             return_key,
             autocorrect,
             capitalization,
-            focused,
+            focused: focused.map(|value| folder.fold_expr(value)),
+            component_ref: component_ref.map(|value| folder.fold_expr(value)),
             max_length,
             font,
             font_size,
@@ -3289,7 +3388,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
                 .into_iter()
                 .map(|(param, arg)| (param, folder.fold_expr(arg)))
                 .collect(),
-            codecs: codecs.clone(),
+            codecs,
             return_type,
             is_async,
             is_throwing,
@@ -3675,6 +3774,8 @@ mod tests {
     fn form() -> Node {
         Node::Form {
             show_dividers: true,
+            hide_horizontal_scrollbar: false,
+            hide_vertical_scrollbar: false,
             background: None,
             children: Vec::new(),
         }
@@ -3690,6 +3791,8 @@ mod tests {
                 common: crate::ListCommon {
                     axis,
                     show_dividers: true,
+                    hide_horizontal_scrollbar: false,
+                    hide_vertical_scrollbar: false,
                     reverse_layout: false,
                     page_snap: false,
                     item_extent: None,
@@ -3712,6 +3815,17 @@ mod tests {
         }
     }
 
+    fn scroll_view(axis: ScrollAxis) -> Node {
+        Node::ScrollView {
+            axis,
+            hide_horizontal_scrollbar: true,
+            hide_vertical_scrollbar: true,
+            style: crate::ViewStyle::default(),
+            component_ref: None,
+            children: Vec::new(),
+        }
+    }
+
     #[test]
     fn fast_list_scroll_owner_reports_its_declared_axis() {
         let owners = scroll_owners(&[
@@ -3729,6 +3843,31 @@ mod tests {
     }
 
     #[test]
+    fn scroll_view_owner_reports_its_single_axis_for_safe_area_edges() {
+        let vertical = scroll_view(ScrollAxis::Vertical);
+        let horizontal = scroll_view(ScrollAxis::Horizontal);
+        let owners = scroll_owners(&[vertical.clone(), horizontal.clone()]);
+        assert_eq!(owners.len(), 2);
+        assert_eq!(owners[0].kind, ScrollOwnerKind::ScrollView);
+        assert_eq!(owners[0].axes, ScrollAxis::Vertical);
+        assert_eq!(owners[1].kind, ScrollOwnerKind::ScrollView);
+        assert_eq!(owners[1].axes, ScrollAxis::Horizontal);
+        assert!(matches!(
+            resolve_scroll_owner(std::slice::from_ref(&vertical), LayoutEdge::Top, None),
+            ScrollOwnerResolution::Unique(owner) if owner.kind == ScrollOwnerKind::ScrollView
+        ));
+        assert_eq!(
+            resolve_scroll_owner(std::slice::from_ref(&horizontal), LayoutEdge::Top, None),
+            ScrollOwnerResolution::None
+        );
+        assert!(matches!(
+            resolve_scroll_owner(std::slice::from_ref(&horizontal), LayoutEdge::Leading, None),
+            ScrollOwnerResolution::Unique(owner) if owner.axes == ScrollAxis::Horizontal
+        ));
+        assert!(contains_scrollable(std::slice::from_ref(&vertical)));
+    }
+
+    #[test]
     fn scroll_owner_analysis_tracks_kind_axis_and_stable_preorder_ids() {
         let nodes = [
             form(),
@@ -3739,11 +3878,15 @@ mod tests {
             Node::KeyboardAware {
                 dismiss: crate::KeyboardDismissMode::Never,
                 behavior: crate::adaptive_layout::KeyboardBehavior::Stay,
+                hide_horizontal_scrollbar: false,
+                hide_vertical_scrollbar: false,
                 children: vec![form()],
             },
             Node::KeyboardAware {
                 dismiss: crate::KeyboardDismissMode::Never,
                 behavior: crate::adaptive_layout::KeyboardBehavior::Stay,
+                hide_horizontal_scrollbar: false,
+                hide_vertical_scrollbar: false,
                 children: Vec::new(),
             },
         ];

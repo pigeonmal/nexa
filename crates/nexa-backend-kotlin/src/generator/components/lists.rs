@@ -1340,47 +1340,25 @@ fn emit_leading_visible_data_item_index(
     let (item_offset, item_size) = list_item_info_geometry(axis);
     out.line_at(
         depth + 1,
-        format_args!("val visibleItems = layoutInfo.visibleItemsInfo.filter {{ it.{item_offset} + it.{item_size} > layoutInfo.viewportStartOffset && it.{item_offset} < layoutInfo.viewportEndOffset }}"),
+        format_args!("return nexaLeadingVisibleDataItemIndex("),
     );
-    if sticky_header_offset > 0 {
-        out.line_at(
-            depth + 1,
-            format_args!("val stickyHeader = visibleItems.firstOrNull {{ it.index == 0 }}"),
-        );
-    }
-    out.line_at(depth + 1, format_args!("var leadingIndex = -1"));
-    out.line_at(depth + 1, format_args!("for (item in visibleItems) {{"));
     out.line_at(
         depth + 2,
-        format_args!("if (item.index < {sticky_header_offset}) continue"),
+        format_args!("visibleItems = layoutInfo.visibleItemsInfo,"),
     );
-    if sticky_header_offset > 0 {
-        out.line_at(
-            depth + 2,
-            format_args!("if (stickyHeader != null && item.offset < stickyHeader.offset + stickyHeader.size && item.offset + item.size > stickyHeader.offset) continue"),
-        );
-    }
-    let visual_order = if reverse_layout {
-        "item.index > leadingIndex"
-    } else {
-        "item.index < leadingIndex"
-    };
     out.line_at(
         depth + 2,
-        format_args!("if (leadingIndex < 0 || {visual_order}) leadingIndex = item.index"),
+        format_args!("fallback = {list_state}.firstVisibleItemIndex,"),
     );
-    out.line_at(depth + 1, format_args!("}}"));
-    let fallback = if reverse_layout {
-        format!("visibleItems.maxOfOrNull {{ it.index }} ?: {list_state}.firstVisibleItemIndex")
-    } else {
-        format!(
-            "visibleItems.firstOrNull {{ it.index >= {sticky_header_offset} }}?.index ?: {list_state}.firstVisibleItemIndex"
-        )
-    };
     out.line_at(
-        depth + 1,
-        format_args!("return if (leadingIndex >= 0) leadingIndex else {fallback}"),
+        depth + 2,
+        format_args!(
+            "stickyHeaderOffset = {sticky_header_offset}, reverseLayout = {reverse_layout},"
+        ),
     );
+    out.line_at(depth + 2, format_args!("viewportStartOffset = layoutInfo.viewportStartOffset, viewportEndOffset = layoutInfo.viewportEndOffset,"));
+    out.line_at(depth + 2, format_args!("itemIndex = {{ it.index }}, itemOffset = {{ it.{item_offset} }}, itemSize = {{ it.{item_size} }},"));
+    out.line_at(depth + 1, format_args!(")"));
     out.line_at(depth, format_args!("}}"));
 }
 
@@ -2625,9 +2603,9 @@ mod tests {
             );
 
             assert!(
-                generated.as_str().contains(
-                    "it.offset.y + it.size.height > layoutInfo.viewportStartOffset && it.offset.y < layoutInfo.viewportEndOffset"
-                ),
+                generated
+                    .as_str()
+                    .contains("itemOffset = { it.offset.y }, itemSize = { it.size.height },"),
                 "{axis:?}: {}",
                 generated.as_str()
             );

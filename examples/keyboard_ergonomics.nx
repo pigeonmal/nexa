@@ -2,8 +2,8 @@ app KeyboardErgonomics {
     state email: String = ""
     state password: String = ""
     state code: String = ""
-    state isEmailFocused: Bool = false
 
+    let emailInputRef = ComponentRef<TextInput>()
     body {
         Column {
             TextInput(
@@ -12,7 +12,8 @@ app KeyboardErgonomics {
                 keyboardType: Email,
                 autofill: Username,
                 returnKeyType: Next,
-                focused: isEmailFocused,
+                focused: true,
+                ref: emailInputRef,
             ) {
                 Log.info(message: "Email submitted")
             }
@@ -34,8 +35,11 @@ app KeyboardErgonomics {
             ) {
                 Log.info(message: "Code submitted")
             }
-            Button("Dismiss keyboard") {
-                Keyboard.dismiss()
+            Button("Focus email") {
+                emailInputRef.focus()
+            }
+            Button("Blur email") {
+                emailInputRef.blur()
             }
         }
     }

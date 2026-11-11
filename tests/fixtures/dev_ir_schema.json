@@ -3,7 +3,7 @@
   "title": "NexaDevIRSchema",
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
   "protocol_version": 14,
-  "dev_ir_format_version": 79,
+  "dev_ir_format_version": 85,
   "view_transitions": [
     "Fade",
     "SlideFromBottom",
@@ -47,6 +47,7 @@
     "Column",
     "Row",
     "Stack",
+    "ScrollView",
     "Form",
     "FormSection",
     "Text",
@@ -202,7 +203,25 @@
     },
     "fast_list": {
       "reverse_layout": "reverse_layout",
-      "page_snap": "page_snap"
+      "page_snap": "page_snap",
+      "hide_horizontal_scrollbar": "hide_horizontal_scrollbar",
+      "hide_vertical_scrollbar": "hide_vertical_scrollbar"
+    },
+    "scroll_view": {
+      "axis": "axis",
+      "hide_horizontal_scrollbar": "hide_horizontal_scrollbar",
+      "hide_vertical_scrollbar": "hide_vertical_scrollbar",
+      "style": "style",
+      "component_ref": "component_ref",
+      "children": "children"
+    },
+    "form": {
+      "hide_horizontal_scrollbar": "hide_horizontal_scrollbar",
+      "hide_vertical_scrollbar": "hide_vertical_scrollbar"
+    },
+    "keyboard_aware": {
+      "hide_horizontal_scrollbar": "hide_horizontal_scrollbar",
+      "hide_vertical_scrollbar": "hide_vertical_scrollbar"
     },
     "safe_area_padding": {
       "plan": "plan",

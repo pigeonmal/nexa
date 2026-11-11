@@ -8,9 +8,9 @@ internal fun <Segment> NexaTextRevealPrimitive(
     endTimeOf: (Segment) -> Double,
     hasTrailingSpaceOf: (Segment) -> Boolean,
     position: Double,
-    active: Boolean,
-    playing: Boolean,
-    enabled: Boolean,
+    isActive: Boolean,
+    isPlaying: Boolean,
+    revealEnabled: Boolean,
     seekRevision: Long,
     dimOpacity: Float,
     leadTime: Float,
@@ -44,6 +44,10 @@ internal fun <Segment> NexaTextRevealPrimitive(
     val layoutState = androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null)
     }
+    val revealPicture = androidx.compose.runtime.remember { android.graphics.Picture() }
+    val revealDrawScope = androidx.compose.runtime.remember {
+        androidx.compose.ui.graphics.drawscope.CanvasDrawScope()
+    }
     val timeline = androidx.compose.runtime.remember {
         androidx.compose.animation.core.Animatable(position.toFloat())
     }
@@ -58,7 +62,7 @@ internal fun <Segment> NexaTextRevealPrimitive(
     }
 
     androidx.compose.runtime.LaunchedEffect(
-        position, active, playing, enabled, seekRevision, segments,
+        position, isActive, isPlaying, revealEnabled, seekRevision, segments,
     ) {
         val firstWordStart = segments.firstOrNull()?.let(startTimeOf) ?: position
         val didSeek = seekRevision != previousSeekRevision.longValue
@@ -67,10 +71,10 @@ internal fun <Segment> NexaTextRevealPrimitive(
                 timeline.snapTo(kotlin.math.min(position, firstWordStart).toFloat())
                 previousSeekRevision.longValue = seekRevision
             }
-            !active || !playing || !enabled -> timeline.snapTo(position.toFloat())
+            !isActive || !isPlaying || !revealEnabled -> timeline.snapTo(position.toFloat())
             !wasActive.value || !wasEnabled.value -> timeline.snapTo((position + leadTime).toFloat())
         }
-        if (active && playing && enabled && segments.isNotEmpty() && !didSeek) {
+        if (isActive && isPlaying && revealEnabled && segments.isNotEmpty() && !didSeek) {
             timeline.animateTo(
                 targetValue = (position + targetOffset).toFloat(),
                 animationSpec = androidx.compose.animation.core.tween(
@@ -79,8 +83,8 @@ internal fun <Segment> NexaTextRevealPrimitive(
                 ),
             )
         }
-        wasActive.value = active
-        wasEnabled.value = enabled
+        wasActive.value = isActive
+        wasEnabled.value = revealEnabled
     }
 
     val layout = layoutState.value
@@ -101,34 +105,63 @@ internal fun <Segment> NexaTextRevealPrimitive(
         }
     }
     val resolvedModifier = modifier.then(
-        androidx.compose.ui.Modifier.drawWithContent {
-            drawContent()
-            if (!active) return@drawWithContent
-            val textLayout = layoutState.value ?: return@drawWithContent
-            if (!enabled || segments.isEmpty() || lineTimings.isEmpty()) {
-                drawText(textLayout, color = resolvedColor)
-                return@drawWithContent
+        androidx.compose.ui.Modifier.drawWithCache {
+            val textLayout = layoutState.value
+            if (textLayout != null) {
+                revealPicture.beginRecording(
+                    kotlin.math.ceil(size.width.toDouble()).toInt().coerceAtLeast(1),
+                    kotlin.math.ceil(size.height.toDouble()).toInt().coerceAtLeast(1),
+                ).also { nativeCanvas ->
+                    val recordedCanvas = androidx.compose.ui.graphics.Canvas(nativeCanvas)
+                    revealDrawScope.draw(this, layoutDirection, recordedCanvas, size) {
+                        drawText(textLayout, color = resolvedColor)
+                    }
+                }
+                revealPicture.endRecording()
             }
-            val currentPosition = timeline.value.toDouble()
-            lineTimings.forEach { timing ->
-                val progress = nexaTextRevealProgress(timing, currentPosition)
-                if (progress <= 0.0) return@forEach
-                val lineIndex = timing.lineIndex
-                val lineLeft = textLayout.getLineLeft(lineIndex)
-                val lineRight = textLayout.getLineRight(lineIndex)
-                val lineWidth = (lineRight - lineLeft).coerceAtLeast(0f)
-                val revealWidth = lineWidth * progress.toFloat()
-                val rtl = textLayout.getParagraphDirection(lineIndex) ==
-                    androidx.compose.ui.text.style.ResolvedTextDirection.Rtl
-                val revealLeft = if (rtl) lineRight - revealWidth else lineLeft
-                val revealRight = if (rtl) lineRight else lineLeft + revealWidth
-                clipRect(
-                    left = revealLeft,
-                    top = textLayout.getLineTop(lineIndex),
-                    right = revealRight,
-                    bottom = textLayout.getLineBottom(lineIndex),
-                ) {
-                    drawText(textLayout, color = resolvedColor)
+            onDrawWithContent {
+                drawContent()
+                if (!isActive) return@onDrawWithContent
+                val recordedLayout = textLayout ?: return@onDrawWithContent
+                if (!revealEnabled || segments.isEmpty() || lineTimings.isEmpty()) {
+                    drawIntoCanvas { canvas -> canvas.nativeCanvas.drawPicture(revealPicture) }
+                    return@onDrawWithContent
+                }
+                // A paused reveal is a direct snapshot of the caller's playback
+                // position. Read that parameter directly so Compose invalidates
+                // this draw when a scrub/seek changes position; only isActive
+                // playback needs the animated, smoothed timeline value.
+                val currentPosition = if (isActive && isPlaying && revealEnabled) {
+                    timeline.value.toDouble()
+                } else {
+                    position
+                }
+                var lineIndexInTimings = 0
+                while (lineIndexInTimings < lineTimings.size) {
+                    val timing = lineTimings[lineIndexInTimings]
+                    val progress = nexaTextRevealProgress(timing, currentPosition)
+                    val lineIndex = timing.lineIndex
+                    if (progress > 0.0) {
+                        val lineLeft = recordedLayout.getLineLeft(lineIndex)
+                        val lineRight = recordedLayout.getLineRight(lineIndex)
+                        val lineWidth = (lineRight - lineLeft).coerceAtLeast(0f)
+                        val revealWidth = lineWidth * progress.toFloat()
+                        val rtl = recordedLayout.getParagraphDirection(lineIndex) ==
+                            androidx.compose.ui.text.style.ResolvedTextDirection.Rtl
+                        val revealLeft = if (rtl) lineRight - revealWidth else lineLeft
+                        val revealRight = if (rtl) lineRight else lineLeft + revealWidth
+                        if (revealRight > revealLeft) {
+                            clipRect(
+                                revealLeft,
+                                recordedLayout.getLineTop(lineIndex),
+                                revealRight,
+                                recordedLayout.getLineBottom(lineIndex),
+                            ) {
+                                drawIntoCanvas { canvas -> canvas.nativeCanvas.drawPicture(revealPicture) }
+                            }
+                        }
+                    }
+                    lineIndexInTimings += 1
                 }
             }
         },
@@ -234,18 +267,18 @@ private fun nexaTextRevealProgress(timing: NexaTextRevealLineTiming, position: D
     if (position >= last.endTime) return 1.0
     var low = 0
     var high = timing.words.lastIndex
-    var active = -1
+    var isActive = -1
     while (low <= high) {
         val middle = (low + high) ushr 1
         if (timing.words[middle].startTime <= position) {
-            active = middle
+            isActive = middle
             low = middle + 1
         } else {
             high = middle - 1
         }
     }
-    if (active < 0) return 0.0
-    val word = timing.words[active]
+    if (isActive < 0) return 0.0
+    val word = timing.words[isActive]
     if (position >= word.endTime) return word.endProgress.coerceIn(0.0, 1.0)
     val withinWord = ((position - word.startTime) / (word.endTime - word.startTime).coerceAtLeast(0.01)).coerceIn(0.0, 1.0)
     return (word.startProgress + (word.endProgress - word.startProgress) * withinWord).coerceIn(0.0, 1.0)

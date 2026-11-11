@@ -1,0 +1,596 @@
+{
+  "format": 1,
+  "tool": "Nexa audit benchmark suite",
+  "createdAt": "2026-11-09T10:25:05.614293+00:00",
+  "gitRevision": "2ecd99a9b0a5e7e1dc31bfd2417cdfa810e8d6c5",
+  "gitWorktreeDirty": true,
+  "nexaBinary": "/private/tmp/nexa-verification-target/debug/nexa",
+  "environment": {
+    "system": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.11.18"
+  },
+  "runsPerApp": 9,
+  "fixtures": {
+    "counter": {
+      "source": "examples/counter.nx",
+      "median": {
+        "dependencyResolutionMicros": 103,
+        "compilerMicros": 687,
+        "targets": {
+          "ios": {
+            "codegenMicros": 4506,
+            "generatedSourceBytes": 38573
+          },
+          "android": {
+            "codegenMicros": 4004,
+            "generatedSourceBytes": 52078
+          }
+        }
+      },
+      "samples": [
+        {
+          "dependencyResolutionMicros": 1577,
+          "compilerMicros": 6597,
+          "targets": {
+            "ios": {
+              "codegenMicros": 11628,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 8440,
+              "generatedSourceBytes": 52078
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 172,
+          "compilerMicros": 1184,
+          "targets": {
+            "ios": {
+              "codegenMicros": 6090,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 5534,
+              "generatedSourceBytes": 52078
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 128,
+          "compilerMicros": 911,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5176,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 4623,
+              "generatedSourceBytes": 52078
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 108,
+          "compilerMicros": 791,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4598,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 4280,
+              "generatedSourceBytes": 52078
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 103,
+          "compilerMicros": 685,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4506,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 3948,
+              "generatedSourceBytes": 52078
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 93,
+          "compilerMicros": 658,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4127,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 4004,
+              "generatedSourceBytes": 52078
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 93,
+          "compilerMicros": 644,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4080,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 3955,
+              "generatedSourceBytes": 52078
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 99,
+          "compilerMicros": 687,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4071,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 3867,
+              "generatedSourceBytes": 52078
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 96,
+          "compilerMicros": 619,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4215,
+              "generatedSourceBytes": 38573
+            },
+            "android": {
+              "codegenMicros": 3897,
+              "generatedSourceBytes": 52078
+            }
+          }
+        }
+      ]
+    },
+    "todo_app": {
+      "source": "examples/todo_app.nx",
+      "median": {
+        "dependencyResolutionMicros": 95,
+        "compilerMicros": 811,
+        "targets": {
+          "ios": {
+            "codegenMicros": 4544,
+            "generatedSourceBytes": 44693
+          },
+          "android": {
+            "codegenMicros": 4493,
+            "generatedSourceBytes": 60211
+          }
+        }
+      },
+      "samples": [
+        {
+          "dependencyResolutionMicros": 97,
+          "compilerMicros": 1142,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4607,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4494,
+              "generatedSourceBytes": 60211
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 93,
+          "compilerMicros": 778,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4526,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4513,
+              "generatedSourceBytes": 60211
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 91,
+          "compilerMicros": 783,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4526,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4442,
+              "generatedSourceBytes": 60211
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 95,
+          "compilerMicros": 812,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4581,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4493,
+              "generatedSourceBytes": 60211
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 105,
+          "compilerMicros": 812,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4514,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4415,
+              "generatedSourceBytes": 60211
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 91,
+          "compilerMicros": 781,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4758,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4435,
+              "generatedSourceBytes": 60211
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 96,
+          "compilerMicros": 838,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4585,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4429,
+              "generatedSourceBytes": 60211
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 92,
+          "compilerMicros": 795,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4544,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4534,
+              "generatedSourceBytes": 60211
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 95,
+          "compilerMicros": 811,
+          "targets": {
+            "ios": {
+              "codegenMicros": 4537,
+              "generatedSourceBytes": 44693
+            },
+            "android": {
+              "codegenMicros": 4501,
+              "generatedSourceBytes": 60211
+            }
+          }
+        }
+      ]
+    },
+    "virtual_list": {
+      "source": "examples/virtual_list.nx",
+      "median": {
+        "dependencyResolutionMicros": 97,
+        "compilerMicros": 808,
+        "targets": {
+          "ios": {
+            "codegenMicros": 13617,
+            "generatedSourceBytes": 99703
+          },
+          "android": {
+            "codegenMicros": 5011,
+            "generatedSourceBytes": 69129
+          }
+        }
+      },
+      "samples": [
+        {
+          "dependencyResolutionMicros": 95,
+          "compilerMicros": 1019,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13636,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 5067,
+              "generatedSourceBytes": 69129
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 97,
+          "compilerMicros": 808,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13617,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 5003,
+              "generatedSourceBytes": 69129
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 91,
+          "compilerMicros": 804,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13538,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 4980,
+              "generatedSourceBytes": 69129
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 91,
+          "compilerMicros": 774,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13607,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 5011,
+              "generatedSourceBytes": 69129
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 113,
+          "compilerMicros": 876,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13520,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 5044,
+              "generatedSourceBytes": 69129
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 118,
+          "compilerMicros": 983,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13599,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 5061,
+              "generatedSourceBytes": 69129
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 99,
+          "compilerMicros": 842,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13679,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 5061,
+              "generatedSourceBytes": 69129
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 93,
+          "compilerMicros": 803,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13631,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 4973,
+              "generatedSourceBytes": 69129
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 98,
+          "compilerMicros": 806,
+          "targets": {
+            "ios": {
+              "codegenMicros": 13896,
+              "generatedSourceBytes": 99703
+            },
+            "android": {
+              "codegenMicros": 4974,
+              "generatedSourceBytes": 69129
+            }
+          }
+        }
+      ]
+    },
+    "showcase": {
+      "source": "examples/showcase.nx",
+      "median": {
+        "dependencyResolutionMicros": 99,
+        "compilerMicros": 898,
+        "targets": {
+          "ios": {
+            "codegenMicros": 5393,
+            "generatedSourceBytes": 55291
+          },
+          "android": {
+            "codegenMicros": 5696,
+            "generatedSourceBytes": 79245
+          }
+        }
+      },
+      "samples": [
+        {
+          "dependencyResolutionMicros": 94,
+          "compilerMicros": 1088,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5393,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5641,
+              "generatedSourceBytes": 79245
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 94,
+          "compilerMicros": 863,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5372,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5696,
+              "generatedSourceBytes": 79245
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 94,
+          "compilerMicros": 869,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5779,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5973,
+              "generatedSourceBytes": 79245
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 105,
+          "compilerMicros": 979,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5368,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5676,
+              "generatedSourceBytes": 79245
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 117,
+          "compilerMicros": 1003,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5396,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5643,
+              "generatedSourceBytes": 79245
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 99,
+          "compilerMicros": 895,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5398,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5705,
+              "generatedSourceBytes": 79245
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 102,
+          "compilerMicros": 899,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5334,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5772,
+              "generatedSourceBytes": 79245
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 95,
+          "compilerMicros": 898,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5614,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5722,
+              "generatedSourceBytes": 79245
+            }
+          }
+        },
+        {
+          "dependencyResolutionMicros": 99,
+          "compilerMicros": 892,
+          "targets": {
+            "ios": {
+              "codegenMicros": 5358,
+              "generatedSourceBytes": 55291
+            },
+            "android": {
+              "codegenMicros": 5690,
+              "generatedSourceBytes": 79245
+            }
+          }
+        }
+      ]
+    }
+  }
+}

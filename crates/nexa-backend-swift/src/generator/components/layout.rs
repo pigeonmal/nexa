@@ -22,6 +22,25 @@ pub(crate) fn render_layout(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    if let Some(marquee) = &style.marquee {
+        let horizontal = matches!(kind, LayoutKind::Row);
+        let playing = crate::generator::engine::expressions::expression(&marquee.playing);
+        let fills_cross_axis = if horizontal {
+            style.height.is_some()
+        } else {
+            style.width.is_some()
+        };
+        out.line_at(depth, format_args!("NexaMarqueePrimitive(horizontal: {horizontal}, fillsCrossAxis: {fills_cross_axis}, speed: {}, gap: {}, delay: {}, edgeFade: {}, playing: {playing}, revision: {}) {{", marquee.speed, marquee.gap, marquee.delay, marquee.edge_fade, marquee_revision(children)));
+        let inner = ViewStyle {
+            alignment: style.alignment,
+            horizontal_arrangement: style.horizontal_arrangement,
+            ..ViewStyle::default()
+        };
+        render_layout(kind, spacing, &inner, children, scope, depth + 1, out);
+        out.line_at(depth, format_args!("}}"));
+        append_style(out, depth, style, ".topLeading");
+        return;
+    }
     indent(out, depth);
     let (layout, alignment, text_alignment, frame_alignment) = match kind {
         LayoutKind::Column => (
@@ -102,6 +121,16 @@ pub(crate) fn render_layout(
         .iter()
         .filter(|child| matches!(child, Node::BottomSheet { .. }))
         .collect::<Vec<_>>();
+    let prioritize_row_content = matches!(kind, LayoutKind::Row)
+        && content_children.iter().any(|child| {
+            matches!(
+                child,
+                Node::Spacer {
+                    width: None,
+                    height: None,
+                }
+            )
+        });
     let overlay_start = if matches!(kind, LayoutKind::Stack) {
         stack_overlay_start(&content_children, scope.module)
     } else {
@@ -117,7 +146,23 @@ pub(crate) fn render_layout(
             indent(out, depth + 1);
             out.push('}');
         } else {
-            render_node(child, scope.module, scope.features, depth + 1, out);
+            let is_flexible_spacer = matches!(
+                child,
+                Node::Spacer {
+                    width: None,
+                    height: None,
+                }
+            );
+            if prioritize_row_content && !is_flexible_spacer {
+                indent(out, depth + 1);
+                out.push_str("Group {\n");
+                render_node(child, scope.module, scope.features, depth + 2, out);
+                out.push('\n');
+                indent(out, depth + 1);
+                out.push_str("}.layoutPriority(1)");
+            } else {
+                render_node(child, scope.module, scope.features, depth + 1, out);
+            }
         }
         if index + 1 < content_children.len() {
             out.push('\n');
@@ -338,7 +383,12 @@ pub(crate) fn render_form_row(
     out.line_at(depth, format_args!("}}"));
 }
 
-fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle, frame_alignment: &str) {
+pub(crate) fn append_style(
+    out: &mut SourceWriter,
+    depth: usize,
+    style: &ViewStyle,
+    frame_alignment: &str,
+) {
     append_size_modifiers(out, depth, style, frame_alignment);
     // SwiftUI frames can draw oversized children outside their reported bounds.
     // Compose measures layout children within the remaining constrained height.
@@ -713,6 +763,29 @@ fn append_modifier(out: &mut SourceWriter, depth: usize, modifier: &str) {
     indent(out, depth + 1);
     out.push('.');
     out.push_str(modifier);
+}
+
+fn marquee_revision(children: &[Node]) -> String {
+    let mut values = Vec::new();
+    nexa_ir::walk::walk_ir(children, &mut |_| {}, &mut |expr| {
+        if matches!(
+            expr,
+            Expr::String(_)
+                | Expr::State(
+                    _,
+                    nexa_ir::Type::String | nexa_ir::Type::Bool | nexa_ir::Type::Numeric(_)
+                )
+        ) {
+            let value = format!(
+                "String({})",
+                crate::generator::engine::expressions::expression(expr)
+            );
+            if !values.contains(&value) {
+                values.push(value);
+            }
+        }
+    });
+    format!("[{}]", values.join(", "))
 }
 
 #[cfg(test)]

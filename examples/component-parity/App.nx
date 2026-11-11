@@ -1,6 +1,6 @@
 component ParityCard(title: String) {
     body {
-        Column(gap: 8, padding: 12, background: "#FFFFFF", cornerRadius: 16) {
+        Column(gap: 8, padding: 12, background: "#FFFFFF") {
             Text(title, fontSize: 13, color: "#777780")
             Content()
         }
@@ -19,6 +19,14 @@ struct ParityTimedSegment {
     hasTrailingSpace: Bool,
 }
 
+component MarqueeMountProbe() {
+    state appearances: Int32 = 0
+    body {
+        OnAppear { appearances = appearances + 1 }
+        Text("Source mounts: $appearances")
+    }
+}
+
 app ComponentParity {
     state appActivations: Int32 = 0
     state appDeactivations: Int32 = 0
@@ -27,14 +35,16 @@ app ComponentParity {
     screen Catalog {
         Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
-                NavigationLink(destination: FastListCases) {
-                    Text("FastList parity")
+                NavigationLink(destination: TextCases) {
+                    Text("Text styles and sizing")
                 }
             }
             Section(title: "Layout") {
                 NavigationLink(destination: ColumnCases) {
                     Text("Column gap and padding")
                 }
+                NavigationLink(destination: MarqueeCases) { Text("Marquee animations") }
+                NavigationLink(destination: HapticCases) { Text("Haptic feedback") }
                 NavigationLink(destination: RowCases) {
                     Text("Row gap and alignment")
                 }
@@ -84,6 +94,9 @@ app ComponentParity {
                 }
             }
             Section(title: "Content and lists") {
+                NavigationLink(destination: ScrollViewCases) {
+                    Text("Explicit ScrollView")
+                }
                 NavigationLink(destination: FastListCases) {
                     Text("FastList parameters")
                 }
@@ -507,6 +520,12 @@ app ComponentParity {
                     Row(width: 280, height: 64, background: "#F2F2F7") {
                         Text("Default arrangement remains start aligned")
                     }
+                    Row(width: 280, height: 64, background: "#F2F2F7", margin: Insets(top: 10)) {
+                        Text("Margin test 10")
+                    }
+                    Row(width: 280, height: 64, background: "#F2F2F7", margin: Insets(top: 1000)) {
+                        Text("Margin test 1000")
+                    }
                 }
             }
 
@@ -876,8 +895,8 @@ app ComponentParity {
     }
 
     screen SpacerCases {
-        Column(gap: 12, padding: 16) {
-            Text("Spacer", fontSize: 28, fontWeight: Bold)
+        Column(gap: 12, padding: Insets(top: SystemInsets.top, bottom: 16, horizontal: 16)) {
+            Text("Spacersdffsdfsd", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Flexible space on both axes") {
                 Row(height: 56, padding: 8, background: "#F2F2F7") {
                     Text("Leading")
@@ -1016,8 +1035,15 @@ app ComponentParity {
         state textInterpolationFloat64: Float64 = 0.25
         state textInterpolationFloat32: Float32 = 0.125
         state textInterpolationInteger: Int32 = 42
-        state revealSegments: Array<ParityTimedSegment> = [ParityTimedSegment("Timed", 0.0, 0.4, true), ParityTimedSegment(" text", 0.4, 0.8, false)]
-        state revealPosition: Float64 = 0.25
+        state rollingTotal: Float64 = 42.99
+        state revealSegments: Array<ParityTimedSegment> = [
+            ParityTimedSegment("When", 0.0, 0.35, true),
+            ParityTimedSegment("the", 0.35, 0.65, true),
+            ParityTimedSegment("music", 0.65, 1.05, true),
+            ParityTimedSegment("starts", 1.05, 1.4, true),
+            ParityTimedSegment("tonight", 1.4, 1.8, false),
+        ]
+        state revealPosition: Float64 = 0.65
         state revealSeekRevision: Int32 = 0
         Column(gap: 10, padding: 16) {
             Text("Text", fontSize: 28, fontWeight: Bold)
@@ -1039,6 +1065,45 @@ app ComponentParity {
                 }
             }
             if textTestPage == 0 {
+                ParityCard(title: "Rolling number formatting") {
+                    Text("Each changed digit rolls independently using the device locale.", fontSize: 13, color: "#777780")
+                    NumberFlow(
+                        value: rollingTotal,
+                        format: Currency,
+                        currencyCode: "EUR",
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                        animation: Spring(response: 0.35, damping: 0.82),
+                        comment: "Rolling currency total",
+                        color: "#222222",
+                        alignment: Center,
+                        fontSize: 24,
+                        fontStyle: Body,
+                        fontDesign: Default,
+                        fontFamily: "Gilroy-Regular",
+                        fontWeight: Semibold,
+                        padding: 4,
+                        opacity: 0.95,
+                        scale: 1.0,
+                        scaleY: 1.0,
+                        rotation: 0,
+                        shadow: Shadow(1, 0, 0, "#00000020"),
+                        blur: 0,
+                        clip: Rounded(4),
+                        zIndex: 1,
+                        lineLimit: 1,
+                        lineHeight: 28,
+                        letterSpacing: 0.2,
+                        strikethrough: false,
+                        italic: false,
+                        underline: false,
+                        selectable: true,
+                    )
+                    Row(gap: 8) {
+                        Button("Add €0.10") { rollingTotal = rollingTotal + 0.1 }
+                        Button("Subtract €0.10") { rollingTotal = rollingTotal - 0.1 }
+                    }
+                }
                 ParityCard(title: "Font sizes, weights, and designs") {
                     Text("Normal 14", fontSize: 14, fontWeight: Normal)
                     Text("Medium 18", fontSize: 18, fontWeight: Medium)
@@ -1054,20 +1119,21 @@ app ComponentParity {
                     Text("Rounded design", fontDesign: Rounded)
                     Text("Monospaced design", fontDesign: Monospaced)
                 }
-                ParityCard(title: "Native timed text reveal") {
+                ParityCard(title: "Timed karaoke and transcript highlighting") {
+                    Text("TextReveal highlights words as the playback position advances. The app supplies word timings; this preview does not play audio.", fontSize: 13, color: "#777780")
                     TextReveal(
-                        "Timed text",
+                        "When the music starts tonight",
                         segments: revealSegments,
                         position: revealPosition,
-                        active: true,
-                        playing: true,
-                        enabled: true,
+                        isActive: true,
+                        isPlaying: false,
+                        revealEnabled: true,
                         seekRevision: revealSeekRevision,
                         revealOpacity: 0.38,
                         leadTime: 0.3,
                         targetOffset: 0.56,
                         smoothingDuration: 0.25,
-                        comment: "Timed text rendering",
+                        comment: "Timed lyrics or transcript preview",
                         color: "#222222",
                         alignment: Center,
                         fontSize: 16,
@@ -1087,10 +1153,22 @@ app ComponentParity {
                         lineLimit: 2,
                         lineHeight: 20,
                         letterSpacing: 0.2,
-                        strikethrough: true,
-                        italic: true,
-                        underline: true
+                        strikethrough: false,
+                        italic: false,
+                        underline: false,
                     )
+                    Text("Playback position: \(revealPosition) s", fontSize: 13, color: "#777780")
+                    Row(gap: 8) {
+                        Button("0.0 s") {
+                            revealPosition = 0.0
+                        }
+                        Button("0.8 s") {
+                            revealPosition = 0.8
+                        }
+                        Button("1.8 s") {
+                            revealPosition = 1.8
+                        }
+                    }
                 }
                 ParityCard(title: "Typed numeric interpolation · device locale") {
                     Text("Float64: \(textInterpolationFloat64)")
@@ -1169,18 +1247,19 @@ app ComponentParity {
         state taps: Int32 = 0
         state actionDisabled: Bool = false
         state actionLoading: Bool = false
-        Column(gap: 8, padding: 16) {
+        Column(gap: 0, padding: 16) {
             Text("Button", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Button styles, dimensions, and states") {
-                Column(gap: 6, alignment: Center) {
-                    Row(gap: 6, alignment: Center) {
+                Column(gap: 0, alignment: Center) {
+                    Row(gap: 0, alignment: Center) {
                         Text("Taps: $taps")
                         Button("Toggle states", style: Plain) {
                             actionDisabled =!actionDisabled
                             actionLoading =!actionLoading
                         }
                     }
-                    Row(gap: 6, alignment: Center) {
+                    Text("Disabled: $actionDisabled · Loading: $actionLoading", fontSize: 12)
+                    Row(gap: 0, alignment: Center) {
                         Button("Prominent", style: BorderedProminent, tint: "#E11D48") {
                             taps = taps + 1
                         }
@@ -1188,7 +1267,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(gap: 6, alignment: Center) {
+                    Row(gap: 0, alignment: Center) {
                         Button("Borderless", style: Borderless) {
                             taps = taps + 1
                         }
@@ -1196,7 +1275,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(gap: 6, alignment: Center) {
+                    Row(gap: 0, alignment: Center) {
                         Button("Small", style: Bordered, size: Small) {
                             taps = taps + 1
                         }
@@ -1207,7 +1286,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(gap: 6, alignment: Center) {
+                    Row(gap: 0, alignment: Center) {
                         Button("", icon: "add", shape: Circle, accessibilityLabel: "Add") {
                             taps = taps + 1
                         }
@@ -1218,7 +1297,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(gap: 6, alignment: Center) {
+                    Row(gap: 0, alignment: Center) {
                         Button("Glass icon", comment: "Icon and glass style parity", icon: "star", glass: true, style: Bordered) {
                             taps = taps + 1
                         }
@@ -1226,7 +1305,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(gap: 6, alignment: Center) {
+                    Row(gap: 0, alignment: Center) {
                         Button("Disabled", disabled: true) {
                             taps = taps + 1
                         }
@@ -1234,7 +1313,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(gap: 6, alignment: Center) {
+                    Row(gap: 0, alignment: Center) {
                         Button("Dynamic disabled", disabled: actionDisabled) {
                             taps = taps + 1
                         }
@@ -1258,11 +1337,11 @@ app ComponentParity {
         state contextActions: Int32 = 0
         state dragUpdated: Bool = false
         state pinchUpdated: Bool = false
-        Column(gap: 12, padding: 16) {
+        Column(gap: 0, padding: 16) {
             Text("Pressable", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Tap, press, and custom actions") {
                 Text("Tap events: $pressableTaps")
-                Pressable(haptic: Light) {
+                Pressable() {
                     Text("Tap count: $pressableTaps")
                 }.onTap {
                     pressableTaps = pressableTaps + 1
@@ -1317,7 +1396,7 @@ app ComponentParity {
                 }
             }
             ParityCard(title: "Fill available parent size") {
-                Stack(width: 280, height: 64, background: "#F2F2F7", cornerRadius: 8) {
+                Stack(width: Fill, height: 64, background: "#F2F2F7", cornerRadius: 8) {
                     Pressable(fillMaxSize: true) {
                         Text("Full-size pressable")
                     }.onTap {
@@ -1346,10 +1425,10 @@ app ComponentParity {
         state lastChanged: String = ""
         state changeCount: Int32 = 0
         state lastSubmitted: String = "Not submitted"
-        state emailFocused: Bool = false
         state emailFocusCount: Int32 = 0
-        KeyboardAware(dismiss: Interactive, behavior: Stay) {
-            Column(gap: 12, padding: 16) {
+        let emailInputRef = ComponentRef<TextInput>()
+        KeyboardAware(dismiss: Interactive, behavior: Stay, hideHorizontalScrollbar: false, hideVerticalScrollbar: false) {
+        Column(gap: 12, padding: Insets(bottom: 300, top: SystemInsets.top + 16)) {
                 Text("TextInput", fontSize: 28, fontWeight: Bold)
                 Text("No field is focused when this screen opens.", fontSize: 13, color: "#777780")
                 Button("Reset inputs") {
@@ -1370,7 +1449,6 @@ app ComponentParity {
                     lastChanged = ""
                     changeCount = 0
                     lastSubmitted = "Not submitted"
-                    emailFocused = false
                     emailFocusCount = 0
                 }
                 ParityCard(title: "Default text, placeholder, comment, length, and onChange") {
@@ -1385,7 +1463,7 @@ app ComponentParity {
                     Text("Last submitted: $lastSubmitted", fontSize: 13)
                 }
                 ParityCard(title: "Keyboard, return key, and focus") {
-                    TextInput(value: email, placeholder: "Search email", comment: "Username autofill and searchable input", keyboardType: Email, autofill: Username, returnKeyType: Search, capitalization: None, autocorrect: false, focused: emailFocused, font: Body, searchable: true).onFocus { emailFocusCount = emailFocusCount + 1 }
+                    TextInput(value: email, placeholder: "Search email", comment: "Username autofill and searchable input", keyboardType: Email, autofill: Username, returnKeyType: Search, capitalization: None, autocorrect: false, ref: emailInputRef, focused: false, font: Body, searchable: true).onFocus { emailFocusCount = emailFocusCount + 1 }
                     TextInput(value: emailNext, placeholder: "Email · Next", keyboardType: Email, returnKeyType: Next, capitalization: None, autocorrect: false) {
                         lastSubmitted = "Email · Next"
                     }
@@ -1399,12 +1477,12 @@ app ComponentParity {
                         lastSubmitted = "URL · Done"
                     }
                     Button("Focus email") {
-                        emailFocused = true
+                        emailInputRef.focus()
                     }
-                    Button("Clear email focus") {
-                        emailFocused = false
+                    Button("Blur email") {
+                        emailInputRef.blur()
                     }
-                    Text("Email focused: $emailFocused · focus entries: $emailFocusCount · last submitted: $lastSubmitted", fontSize: 13)
+                    Text("Focus entries: $emailFocusCount · last submitted: $lastSubmitted", fontSize: 13)
                 }
                 ParityCard(title: "Secure entry and autofill types") {
                     TextInput(value: password, placeholder: "Password", keyboardType: Text, isSecure: true, autofill: Password, returnKeyType: Done, autocorrect: false, capitalization: None, font: Body) {
@@ -1442,15 +1520,18 @@ app ComponentParity {
         state sliderLow: Float64 = 0.0
         state sliderMiddle: Float64 = 0.5
         state sliderHigh: Float64 = 1.0
+        state sliderHiddenSteps: Float64 = 0.4
         Column(gap: 12, padding: 16) {
             Text("Slider", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Minimum, middle, maximum, and stepped values") {
                 Text("Min: $sliderLow")
-                Slider(value: sliderLow, min: 0, max: 1, step: 0.1, tint: "#2563EB", trackColor: "#DBEAFE", thumbColor: "#FFFFFF", trackHeight: 4, thumbSize: 16, hitSlop: 8)
+                Slider(value: sliderLow, min: 0, max: 1, step: 0.1, tint: "#2563EB")
                 Text("Middle: $sliderMiddle")
-                Slider(value: sliderMiddle, min: 0, max: 1, step: 0.05)
+                Slider(value: sliderMiddle, min: 0, max: 1)
                 Text("Max: $sliderHigh")
                 Slider(value: sliderHigh, min: 0, max: 1, step: 0.25)
+                Text("Stepped without indicators: $sliderHiddenSteps")
+                Slider(value: sliderHiddenSteps, min: 0, max: 1, step: 0.2, showStepIndicators: false)
             }
         }
     }
@@ -1612,7 +1693,7 @@ app ComponentParity {
         state latestDate: Int64 = 1792454400000
         state rangeEarliestDate: Int64 = 1788220800000
         state rangeLatestDate: Int64 = 1795996800000
-        Form(showDividers: false, background: "#FFFFFF") {
+        Form(showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, background: "#FFFFFF") {
             Section(title: "Date styles") {
                 Text("Range selection · one native calendar")
                 PickerDate(type: Date, style: Compact, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: rangeEarliestDate, maximum: rangeLatestDate, tint: "#2563EB", locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Compact travel dates")
@@ -1866,7 +1947,7 @@ app ComponentParity {
                     Button("Scroll to row 5 with ComponentRef") {
                         listRef.scrollToIndex(index: 5)
                     }
-                    FastList(count: 12, rowHeight: 56, gap: 8, showDividers: false, ref: listRef, accessibilityLabel: "Component parity rows") {
+                    FastList(count: 12, rowHeight: 56, gap: 8, showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, ref: listRef, accessibilityLabel: "Component parity rows") {
                         index in
                         Row(gap: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
                             Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
@@ -2070,6 +2151,110 @@ app ComponentParity {
                     }
                 }
             }
+        }
+    }
+
+    screen ScrollViewCases {
+        let articleScroll = ComponentRef<ScrollView>()
+        state scrollTarget: Float64 = 120
+
+        Column(gap: 12, padding: 16) {
+            Text("ScrollView", fontSize: 28, fontWeight: Bold)
+            Text("Finite vertical and horizontal viewports; child margin extends the scroll range.")
+            Row(gap: 8) {
+                Button("Top") { articleScroll.scrollToTop() }
+                Button("Offset") {
+                    articleScroll.scrollToOffset(offset: scrollTarget, animated: false)
+                }
+                Button("End") { articleScroll.scrollToEnd() }
+            }
+            ScrollView(
+                axis: Vertical,
+                hideHorizontalScrollbar: false,
+                hideVerticalScrollbar: false,
+                ref: articleScroll,
+                width: Fill,
+                height: 320,
+                minWidth: 0,
+                maxWidth: 100%,
+                minHeight: 240,
+                maxHeight: 360,
+                padding: Insets(top: 8, horizontal: 12, bottom: 16),
+                margin: Insets(bottom: 8),
+                background: "#F1F5F9",
+                cornerRadius: 12,
+                cornerRadiusBottom: 8,
+                borderColor: "#CBD5E1",
+                borderWidth: 1,
+                opacity: 1,
+                scale: 1,
+                scaleY: 1,
+                rotation: 0,
+                offsetY: 0,
+                shadow: Shadow(2, 0, 1, "#00000020"),
+                blur: 0,
+                clip: Rounded(12),
+                zIndex: 1,
+                glass: Glass(shape: "rounded(12)", tint: "#FFFFFF"),
+                animation: EaseInOut
+            ) {
+                Column(gap: 12) {
+                    Text("Article start", fontSize: 20, fontWeight: Semibold)
+                    Text("Scroll the content to the final paragraph.")
+                    Text("Reachable after scrolling", margin: Insets(top: 1000))
+                    Text("Article end")
+                }
+            }
+            Text("Horizontal axis")
+            ScrollView(axis: Horizontal, width: Fill, height: 96, padding: Insets(horizontal: 8)) {
+                Row(gap: 8) {
+                    Column(width: 140, height: 72, padding: 12, background: "#E8F0FF") {
+                        Text("Card one")
+                    }
+                    Column(width: 140, height: 72, padding: 12, background: "#E8F0FF") {
+                        Text("Card two")
+                    }
+                    Column(width: 140, height: 72, padding: 12, background: "#E8F0FF") {
+                        Text("Card three")
+                    }
+                }
+            }
+        }
+    }
+
+    screen HapticCases {
+        state hapticActions: Int32 = 0
+        Column(gap: 12, padding: Insets(top: SystemInsets.top, horizontal: 16)) {
+            Text("Haptic feedback", fontSize: 28, fontWeight: Bold)
+            Text("Actions: $hapticActions")
+            Pressable(haptic: Light) { Text("Light feedback") }.onTap { hapticActions = hapticActions + 1 }
+            Pressable(haptic: Medium) { Text("Medium feedback") }.onTap { hapticActions = hapticActions + 1 }
+            Pressable(haptic: Heavy) { Text("Heavy feedback") }.onTap { hapticActions = hapticActions + 1 }
+        }
+    }
+
+    screen MarqueeCases {
+        state marqueePlaying: Bool = true
+        state headline: String = "Discover new music and the artists behind your favorite songs"
+        Column(gap: 16, padding: Insets(top: SystemInsets.top, horizontal: 16)) {
+            Text("Marquee", fontSize: 28, fontWeight: Bold)
+            Button("Pause or resume marquee", accessibilityLabel: "Pause or resume marquee") { marqueePlaying = !marqueePlaying }
+            Button("Change headline", accessibilityLabel: "Change headline") { headline = "Independent artists, live performances, and new releases from around the world" }
+            Text("Horizontal media title")
+            Row(width: Fill, height: 40, gap: 12, background: "#E8F0FF", animation: Marquee(speed: 32, gap: 24, delay: 1, edgeFade: 16, playing: marqueePlaying)) {
+                Text(headline, lineLimit: 1)
+                Icon(system: "music", description: "Music", size: 20, tint: "#047DF6")
+            }
+            Text("Vertical announcements")
+            Column(width: Fill, height: 64, gap: 12, background: "#E8F0FF", animation: Marquee(speed: 24, edgeFade: 12, playing: marqueePlaying)) {
+                MarqueeMountProbe()
+                Text("Discover independent artists")
+                Text("Listen to this week's new releases")
+                Stack { Text("Save your favorite albums") }
+                Text("Explore live performances")
+            }
+            Text("Content that fits stays still")
+            Row(width: Fill, height: 40, animation: Marquee(edgeFade: 16)) { Text("Music news") }
         }
     }
 
@@ -2907,6 +3092,6 @@ app ComponentParity {
             appBackgroundEntries = appBackgroundEntries + 1
         }
         Direction(value: LTR)
-        NavigationStack(root: Catalog, titleMode: Inline, titleAlignment: Automatic, showNavigationBar: true)
+        NavigationStack(root: PickerCases, titleMode: Inline, titleAlignment: Automatic, showNavigationBar: true)
     }
 }

@@ -152,6 +152,7 @@ pub(super) fn lower_style(
         opacity,
         effects,
         animation,
+        marquee: None,
     })
 }
 
@@ -731,6 +732,12 @@ fn finite_number_value(expr: &ast::Expr, field: &str) -> Result<f32, CompileErro
 }
 
 pub(super) fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileError> {
+    if super::marquee::is_marquee(&expr) {
+        return Err(CompileError::new(
+            expr.span(),
+            "Marquee is a container animation; use it on Row or Column, not as a timing curve",
+        ));
+    }
     match expr {
         ast::Expr::Name(name, span) => match name.as_str() {
             "Spring" => Ok(AnimationSpec::Spring {

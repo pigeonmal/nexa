@@ -666,12 +666,12 @@ fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
     assert_eq!(swift.matches("NexaFastListPrimitive(rowCount:").count(), 2);
     assert_eq!(
         swift
-            .matches(", showDividers: false, scrollEnabled: true")
+            .matches(", showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, scrollEnabled: true")
             .count(),
         2
     );
     assert!(swift.contains(
-        "NexaFastListPrimitive(rowCount: max(0, Int(2)), rowHeight: nil, showDividers: false, scrollEnabled: true)"
+        "NexaFastListPrimitive(rowCount: max(0, Int(2)), rowHeight: nil, showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, scrollEnabled: true)"
     ));
     let sectioned_start = swift
         .find("NexaFastSectionedListPrimitive")
@@ -1534,6 +1534,138 @@ fn fast_list_ref_scroll_options_are_typed_and_defaulted() {
 }
 
 #[test]
+fn scroll_view_has_explicit_axis_content_extent_and_typed_scroll_refs() {
+    let module = compile(
+        r#"
+        app ScrollViewRefParity {
+            let scrollRef: ComponentRef<ScrollView> = ComponentRef<ScrollView>()
+            body {
+                Column {
+                    ScrollView(axis: Vertical, ref: scrollRef, width: Fill, height: 75%, padding: Insets(top: 12)) {
+                        Column(gap: 8) {
+                            Text("Article start")
+                            Text("Reachable after scrolling", margin: Insets(top: 1000))
+                        }
+                    }
+                    Button("Jump") {
+                        scrollRef.scrollToOffset(offset: 120.0, animated: false)
+                    }
+                    Button("End") { scrollRef.scrollToEnd() }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("ScrollView layout and typed ref operations should compile");
+
+    assert!(matches!(
+        module.states.first(),
+        Some(state) if state.ty == Type::ComponentRef { namespace: "Nexa".to_owned(), name: "ScrollView".to_owned() }
+    ));
+    let mut scroll_owner = false;
+    let mut large_margin_is_in_content = false;
+    let mut ref_calls = Vec::new();
+    walk_ir(
+        &module.body,
+        &mut |node| match node {
+            Node::ScrollView {
+                axis: nexa_ir::adaptive_layout::ScrollAxis::Vertical,
+                component_ref: Some(Expr::State(name, Type::ComponentRef { name: target, .. })),
+                ..
+            } if name == "scrollRef" && target == "ScrollView" => scroll_owner = true,
+            Node::ViewInsets {
+                margin: Some(insets),
+                ..
+            } if insets.top.as_ref().is_some_and(
+                |value| matches!(value.as_ref(), Expr::Number { raw, .. } if raw == "1000"),
+            ) =>
+            {
+                large_margin_is_in_content = true;
+            }
+            _ => {}
+        },
+        &mut |expression| {
+            if let Expr::NativeCall {
+                namespace,
+                name,
+                return_type,
+                ..
+            } = expression
+                && namespace == "NexaScrollViewRef"
+            {
+                ref_calls.push((name.clone(), return_type.clone()));
+            }
+        },
+    );
+    assert!(
+        scroll_owner,
+        "the ScrollView node must retain its axis and typed ref"
+    );
+    assert!(
+        large_margin_is_in_content,
+        "child margin must remain inside the scroll extent"
+    );
+    assert_eq!(
+        ref_calls
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["scrollToOffset", "scrollToEnd"]
+    );
+    assert!(ref_calls.iter().all(|(_, ty)| matches!(ty, Type::Result(_, error) if matches!(error.as_ref(), Type::ComponentRefError(_)))));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("NexaScrollViewPrimitive(axis: .vertical"));
+    assert!(swift.contains("NexaScrollViewRef()"));
+    assert!(swift.contains("scrollToOffset(Double(120.0), animated: false)"));
+    assert!(swift.contains("NexaScrollViewProbe"));
+
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(kotlin.contains("axis = \"Vertical\""));
+    assert!(kotlin.contains("verticalScroll(scrollState)"));
+    assert!(kotlin.contains("NexaScrollViewRef()"));
+    assert!(kotlin.contains(".scrollToOffset(120.0, false)"));
+    assert!(kotlin.contains("modifier.verticalScroll(scrollState)"));
+    assert!(kotlin.contains("NexaScrollContentPrimitive(LocalNexaScrollContentPadding.current)"));
+}
+
+#[test]
+fn scroll_view_rejects_unknown_axis_values() {
+    let error = compile(
+        r#"app InvalidScrollViewAxis { body { ScrollView(axis: Both) { Text("Content") } } }"#,
+    )
+    .expect_err("ScrollView supports exactly one axis");
+    assert!(
+        error.to_string().contains("Vertical` or `Horizontal"),
+        "{error}"
+    );
+}
+
+#[test]
+fn dynamic_padding_and_margin_are_clamped_to_nonnegative_native_insets() {
+    let module = compile(
+        r#"
+        app DynamicInsets {
+            body {
+                Column(padding: Insets(top: SystemInsets.top - 100), margin: Insets(bottom: SystemInsets.bottom - 100)) {
+                    Text("Insets remain safe")
+                }
+            }
+        }
+        "#,
+    )
+    .expect("dynamic inset expressions should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(swift.matches("max(0, CGFloat(").count() >= 2, "{swift}");
+    assert!(
+        kotlin.matches(".toFloat().coerceAtLeast(0f).dp").count() >= 2,
+        "{kotlin}"
+    );
+}
+
+#[test]
 fn reusable_components_expose_typed_ref_methods_on_both_backends() {
     let module = compile(
         r#"
@@ -1936,6 +2068,72 @@ fn documented_fast_list_component_ref_example_compiles() {
         "#,
     )
     .expect("the published FastList ref example should compile");
+}
+
+#[test]
+fn flexible_row_spacers_yield_space_to_text_before_wrapping() {
+    let module = compile(
+        r##"
+        app SpacerRow {
+            body {
+                Row(height: 80, padding: 8, background: "#F2F2F7") {
+                    Text("Two spacers")
+                    Spacer()
+                    Text("Center")
+                    Spacer()
+                    Text("End")
+                }
+            }
+        }
+        "##,
+    )
+    .expect("flexible row spacers should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("Spacer(minLength: 0).layoutPriority(-1)"));
+    assert!(swift.contains("Group {"));
+    assert!(swift.contains("}.layoutPriority(1)"));
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert_eq!(kotlin.matches("Modifier.weight(1f)").count(), 2);
+
+    let ios_dev_renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+    assert!(ios_dev_renderer.contains("Spacer(minLength: 0).layoutPriority(-1)"));
+    assert!(ios_dev_renderer.contains("rendered.layoutPriority(1)"));
+    let android_dev_renderer = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+    assert!(android_dev_renderer.contains("child.has(\"Spacer\") && !fixedSpacer"));
+}
+
+#[test]
+fn fixed_spacers_stay_fixed_in_ios_aot_and_devruntime() {
+    let module = compile(
+        r#"
+        app FixedSpacer {
+            body {
+                Column {
+                    Text("Before")
+                    Spacer(width: 8, height: 8)
+                    Text("After")
+                }
+            }
+        }
+        "#,
+    )
+    .expect("dimensioned spacers should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(
+        swift.contains("Color.clear\n.frame(width: 8).frame(height: 8)"),
+        "{swift}"
+    );
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("Spacer(modifier = Modifier.width(8.dp).height(8.dp))"));
+
+    let ios_dev_renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+    assert!(ios_dev_renderer.contains("spacerView = AnyView(Color.clear)"));
+    assert!(ios_dev_renderer.contains("let widthDimension = nexaDevDimension(fields[\"width\"])"));
+    let android_dev_renderer = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+    assert!(android_dev_renderer.contains("val width = nexaDevDimension(fields.opt(\"width\"))"));
 }
 
 #[test]
@@ -2456,8 +2654,6 @@ fn text_input_keyboard_ergonomics_lower_to_typed_native_options() {
         app KeyboardErgonomics {
             state email: String = ""
             state password: String = ""
-            state focused: Bool = false
-
             body {
                 TextInput(
                     value: email,
@@ -2465,7 +2661,7 @@ fn text_input_keyboard_ergonomics_lower_to_typed_native_options() {
                     keyboardType: Email,
                     autofill: Username,
                     returnKeyType: Next,
-                    focused: focused,
+                    focused: true,
                 ) { }
                 TextInput(
                     value: password,
@@ -2570,21 +2766,20 @@ fn text_input_static_style_lowers_to_typed_native_properties() {
 }
 
 #[test]
-fn text_input_focus_action_lowers_to_a_typed_native_callback() {
+fn text_input_initial_focus_and_focus_event_do_not_require_focus_state() {
     let module = compile(
         r#"
         app SearchFieldFocus {
             state query: String = ""
-            state focused: Bool = false
             state didFocus: Bool = false
             body {
-                TextInput(value: query, placeholder: "Search", focused: focused)
+                TextInput(value: query, placeholder: "Search", focused: true)
                     .onFocus { didFocus = true }
             }
         }
         "#,
     )
-    .expect("a focus callback with a tracked focus binding should compile");
+    .expect("initial focus and the focus callback should compile without a focus state");
 
     assert!(matches!(
         &module.body[0],
@@ -2592,23 +2787,27 @@ fn text_input_focus_action_lowers_to_a_typed_native_callback() {
             focused: Some(focused),
             on_focus: Some(actions),
             ..
-        } if focused == "focused"
+        } if matches!(focused, nexa_ir::Expr::Bool(true))
             && matches!(actions.as_slice(), [Action::Assign { name, value: Expr::Bool(true) }] if name == "didFocus")
     ));
 
-    let missing_focus_binding = r#"
+    let focus_callback_without_initial_focus = r#"
         app SearchFieldFocus {
             state query: String = ""
             state didFocus: Bool = false
             body { TextInput(value: query, placeholder: "Search").onFocus { didFocus = true } }
         }
     "#;
-    assert!(
-        compile(missing_focus_binding)
-            .expect_err("focus callbacks need a cross-platform focus binding")
-            .message
-            .contains("requires a `focused` state binding")
-    );
+    let module = compile(focus_callback_without_initial_focus)
+        .expect("onFocus does not require an initial-focus value");
+    assert!(matches!(
+        &module.body[0],
+        Node::TextInput {
+            focused: None,
+            on_focus: Some(_),
+            ..
+        }
+    ));
 }
 
 #[test]

@@ -1,0 +1,51 @@
+{
+  "format": 2,
+  "tool": "nexa audit",
+  "performance": {"dependencyResolutionMicros": 905, "compilerMicros": 5280},
+  "entry": "App.nx",
+  "targets": [
+    {
+      "target": "ios",
+      "app": "PerformanceAudit",
+      "codegenMicros": 442494,
+      "generatedSourceBytes": 166646,
+      "capabilities": {
+        "remoteImage": false,
+        "network": false,
+        "path": false,
+        "file": false,
+        "fileAsync": false,
+        "storage": false,
+        "secureStorage": false
+      },
+      "dependencies": ["Foundation", "SwiftUI", "UIKit"],
+      "nativePlugins": [],
+      "permissions": {"app": [], "plugins": []},
+      "optimizations": null
+    },
+    {
+      "target": "android",
+      "app": "PerformanceAudit",
+      "codegenMicros": 23366,
+      "generatedSourceBytes": 122339,
+      "capabilities": {
+        "remoteImage": false,
+        "network": false,
+        "path": false,
+        "file": false,
+        "fileAsync": false,
+        "storage": false,
+        "secureStorage": false
+      },
+      "dependencies": ["androidx.activity:activity-compose", "androidx.compose.animation:animation", "androidx.compose.material3:material3", "androidx.compose.ui:ui", "androidx.compose.ui:ui-graphics", "androidx.lifecycle:lifecycle-runtime-compose", "org.jetbrains.kotlinx:kotlinx-coroutines-android"],
+      "nativePlugins": [],
+      "permissions": {"app": [], "plugins": []},
+      "optimizations": null
+    }
+  ],
+  "warnings": [],
+  "releaseMeasurements": {
+      "ios": {"status": "measured", "reason": null, "sdk": "iphoneos", "configuration": "Release", "xcodeVersion": "Xcode 27.2; Build version 27B52", "nativeBuildMicros": 14501431, "mainExecutableBytes": 1115888, "appBundleBytes": 1117057, "bundleOtherBytes": 1169},
+      "android": {"status": "measured", "reason": null, "configuration": "Release", "gradleVersion": "Gradle 9.4.1", "nativeBuildMicros": 45827331, "minificationEnabled": true, "resourceShrinkingEnabled": true, "apkBytes": 1064099, "aabBytes": 2639352, "apkEntryCount": 79, "dexCompressedBytes": 855112, "dexUncompressedBytes": 1682192, "resourcesCompressedBytes": 89792, "resourcesUncompressedBytes": 89792, "assetsCompressedBytes": 5759, "assetsUncompressedBytes": 5759, "nativeLibrariesCompressedBytes": 37392, "nativeLibrariesUncompressedBytes": 37392, "nativeLibrariesByAbi": [{"abi": "arm64-v8a", "compressedBytes": 10096, "uncompressedBytes": 10096}, {"abi": "armeabi-v7a", "compressedBytes": 7252, "uncompressedBytes": 7252}, {"abi": "x86", "compressedBytes": 9284, "uncompressedBytes": 9284}, {"abi": "x86_64", "compressedBytes": 10760, "uncompressedBytes": 10760}], "nativeLibraries": [{"path": "lib/x86_64/libandroidx.graphics.path.so", "compressedBytes": 10760, "uncompressedBytes": 10760}, {"path": "lib/arm64-v8a/libandroidx.graphics.path.so", "compressedBytes": 10096, "uncompressedBytes": 10096}, {"path": "lib/x86/libandroidx.graphics.path.so", "compressedBytes": 9284, "uncompressedBytes": 9284}, {"path": "lib/armeabi-v7a/libandroidx.graphics.path.so", "compressedBytes": 7252, "uncompressedBytes": 7252}], "otherCompressedBytes": 33342, "r8MappingBytes": 22224689, "r8UsageReportBytes": 3269941, "resourceShrinkerReportBytes": 25980}
+    }
+}

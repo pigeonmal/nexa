@@ -1,0 +1,554 @@
+{
+  "bounds": [
+    {
+      "start_ts": 10955277870445,
+      "end_ts": 10967332946521
+    }
+  ],
+  "processes": [
+    {
+      "pid": 4421,
+      "name": "dev.nexa.performanceprofile"
+    }
+  ],
+  "issues": [],
+  "threadCpu": [
+    {
+      "name": "RenderThread",
+      "is_main_thread": 0,
+      "cpu_ms": 5611.939,
+      "scheduler_runs": 3036
+    },
+    {
+      "name": "formanceprofile",
+      "is_main_thread": 1,
+      "cpu_ms": 603.542,
+      "scheduler_runs": 1167
+    },
+    {
+      "name": "Jit thread pool",
+      "is_main_thread": 0,
+      "cpu_ms": 47.769,
+      "scheduler_runs": 59
+    },
+    {
+      "name": "Binder:4421_5",
+      "is_main_thread": 0,
+      "cpu_ms": 47.039,
+      "scheduler_runs": 373
+    },
+    {
+      "name": "Binder:4421_4",
+      "is_main_thread": 0,
+      "cpu_ms": 44.516,
+      "scheduler_runs": 382
+    },
+    {
+      "name": "Binder:4421_3",
+      "is_main_thread": 0,
+      "cpu_ms": 31.59,
+      "scheduler_runs": 255
+    },
+    {
+      "name": "Binder:4421_1",
+      "is_main_thread": 0,
+      "cpu_ms": 9.231,
+      "scheduler_runs": 453
+    },
+    {
+      "name": "Binder:4421_1",
+      "is_main_thread": 0,
+      "cpu_ms": 5.342,
+      "scheduler_runs": 54
+    },
+    {
+      "name": "HWC release",
+      "is_main_thread": 0,
+      "cpu_ms": 0.968,
+      "scheduler_runs": 31
+    },
+    {
+      "name": "GPU completion",
+      "is_main_thread": 0,
+      "cpu_ms": 0.032,
+      "scheduler_runs": 1
+    },
+    {
+      "name": "Profile Saver",
+      "is_main_thread": 0,
+      "cpu_ms": 0.023,
+      "scheduler_runs": 1
+    }
+  ],
+  "sampleCount": [
+    {
+      "samples": 619
+    }
+  ],
+  "sampleLeaves": [
+    {
+      "frame": "transfer_max_buffers",
+      "thread_name": "RenderThread",
+      "samples": 318
+    },
+    {
+      "frame": "efi_header_end__stext___do_softirq___irqentry_text_end___irqentry_text_start___softirqentry_text_start",
+      "thread_name": "RenderThread",
+      "samples": 51
+    },
+    {
+      "frame": "lockless_pages_from_mm",
+      "thread_name": "RenderThread",
+      "samples": 22
+    },
+    {
+      "frame": "arm64_preempt_schedule_irq___sched_text_start",
+      "thread_name": "RenderThread",
+      "samples": 16
+    },
+    {
+      "frame": "swake_up_one",
+      "thread_name": "RenderThread",
+      "samples": 12
+    },
+    {
+      "frame": "try_to_wake_up",
+      "thread_name": "RenderThread",
+      "samples": 12
+    },
+    {
+      "frame": "__page_pinner_migration_failed",
+      "thread_name": "RenderThread",
+      "samples": 10
+    },
+    {
+      "frame": "ExecuteNterpImpl",
+      "thread_name": "formanceprofile",
+      "samples": 8
+    },
+    {
+      "frame": "efi_header_end__stext___do_softirq___irqentry_text_end___irqentry_text_start___softirqentry_text_start",
+      "thread_name": "formanceprofile",
+      "samples": 7
+    },
+    {
+      "frame": "__fget",
+      "thread_name": "RenderThread",
+      "samples": 6
+    },
+    {
+      "frame": "el0_svc_common",
+      "thread_name": "RenderThread",
+      "samples": 5
+    },
+    {
+      "frame": "release_user_pages",
+      "thread_name": "RenderThread",
+      "samples": 5
+    },
+    {
+      "frame": "__seccomp_filter",
+      "thread_name": "RenderThread",
+      "samples": 3
+    },
+    {
+      "frame": "__vfprintf",
+      "thread_name": "RenderThread",
+      "samples": 3
+    },
+    {
+      "frame": "finish_task_switch",
+      "thread_name": "RenderThread",
+      "samples": 3
+    },
+    {
+      "frame": "get_vma",
+      "thread_name": "formanceprofile",
+      "samples": 3
+    },
+    {
+      "frame": "update_blocked_averages",
+      "thread_name": "RenderThread",
+      "samples": 3
+    },
+    {
+      "frame": "write",
+      "thread_name": "RenderThread",
+      "samples": 3
+    },
+    {
+      "frame": "",
+      "thread_name": "RenderThread",
+      "samples": 2
+    },
+    {
+      "frame": "[DEDUPED]",
+      "thread_name": "formanceprofile",
+      "samples": 2
+    },
+    {
+      "frame": "_ZN12_GLOBAL__N_123check_integer_translateERK8SkMatrixS2_",
+      "thread_name": "RenderThread",
+      "samples": 2
+    },
+    {
+      "frame": "_ZNK16SkNoPixelsDevice13onGetClipTypeEv",
+      "thread_name": "formanceprofile",
+      "samples": 2
+    },
+    {
+      "frame": "_ZNK8SkCanvas18getLocalClipBoundsEv",
+      "thread_name": "RenderThread",
+      "samples": 2
+    },
+    {
+      "frame": "__arm64_sys_read",
+      "thread_name": "RenderThread",
+      "samples": 2
+    },
+    {
+      "frame": "__fsnotify_parent",
+      "thread_name": "RenderThread",
+      "samples": 2
+    }
+  ],
+  "mainSlices": [
+    {
+      "name": "traversal",
+      "count": 442,
+      "ms": 10317.532
+    },
+    {
+      "name": "draw",
+      "count": 442,
+      "ms": 10285.35
+    },
+    {
+      "name": "animation",
+      "count": 443,
+      "ms": 263.207
+    },
+    {
+      "name": "Recomposer:animation",
+      "count": 443,
+      "ms": 222.247
+    },
+    {
+      "name": "Record View#draw()",
+      "count": 443,
+      "ms": 162.67
+    },
+    {
+      "name": "AndroidOwner:draw",
+      "count": 443,
+      "ms": 128.352
+    },
+    {
+      "name": "Choreographer#doFrame 811310",
+      "count": 1,
+      "ms": 126.738
+    },
+    {
+      "name": "Choreographer#doFrame 811482",
+      "count": 1,
+      "ms": 122.615
+    },
+    {
+      "name": "Choreographer#doFrame 811758",
+      "count": 1,
+      "ms": 112.611
+    },
+    {
+      "name": "Choreographer#doFrame 811109",
+      "count": 1,
+      "ms": 109.86
+    },
+    {
+      "name": "Choreographer#doFrame 811511",
+      "count": 1,
+      "ms": 109.013
+    },
+    {
+      "name": "Choreographer#doFrame 811025",
+      "count": 1,
+      "ms": 106.75
+    },
+    {
+      "name": "Choreographer#doFrame 811427",
+      "count": 1,
+      "ms": 106.136
+    },
+    {
+      "name": "Choreographer#doFrame 811536",
+      "count": 1,
+      "ms": 106.033
+    },
+    {
+      "name": "Choreographer#doFrame 811268",
+      "count": 1,
+      "ms": 102.197
+    },
+    {
+      "name": "Choreographer#doFrame 811807",
+      "count": 1,
+      "ms": 97.37
+    },
+    {
+      "name": "Choreographer#doFrame 811199",
+      "count": 1,
+      "ms": 93.641
+    },
+    {
+      "name": "Choreographer#doFrame 811441",
+      "count": 1,
+      "ms": 92.959
+    },
+    {
+      "name": "Choreographer#doFrame 811681",
+      "count": 1,
+      "ms": 92.368
+    },
+    {
+      "name": "Choreographer#doFrame 811625",
+      "count": 1,
+      "ms": 92.247
+    },
+    {
+      "name": "Choreographer#doFrame 811335",
+      "count": 1,
+      "ms": 91.414
+    },
+    {
+      "name": "Choreographer#doFrame 811709",
+      "count": 1,
+      "ms": 86.181
+    },
+    {
+      "name": "Choreographer#doFrame 811041",
+      "count": 1,
+      "ms": 80.514
+    },
+    {
+      "name": "Choreographer#doFrame 811715",
+      "count": 1,
+      "ms": 79.689
+    },
+    {
+      "name": "Choreographer#doFrame 811631",
+      "count": 1,
+      "ms": 79.63
+    },
+    {
+      "name": "Choreographer#doFrame 811173",
+      "count": 1,
+      "ms": 77.795
+    },
+    {
+      "name": "Choreographer#doFrame 811256",
+      "count": 1,
+      "ms": 75.915
+    },
+    {
+      "name": "Choreographer#doFrame 811162",
+      "count": 1,
+      "ms": 75.786
+    },
+    {
+      "name": "Choreographer#doFrame 811011",
+      "count": 1,
+      "ms": 75.754
+    },
+    {
+      "name": "Choreographer#doFrame 811251",
+      "count": 1,
+      "ms": 74.734
+    }
+  ],
+  "layoutSlices": [
+    {
+      "name": "Recomposer:animation",
+      "count": 443,
+      "ms": 222.247
+    },
+    {
+      "name": "Recomposer:recompose",
+      "count": 443,
+      "ms": 11.721
+    }
+  ],
+  "frames": [
+    {
+      "jank_type": "App Deadline Missed, Buffer Stuffing",
+      "count": 12,
+      "avg_ms": 75.919,
+      "max_ms": 160.629
+    },
+    {
+      "jank_type": "Buffer Stuffing",
+      "count": 51,
+      "avg_ms": 51.98,
+      "max_ms": 130.999
+    },
+    {
+      "jank_type": "None",
+      "count": 1,
+      "avg_ms": 15.83,
+      "max_ms": 15.83
+    },
+    {
+      "jank_type": "Prediction Error, App Deadline Missed",
+      "count": 1,
+      "avg_ms": 29.064,
+      "max_ms": 29.064
+    },
+    {
+      "jank_type": "Prediction Error, App Deadline Missed, Buffer Stuffing",
+      "count": 63,
+      "avg_ms": 81.901,
+      "max_ms": 164.917
+    },
+    {
+      "jank_type": "Prediction Error, Buffer Stuffing",
+      "count": 254,
+      "avg_ms": 49.264,
+      "max_ms": 141.844
+    },
+    {
+      "jank_type": "SurfaceFlinger CPU Deadline Missed, App Deadline Missed, Buffer Stuffing",
+      "count": 43,
+      "avg_ms": 63.802,
+      "max_ms": 136.41
+    },
+    {
+      "jank_type": "SurfaceFlinger CPU Deadline Missed, Buffer Stuffing",
+      "count": 19,
+      "avg_ms": 67.229,
+      "max_ms": 134.429
+    }
+  ],
+  "memoryCounters": [
+    {
+      "name": "HWC release",
+      "min_value": 0.0,
+      "max_value": 1.0,
+      "samples": 20
+    },
+    {
+      "name": "HWUI All Memory",
+      "min_value": 3658687.0,
+      "max_value": 3907535.0,
+      "samples": 443
+    },
+    {
+      "name": "HWUI CPU Memory",
+      "min_value": 86831.0,
+      "max_value": 86831.0,
+      "samples": 443
+    },
+    {
+      "name": "HWUI Misc Memory",
+      "min_value": 1474704.0,
+      "max_value": 1723552.0,
+      "samples": 443
+    },
+    {
+      "name": "HWUI Texture Memory",
+      "min_value": 2097152.0,
+      "max_value": 2097152.0,
+      "samples": 443
+    },
+    {
+      "name": "Heap size (KB)",
+      "min_value": 5273.0,
+      "max_value": 6169.0,
+      "samples": 58
+    },
+    {
+      "name": "PendingRelease",
+      "min_value": 0.0,
+      "max_value": 0.0,
+      "samples": 442
+    },
+    {
+      "name": "Purgeable HWUI Misc Memory",
+      "min_value": 599040.0,
+      "max_value": 599040.0,
+      "samples": 443
+    },
+    {
+      "name": "QueuedBuffer - ViewRootImpl[MainActivity]#0BLAST#0",
+      "min_value": 1.0,
+      "max_value": 3.0,
+      "samples": 885
+    },
+    {
+      "name": "ViewRootImpl[MainActivity]#0(BLAST Consumer)0",
+      "min_value": 0.0,
+      "max_value": 1.0,
+      "samples": 886
+    },
+    {
+      "name": "gfxstreamFrameNumber",
+      "min_value": 637.0,
+      "max_value": 1080.0,
+      "samples": 444
+    },
+    {
+      "name": "mem.locked",
+      "min_value": 0.0,
+      "max_value": 0.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss",
+      "min_value": 135204864.0,
+      "max_value": 136663040.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss.anon",
+      "min_value": 60043264.0,
+      "max_value": 61415424.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss.file",
+      "min_value": 72966144.0,
+      "max_value": 72966144.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss.shmem",
+      "min_value": 2195456.0,
+      "max_value": 2281472.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.rss.watermark",
+      "min_value": 138678272.0,
+      "max_value": 138678272.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.swap",
+      "min_value": 0.0,
+      "max_value": 0.0,
+      "samples": 13
+    },
+    {
+      "name": "mem.virt",
+      "min_value": 15113965568.0,
+      "max_value": 15113965568.0,
+      "samples": 13
+    },
+    {
+      "name": "oom_score_adj",
+      "min_value": 0.0,
+      "max_value": 0.0,
+      "samples": 13
+    }
+  ],
+  "traceSha256": "2067678304ec662c80830ba9f99793f061320dcaa95787295966cbe4131bb20a",
+  "package": "dev.nexa.performanceprofile",
+  "scope": "Release app trace; no hardware frame-rate or battery guarantee"
+}

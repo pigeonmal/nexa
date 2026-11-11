@@ -1,0 +1,37 @@
+{
+  "scope": "Compiled native helper microbenchmarks; not whole-app frame timing",
+  "host": "macOS-27.0.1-arm64-arm-64bit",
+  "swiftVersion": "Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)\nTarget: arm64-apple-macosx27.0.0",
+  "beforeSwiftSourceSha256": "8ea5b7f4890528bb5f399aac441cfe30b0371148da373c6bd8f3c6a6cc6809aa",
+  "swift": {
+    "afterMs": [
+      1.3805,
+      1.358292,
+      1.936333,
+      1.448958,
+      2.117125,
+      1.292916,
+      1.414083,
+      1.264875,
+      1.330083
+    ],
+    "beforeMs": [
+      8.202416,
+      8.62075,
+      9.880292,
+      10.749375,
+      10.765834,
+      9.472209,
+      8.629708,
+      8.785166,
+      8.073917
+    ],
+    "checksum": 765000,
+    "iterations": 5000
+  },
+  "kotlin": [
+    "scroll allocations: reference=3200000 optimized=0 iterations=20000 checksum=160000",
+    "native Kotlin scroll observation: 4000 reference comparisons passed",
+    "native Kotlin NumberFlow: committed direction survives unchanged renders passed"
+  ]
+}

@@ -1,0 +1,265 @@
+{
+  "date": "2026-11-10",
+  "platform": "iOS Simulator 27.0, iPhone 18 Pro Max",
+  "scope": "Offscreen UIKit bitmap rendering and CPU timing; no screen screenshots; not hardware frame timing",
+  "harness": "tests/native_text_reveal_check.py",
+  "change": "Cache each line highlight glyph range at TextKit layout invalidation; retain exact per-line clipping and drawing",
+  "pixelParityCases": [
+    {
+      "lineCount": 2,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 60,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 1,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 2,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 2,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 3,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 3,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 3,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 6,
+      "displayScale": 3,
+      "pixelChecks": 5
+    },
+    {
+      "lineCount": 3,
+      "displayScale": 3,
+      "pixelChecks": 5
+    }
+  ],
+  "benchmarks": [
+    {
+      "lineCount": 2,
+      "pixelChecks": 5,
+      "drawsPerSample": 20,
+      "samples": 7,
+      "baselineMedianMsPerSample": 0.3129999968223274,
+      "cachedMedianMsPerSample": 0.31379167194245383,
+      "speedup": 0.9974770677780396,
+      "reductionPercent": -0.2529313508510489,
+      "baselineSamplesMs": [
+        0.31837499409448355,
+        0.31766666506882757,
+        0.31666667200624943,
+        0.3129999968223274,
+        0.31291667255572975,
+        0.31270834006136283,
+        0.3119583343504928
+      ],
+      "cachedSamplesMs": [
+        0.31620833760825917,
+        0.3197083351551555,
+        0.31379167194245383,
+        0.3222500017727725,
+        0.3121249974356033,
+        0.3112083286396228,
+        0.3109166646027006
+      ]
+    },
+    {
+      "lineCount": 6,
+      "pixelChecks": 5,
+      "drawsPerSample": 20,
+      "samples": 7,
+      "baselineMedianMsPerSample": 1.1770833370974287,
+      "cachedMedianMsPerSample": 0.934374998905696,
+      "speedup": 1.2597547435194472,
+      "reductionPercent": 20.61946937336039,
+      "baselineSamplesMs": [
+        1.1645000049611554,
+        1.1968750040978193,
+        1.1964583318331279,
+        1.1759166663978249,
+        1.1770833370974287,
+        1.2152916606282815,
+        1.1725000003934838
+      ],
+      "cachedSamplesMs": [
+        0.9815833327593282,
+        0.9405833334312774,
+        0.930541667912621,
+        0.9275833363062702,
+        0.9380416668136604,
+        0.934374998905696,
+        0.9268750000046566
+      ]
+    },
+    {
+      "lineCount": 60,
+      "pixelChecks": 5,
+      "drawsPerSample": 20,
+      "samples": 7,
+      "baselineMedianMsPerSample": 53.02966666204156,
+      "cachedMedianMsPerSample": 9.175874998618383,
+      "speedup": 5.779249027479807,
+      "reductionPercent": 82.69671379023312,
+      "baselineSamplesMs": [
+        52.51645833050134,
+        52.91912500251783,
+        53.02966666204156,
+        53.11966666340595,
+        53.75570832984522,
+        53.396958333905786,
+        52.63470833597239
+      ],
+      "cachedSamplesMs": [
+        9.153499995591119,
+        9.228750001057051,
+        9.168666671030223,
+        9.399624999787193,
+        9.325791666924488,
+        9.092708336538635,
+        9.175874998618383
+      ]
+    }
+  ]
+}

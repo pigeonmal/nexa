@@ -40,6 +40,7 @@ pub mod core_api;
 mod custom_components;
 mod expressions;
 mod generics;
+mod marquee;
 mod styles;
 mod tests;
 mod themes;
@@ -372,6 +373,7 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                 }
                 Node::Appearance { .. }
                 | Node::Form { .. }
+                | Node::ScrollView { .. }
                 | Node::FormSection { .. }
                 | Node::SafeAreaInset { .. }
                 | Node::ScrollHeader { .. } => {
@@ -2133,6 +2135,7 @@ fn lower_with_warnings_in_mode(
         });
     }
     let validation_started = Instant::now();
+    marquee::validate(&module)?;
     validate_module_callback_disposal(&module, function_signatures)?;
     let validation_elapsed = validation_started.elapsed();
     let optimization_started = Instant::now();

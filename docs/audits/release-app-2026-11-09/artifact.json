@@ -1,0 +1,9 @@
+{
+  "package": "dev.nexa.performanceprofile",
+  "apkBytes": 1090047,
+  "sha256": "2f487fd9fe9b06a2b2cf1edee11dc32db3fbeb0d38abcc387a42ca62c2887232",
+  "profileableShell": true,
+  "debuggable": false,
+  "r8": true,
+  "scope": "Release AOT; profiling manifest only; isolated test package and signing key"
+}

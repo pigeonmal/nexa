@@ -89,6 +89,8 @@ internal object NexaDevKeys {
     const val CHILDREN = "children"
     const val PLAN = "plan"
     const val CONTENT = "content"
+    const val AXIS = "axis"
+    const val STYLE = "style"
 
     // Pressable fields
     const val DRAG_PARAMETERS = "drag_parameters"
@@ -108,6 +110,8 @@ internal object NexaDevKeys {
     // FastList fields
     const val REVERSE_LAYOUT = "reverse_layout"
     const val PAGE_SNAP = "page_snap"
+    const val HIDE_HORIZONTAL_SCROLLBAR = "hide_horizontal_scrollbar"
+    const val HIDE_VERTICAL_SCROLLBAR = "hide_vertical_scrollbar"
 
     // Diagnostic fields
     const val FILE = "file"
@@ -139,6 +143,7 @@ internal object NexaDevNodeKind {
     const val PRESSABLE = "Pressable"
     const val TEXT_INPUT = "TextInput"
     const val FAST_LIST = "FastList"
+    const val SCROLL_VIEW = "ScrollView"
     const val SWITCH = "Switch"
     const val SLIDER = "Slider"
     const val PROGRESS_BAR = "ProgressBar"

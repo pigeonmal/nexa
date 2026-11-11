@@ -1,12 +1,11 @@
 app FocusReloadSmoke {
     state email: String = ""
-    state shouldFocus: Bool = true
 
     body {
         KeyboardAware(dismiss: Interactive) {
             Column {
                 Text("Focus Ready")
-                TextInput(value: email, placeholder: "Email", focused: shouldFocus)
+                TextInput(value: email, placeholder: "Email", focused: true)
                 Text("Focus footer")
             }
         }

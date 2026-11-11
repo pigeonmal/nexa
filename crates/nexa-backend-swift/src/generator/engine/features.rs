@@ -5,8 +5,7 @@ use nexa_ir::{Module, Permission, facts::ModuleFacts};
 #[derive(Default)]
 pub(crate) struct Features {
     /// Target-neutral facts from the single analysis pass. Renderers read
-    /// per-scope data (such as focus bindings) from here instead of
-    /// re-walking subtrees.
+    /// UI and capability observations from here instead of re-walking subtrees.
     pub(crate) facts: ModuleFacts,
     pub(crate) uses_fast_list: bool,
     pub(crate) uses_vertical_list: bool,

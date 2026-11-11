@@ -47,7 +47,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_network_api, "org.chromium.net.UploadDataSink");
     imports.add(uses_transport, "org.chromium.net.UrlRequest");
     imports.add(uses_transport, "org.chromium.net.UrlResponseInfo");
-    imports.add(uses_transport, "java.io.ByteArrayOutputStream");
     imports.add(
         features.uses_network_api || features.uses_path_api || features.uses_file_api,
         "java.io.File",
@@ -362,12 +361,27 @@ private class NexaCronetRequestClient(
         sink: OutputStream? = null,
         uploadProvider: UploadDataProvider? = null,
     ): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
-        val output = if (sink == null) ByteArrayOutputStream() else null
+        // NetworkResponse exposes a ByteArray, so cap the in-memory builder to
+        // the largest JVM array representation even if callers configure more.
+        val responseByteLimit = if (sink == null) {
+            minOf(maxResponseBytes, Int.MAX_VALUE.toLong() - 8L)
+        } else {
+            maxResponseBytes
+        }
+        val output = if (sink == null) {
+            NexaByteArrayBuilder(responseByteLimit.coerceAtLeast(0L).toInt())
+        } else {
+            null
+        }
+        // Cronet permits one read at a time. Reuse a single transfer buffer for
+        // fetch accumulation and for the serialized file-sink write path.
+        val chunkBytes = ByteArray(32 * 1024)
         var receivedBytes = 0L
         val completed = java.util.concurrent.atomic.AtomicBoolean(false)
         var request: UrlRequest? = null
         fun fail(error: Throwable) {
             if (completed.compareAndSet(false, true)) {
+                output?.clear()
                 continuation.resumeWithException(error)
             }
         }
@@ -377,23 +391,35 @@ private class NexaCronetRequestClient(
             }
 
             override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
+                val declaredLength = info.allHeaders.entries
+                    .firstOrNull { it.key.equals("content-length", ignoreCase = true) }
+                    ?.value?.firstOrNull()?.toLongOrNull()
+                if (responseByteLimit < 0L ||
+                    (declaredLength != null && declaredLength > responseByteLimit)
+                ) {
+                    fail(NexaNetworkException("response exceeds maxResponseBytes"))
+                    request.cancel()
+                    return
+                }
                 request.read(ByteBuffer.allocateDirect(32 * 1024))
             }
 
             override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
                 byteBuffer.flip()
-                if (receivedBytes + byteBuffer.remaining() > maxResponseBytes) {
+                val chunkSize = byteBuffer.remaining()
+                if (responseByteLimit < 0L || receivedBytes > responseByteLimit ||
+                    chunkSize.toLong() > responseByteLimit - receivedBytes
+                ) {
                     fail(NexaNetworkException("response exceeds maxResponseBytes"))
                     request.cancel()
                     return
                 }
-                val bytes = ByteArray(byteBuffer.remaining())
-                byteBuffer.get(bytes)
-                receivedBytes += bytes.size
+                byteBuffer.get(chunkBytes, 0, chunkSize)
+                receivedBytes += chunkSize.toLong()
                 if (sink != null) {
                     NexaCronetRuntime.ioExecutor().execute {
                         try {
-                            sink.write(bytes)
+                            sink.write(chunkBytes, 0, chunkSize)
                             byteBuffer.clear()
                             request.read(byteBuffer)
                         } catch (error: Throwable) {
@@ -402,7 +428,7 @@ private class NexaCronetRequestClient(
                         }
                     }
                 } else {
-                    output!!.write(bytes)
+                    output!!.write(chunkBytes, 0, chunkSize)
                     byteBuffer.clear()
                     request.read(byteBuffer)
                 }
@@ -410,7 +436,7 @@ private class NexaCronetRequestClient(
 
             override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
                 if (completed.compareAndSet(false, true)) continuation.resume(
-                    NexaNetworkResponse(info.httpStatusCode, info.allHeaders.flatMap { (name, values) -> values.map { name to it } }, output?.toByteArray() ?: ByteArray(0))
+                    NexaNetworkResponse(info.httpStatusCode, info.allHeaders.flatMap { (name, values) -> values.map { name to it } }, output?.take() ?: ByteArray(0))
                 )
             }
 
@@ -443,7 +469,10 @@ private class NexaCronetRequestClient(
         }
         request = builder.build()
         continuation.invokeOnCancellation {
-            if (completed.compareAndSet(false, true)) request?.cancel()
+            if (completed.compareAndSet(false, true)) {
+                output?.clear()
+                request?.cancel()
+            }
         }
         request!!.start()
     }
@@ -455,16 +484,25 @@ private class NexaCronetRequestClient(
         if include_image_support {
             out.push_str(
             r#"
+private const val NEXA_IMAGE_MAX_RESPONSE_BYTES = 64L * 1024L * 1024L
+
+private data class NexaCronetImageResponse(
+    val statusCode: Int,
+    val headers: List<Pair<String, String>>,
+    val body: Buffer,
+)
+
 private class NexaCronetImageRequestClient(
     private val engine: CronetEngine,
 ) {
-    suspend fun execute(url: String): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
-        val output = ByteArrayOutputStream()
+    suspend fun execute(url: String): NexaCronetImageResponse = suspendCancellableCoroutine { continuation ->
+        val output = Buffer()
         var receivedBytes = 0L
         val completed = java.util.concurrent.atomic.AtomicBoolean(false)
         var request: UrlRequest? = null
         fun fail(error: Throwable) {
             if (completed.compareAndSet(false, true)) {
+                output.clear()
                 continuation.resumeWithException(error)
             }
         }
@@ -474,27 +512,38 @@ private class NexaCronetImageRequestClient(
             }
 
             override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
+                val declaredLength = info.allHeaders.entries
+                    .firstOrNull { it.key.equals("content-length", ignoreCase = true) }
+                    ?.value?.firstOrNull()?.toLongOrNull()
+                if (declaredLength != null && declaredLength > NEXA_IMAGE_MAX_RESPONSE_BYTES) {
+                    fail(NexaNetworkException("image response exceeds 64 MiB"))
+                    request.cancel()
+                    return
+                }
                 request.read(ByteBuffer.allocateDirect(32 * 1024))
             }
 
             override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
                 byteBuffer.flip()
-                if (receivedBytes + byteBuffer.remaining() > 64L * 1024L * 1024L) {
+                val chunkSize = byteBuffer.remaining()
+                if (chunkSize.toLong() > NEXA_IMAGE_MAX_RESPONSE_BYTES - receivedBytes) {
                     fail(NexaNetworkException("image response exceeds 64 MiB"))
                     request.cancel()
                     return
                 }
-                val bytes = ByteArray(byteBuffer.remaining())
-                byteBuffer.get(bytes)
-                receivedBytes += bytes.size
-                output.write(bytes)
+                receivedBytes += chunkSize
+                output.write(byteBuffer)
                 byteBuffer.clear()
                 request.read(byteBuffer)
             }
 
             override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
                 if (completed.compareAndSet(false, true)) continuation.resume(
-                    NexaNetworkResponse(info.httpStatusCode, info.allHeaders.flatMap { (name, values) -> values.map { name to it } }, output.toByteArray())
+                    NexaCronetImageResponse(
+                        info.httpStatusCode,
+                        info.allHeaders.flatMap { (name, values) -> values.map { name to it } },
+                        output,
+                    )
                 )
             }
 
@@ -503,6 +552,7 @@ private class NexaCronetImageRequestClient(
             }
 
             override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
+                output.clear()
                 fail(CancellationException("request cancelled"))
             }
         }
@@ -521,6 +571,7 @@ private class NexaCronetImageRequestClient(
         }
     }
     if include_network {
+        out.push_str(include_str!("network_runtime.kt"));
         out.push_str(
             r#"private fun hexPin(value: String): ByteArray {
     require(value.length == 64 && value.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
@@ -604,7 +655,7 @@ public object NexaNetwork {
             }
             val temporaryFile = File.createTempFile("nexa-download-", ".tmp", parent)
             try {
-                FileOutputStream(temporaryFile).use { output ->
+                NexaSerializedOutputStream(FileOutputStream(temporaryFile)).use { output ->
                     val host = Uri.parse(url).host
                     val pins = if (host != null && certificatePins.isNotEmpty()) {
                         mapOf(host to certificatePins.map(::hexPin).toSet())
@@ -773,7 +824,7 @@ private class NexaCronetNetworkClient(
         val networkResponse = NetworkResponse(
             code = response.statusCode,
             headers = response.headers.toNetworkHeaders(),
-            body = NetworkResponseBody(Buffer().write(response.body)),
+            body = NetworkResponseBody(response.body),
         )
         return block(networkResponse)
     }
@@ -886,7 +937,9 @@ mod tests {
             .0;
 
         assert!(download.contains("File.createTempFile(\"nexa-download-\", \".tmp\", parent)"));
-        assert!(download.contains("FileOutputStream(temporaryFile).use { output ->"));
+        assert!(download.contains(
+            "NexaSerializedOutputStream(FileOutputStream(temporaryFile)).use { output ->"
+        ));
         assert!(download.contains(
             "android.system.Os.rename(temporaryFile.absolutePath, destination.absolutePath)"
         ));
@@ -950,6 +1003,64 @@ mod tests {
         assert!(output.contains("headers = response.headers.toNetworkHeaders()"));
         assert!(output.contains("private fun List<Pair<String, String>>.toNetworkHeaders()"));
         assert!(output.contains("for ((name, value) in this) builder.add(name, value)"));
+    }
+
+    #[test]
+    fn cronet_image_body_flows_into_coil_without_byte_array_copies() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, true, false, false, false, false);
+        let image_client = output
+            .as_str()
+            .split_once("private class NexaCronetImageRequestClient")
+            .expect("find the image-specific Cronet client")
+            .1
+            .split_once("private class NexaCronetNetworkClient")
+            .expect("find the end of the image-specific Cronet client")
+            .0;
+        let coil_adapter = output
+            .as_str()
+            .split_once("private class NexaCronetNetworkClient")
+            .expect("find the Coil adapter")
+            .1;
+
+        assert!(image_client.contains("val output = Buffer()"));
+        assert!(image_client.contains("output.write(byteBuffer)"));
+        assert!(image_client.contains("NEXA_IMAGE_MAX_RESPONSE_BYTES"));
+        assert!(image_client.contains("declaredLength > NEXA_IMAGE_MAX_RESPONSE_BYTES"));
+        assert!(!image_client.contains("ByteArrayOutputStream()"));
+        assert!(!output.contains("import java.io.ByteArrayOutputStream"));
+        assert!(!image_client.contains("toByteArray()"));
+        assert!(coil_adapter.contains("body = NetworkResponseBody(response.body)"));
+        assert!(!coil_adapter.contains("Buffer().write(response.body)"));
+    }
+
+    #[test]
+    fn cronet_network_reuses_transfer_storage_and_bounds_body_before_writes() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+        let client = output
+            .as_str()
+            .split_once("private class NexaCronetRequestClient")
+            .expect("find the shared Cronet request client")
+            .1;
+
+        assert!(client.contains("val chunkBytes = ByteArray(32 * 1024)"));
+        assert!(client.contains("byteBuffer.get(chunkBytes, 0, chunkSize)"));
+        assert!(client.contains("sink.write(chunkBytes, 0, chunkSize)"));
+        assert!(client.contains("output!!.write(chunkBytes, 0, chunkSize)"));
+        assert!(client.contains("declaredLength > responseByteLimit"));
+        assert!(client.contains("chunkSize.toLong() > responseByteLimit - receivedBytes"));
+        assert!(!client.contains("ByteArray(byteBuffer.remaining())"));
+        assert!(!client.contains("receivedBytes + byteBuffer.remaining()"));
+        assert!(
+            output.contains("private class NexaByteArrayBuilder(private val maximumSize: Int)")
+        );
+        assert!(output.contains("if (size == storage.size) storage else storage.copyOf(size)"));
+        assert!(output.contains("coerceAtMost(maximumSize.toLong())"));
+        assert!(!output.contains("import java.io.ByteArrayOutputStream"));
+        assert!(!client.contains("ByteArrayOutputStream()"));
+        assert!(output.contains("private class NexaSerializedOutputStream"));
+        assert!(output.contains("NexaSerializedOutputStream(FileOutputStream(temporaryFile)).use"));
     }
 
     #[test]

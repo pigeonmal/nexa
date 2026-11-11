@@ -99,7 +99,7 @@ app ReorderExample {
         } else {
             assert!(
                 native.contains(
-                    "NexaNativeListPrimitive(scrollEnabled: true, reorderEnabled: true, rowCount:"
+                    "NexaNativeListPrimitive(scrollEnabled: true, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, reorderEnabled: true, rowCount:"
                 ),
                 "native list must install the no-icon iOS reorder session when onMove is present: {native}"
             );

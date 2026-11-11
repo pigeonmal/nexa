@@ -7,9 +7,9 @@ struct NexaTextRevealPrimitive<Segment>: View {
     let endTimeOf: (Segment) -> Double
     let hasTrailingSpaceOf: (Segment) -> Bool
     let position: Double
-    let active: Bool
-    let playing: Bool
-    let enabled: Bool
+    let isActive: Bool
+    let isPlaying: Bool
+    let revealEnabled: Bool
     let seekRevision: Int64
     let dimOpacity: CGFloat
     let leadTime: Double
@@ -37,9 +37,9 @@ struct NexaTextRevealPrimitive<Segment>: View {
             endTimeOf: endTimeOf,
             hasTrailingSpaceOf: hasTrailingSpaceOf,
             position: position,
-            active: active,
-            playing: playing,
-            enabled: enabled,
+            isActive: isActive,
+            isPlaying: isPlaying,
+            revealEnabled: revealEnabled,
             seekRevision: seekRevision,
             dimOpacity: dimOpacity,
             leadTime: leadTime,
@@ -58,6 +58,7 @@ struct NexaTextRevealPrimitive<Segment>: View {
             underline: underline,
             strikethrough: strikethrough
         )
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityLabel(text)
     }
@@ -71,9 +72,9 @@ private struct NexaTextRevealRepresentable<Segment>: UIViewRepresentable {
     let endTimeOf: (Segment) -> Double
     let hasTrailingSpaceOf: (Segment) -> Bool
     let position: Double
-    let active: Bool
-    let playing: Bool
-    let enabled: Bool
+    let isActive: Bool
+    let isPlaying: Bool
+    let revealEnabled: Bool
     let seekRevision: Int64
     let dimOpacity: CGFloat
     let leadTime: Double
@@ -105,9 +106,9 @@ private struct NexaTextRevealRepresentable<Segment>: UIViewRepresentable {
             endTimeOf: endTimeOf,
             hasTrailingSpaceOf: hasTrailingSpaceOf,
             position: position,
-            active: active,
-            playing: playing,
-            enabled: enabled,
+            isActive: isActive,
+            isPlaying: isPlaying,
+            revealEnabled: revealEnabled,
             seekRevision: seekRevision,
             dimOpacity: dimOpacity,
             leadTime: leadTime,
@@ -128,6 +129,10 @@ private struct NexaTextRevealRepresentable<Segment>: UIViewRepresentable {
         )
     }
 
+    static func dismantleUIView(_ uiView: NexaTextRevealView<Segment>, coordinator: ()) {
+        uiView.dispose()
+    }
+
     @available(iOS 16.0, *)
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: NexaTextRevealView<Segment>, context: Context) -> CGSize {
         uiView.measuredSize(width: proposal.width ?? 320)
@@ -141,12 +146,20 @@ private struct NexaTextRevealWordTiming {
     let endProgress: CGFloat
 }
 
+private struct NexaTextRevealSegmentSnapshot: Equatable {
+    let text: String
+    let startTime: Double
+    let endTime: Double
+    let hasTrailingSpace: Bool
+}
+
 private struct NexaTextRevealLineTiming {
     let rect: CGRect
     let isRightToLeft: Bool
     let startTime: Double
     let endTime: Double
     let words: [NexaTextRevealWordTiming]
+    var highlightGlyphRange = NSRange(location: 0, length: 0)
 }
 
 private final class NexaTextRevealView<Segment>: UIView {
@@ -158,12 +171,9 @@ private final class NexaTextRevealView<Segment>: UIView {
     private let highlightLayoutManager = NSLayoutManager()
 
     private var text = ""
-    private var segments: [Segment] = []
-    private var textOf: ((Segment) -> String)?
-    private var startTimeOf: ((Segment) -> Double)?
-    private var endTimeOf: ((Segment) -> Double)?
-    private var hasTrailingSpaceOf: ((Segment) -> Bool)?
     private var lineTimings: [NexaTextRevealLineTiming] = []
+    private var segmentSnapshots: [NexaTextRevealSegmentSnapshot] = []
+    private var needsLineTimings = true
     private var displayLink: CADisplayLink?
     private var animationStartTime: CFTimeInterval = 0
     private var animationStartPosition = 0.0
@@ -228,6 +238,7 @@ private final class NexaTextRevealView<Segment>: UIView {
             textContainer.size = CGSize(width: bounds.width, height: .greatestFiniteMagnitude)
             highlightContainer.size = textContainer.size
             needsTextLayout = true
+            needsLineTimings = true
             invalidateIntrinsicContentSize()
         }
         rebuildLineTimingsIfNeeded()
@@ -235,8 +246,13 @@ private final class NexaTextRevealView<Segment>: UIView {
     }
 
     func measuredSize(width: CGFloat) -> CGSize {
-        textContainer.size = CGSize(width: max(width, 1), height: .greatestFiniteMagnitude)
-        highlightContainer.size = textContainer.size
+        let measuredWidth = max(width, 1)
+        if textContainer.size.width != measuredWidth {
+            textContainer.size = CGSize(width: measuredWidth, height: .greatestFiniteMagnitude)
+            highlightContainer.size = textContainer.size
+            needsTextLayout = true
+            needsLineTimings = true
+        }
         rebuildTextIfNeeded()
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
@@ -252,9 +268,9 @@ private final class NexaTextRevealView<Segment>: UIView {
         endTimeOf: @escaping (Segment) -> Double,
         hasTrailingSpaceOf: @escaping (Segment) -> Bool,
         position: Double,
-        active: Bool,
-        playing: Bool,
-        enabled: Bool,
+        isActive: Bool,
+        isPlaying: Bool,
+        revealEnabled: Bool,
         seekRevision: Int64,
         dimOpacity: CGFloat,
         leadTime: Double,
@@ -273,6 +289,7 @@ private final class NexaTextRevealView<Segment>: UIView {
         underline: Bool,
         strikethrough: Bool
     ) {
+        let colorsChanged = !currentColor.isEqual(color) || currentDimOpacity != dimOpacity
         let textChanged = self.text != text
             || currentFontSize != fontSize
             || currentLineHeight != lineHeight
@@ -286,11 +303,13 @@ private final class NexaTextRevealView<Segment>: UIView {
             || currentUnderline != underline
             || currentStrikethrough != strikethrough
         self.text = text
-        self.segments = segments
-        self.textOf = textOf
-        self.startTimeOf = startTimeOf
-        self.endTimeOf = endTimeOf
-        self.hasTrailingSpaceOf = hasTrailingSpaceOf
+        let segmentsChanged = !segmentSnapshotsMatch(
+            segments,
+            textOf: textOf,
+            startTimeOf: startTimeOf,
+            endTimeOf: endTimeOf,
+            hasTrailingSpaceOf: hasTrailingSpaceOf
+        )
         self.currentDimOpacity = dimOpacity
         self.currentLeadTime = leadTime
         self.currentTargetOffset = targetOffset
@@ -310,24 +329,41 @@ private final class NexaTextRevealView<Segment>: UIView {
         accessibilityLabel = text
         textContainer.maximumNumberOfLines = maxLines
         highlightContainer.maximumNumberOfLines = maxLines
-        if textChanged { needsTextLayout = true }
+        if textChanged {
+            needsTextLayout = true
+            needsLineTimings = true
+        }
+        if segmentsChanged {
+            segmentSnapshots = segments.map { segment in
+                NexaTextRevealSegmentSnapshot(
+                    text: textOf(segment),
+                    startTime: startTimeOf(segment),
+                    endTime: endTimeOf(segment),
+                    hasTrailingSpace: hasTrailingSpaceOf(segment)
+                )
+            }
+            needsLineTimings = true
+        }
+        if colorsChanged && !needsTextLayout {
+            updatePaintAttributes()
+        }
         rebuildTextIfNeeded()
         rebuildLineTimingsIfNeeded()
 
         let seekChanged = lastSeekRevision.map { $0 != seekRevision } ?? false
-        let becameActive = active && (!currentActive || (enabled && !currentEnabled))
-        let playbackStateChanged = playing != currentPlaying || enabled != currentEnabled
-        currentActive = active
-        currentPlaying = playing
-        currentEnabled = enabled
+        let becameActive = isActive && (!currentActive || (revealEnabled && !currentEnabled))
+        let playbackStateChanged = isPlaying != currentPlaying || revealEnabled != currentEnabled
+        currentActive = isActive
+        currentPlaying = isPlaying
+        currentEnabled = revealEnabled
 
         if seekChanged {
             stopDisplayLink()
-            let firstStart = segments.first.flatMap { startTimeOf($0) } ?? position
+            let firstStart = segmentSnapshots.first?.startTime ?? position
             currentPosition = min(position, firstStart)
             sampledPosition = currentPosition
             lastSeekRevision = seekRevision
-        } else if !active || !playing || !enabled {
+        } else if !isActive || !isPlaying || !revealEnabled {
             stopDisplayLink()
             currentPosition = position
             sampledPosition = position
@@ -352,22 +388,27 @@ private final class NexaTextRevealView<Segment>: UIView {
         layoutManager.drawBackground(forGlyphRange: allGlyphs, at: .zero)
         layoutManager.drawGlyphs(forGlyphRange: allGlyphs, at: .zero)
 
-        guard currentActive else { return }
-        let fullReveal = !currentEnabled || segments.isEmpty || lineTimings.isEmpty
+        guard currentActive, let context else { return }
+        let fullReveal = !currentEnabled || segmentSnapshots.isEmpty || lineTimings.isEmpty
         for timing in lineTimings {
             let progress = fullReveal ? CGFloat(1) : nexaTextRevealProgress(timing, position: currentPosition)
             guard progress > 0 else { continue }
             let width = timing.rect.width * progress
             let x = timing.isRightToLeft ? timing.rect.maxX - width : timing.rect.minX
             let clip = CGRect(x: x, y: timing.rect.minY, width: width, height: timing.rect.height)
-            context?.saveGState()
-            context?.clip(to: clip)
-            highlightLayoutManager.drawGlyphs(
-                forGlyphRange: NSRange(location: 0, length: highlightLayoutManager.numberOfGlyphs),
-                at: .zero
-            )
-            context?.restoreGState()
+            guard timing.highlightGlyphRange.length > 0 else { continue }
+            context.saveGState()
+            context.clip(to: clip)
+            highlightLayoutManager.drawGlyphs(forGlyphRange: timing.highlightGlyphRange, at: .zero)
+            context.restoreGState()
         }
+    }
+
+    private func updatePaintAttributes() {
+        let range = NSRange(location: 0, length: textStorage.length)
+        textStorage.addAttribute(.foregroundColor,
+            value: currentColor.withAlphaComponent(currentColor.cgColor.alpha * currentDimOpacity), range: range)
+        highlightStorage.addAttribute(.foregroundColor, value: currentColor, range: range)
     }
 
     private func animatePosition(from: Double, to: Double, duration: Double) {
@@ -403,6 +444,11 @@ private final class NexaTextRevealView<Segment>: UIView {
         currentPosition = animationStartPosition + (animationTargetPosition - animationStartPosition) * fraction
         setNeedsDisplay()
         if fraction >= 1 { stopDisplayLink() }
+    }
+
+    func dispose() {
+        stopDisplayLink()
+        animationDuration = 0
     }
 
     private func stopDisplayLink() {
@@ -444,11 +490,7 @@ private final class NexaTextRevealView<Segment>: UIView {
     }
 
     private func rebuildLineTimingsIfNeeded() {
-        guard !needsTextLayout,
-              let textOf,
-              let startTimeOf,
-              let endTimeOf,
-              let hasTrailingSpaceOf else { return }
+        guard needsLineTimings, !needsTextLayout else { return }
         layoutManager.ensureLayout(for: textContainer)
         var fragments: [(rect: CGRect, characterRange: NSRange)] = []
         let glyphCount = layoutManager.numberOfGlyphs
@@ -462,22 +504,24 @@ private final class NexaTextRevealView<Segment>: UIView {
         }
         let widths = fragments.map { Double($0.rect.width) }
         let totalWidth = widths.reduce(0, +)
-        let wordUnits = segments.map { max(textOf($0).utf16.count, 1) + (hasTrailingSpaceOf($0) ? 1 : 0) }
-        var cumulative = [Int](repeating: 0, count: segments.count + 1)
-        for index in segments.indices { cumulative[index + 1] = cumulative[index] + wordUnits[index] }
+        let wordUnits = segmentSnapshots.map {
+            max($0.text.utf16.count, 1) + ($0.hasTrailingSpace ? 1 : 0)
+        }
+        var cumulative = [Int](repeating: 0, count: segmentSnapshots.count + 1)
+        for index in segmentSnapshots.indices { cumulative[index + 1] = cumulative[index] + wordUnits[index] }
         let totalUnits = max(cumulative.last ?? 0, 1)
         var startWord = 0
         var consumedWidth = 0.0
         lineTimings = fragments.enumerated().map { lineIndex, fragment in
             let lineString = (text as NSString).substring(with: fragment.characterRange)
             let rtl = nexaTextRevealIsRTL(lineString)
-            guard startWord < segments.count else {
-                let previousEnd = startWord > 0 ? endTimeOf(segments[startWord - 1]) : segments.first.map(startTimeOf) ?? 0
+            guard startWord < segmentSnapshots.count else {
+                let previousEnd = startWord > 0 ? segmentSnapshots[startWord - 1].endTime : segmentSnapshots.first?.startTime ?? 0
                 consumedWidth += widths[lineIndex]
                 return NexaTextRevealLineTiming(rect: fragment.rect, isRightToLeft: rtl, startTime: previousEnd, endTime: previousEnd + 0.01, words: [])
             }
             let remainingLines = fragments.count - lineIndex - 1
-            let maxEndWord = max(startWord + 1, segments.count - remainingLines)
+            let maxEndWord = max(startWord + 1, segmentSnapshots.count - remainingLines)
             let targetUnits: Double = totalWidth > 0
                 ? Double(totalUnits) * (consumedWidth + widths[lineIndex]) / totalWidth
                 : Double(totalUnits) * Double(lineIndex + 1) / Double(fragments.count)
@@ -488,18 +532,52 @@ private final class NexaTextRevealView<Segment>: UIView {
             let unitSpan = CGFloat(endUnits - startUnits)
             let words = (startWord..<endWord).map { index in
                 NexaTextRevealWordTiming(
-                    startTime: startTimeOf(segments[index]),
-                    endTime: endTimeOf(segments[index]),
+                startTime: segmentSnapshots[index].startTime,
+                    endTime: segmentSnapshots[index].endTime,
                     startProgress: CGFloat(cumulative[index] - startUnits) / unitSpan,
                     endProgress: CGFloat(cumulative[index + 1] - startUnits) / unitSpan
                 )
             }
-            let startTime = words.first?.startTime ?? (startWord > 0 ? endTimeOf(segments[startWord - 1]) : 0)
+            let startTime = words.first?.startTime ?? (startWord > 0 ? segmentSnapshots[startWord - 1].endTime : 0)
             let endTime = max(words.last?.endTime ?? (startTime + 0.01), startTime + 0.01)
             startWord = endWord
             consumedWidth += widths[lineIndex]
             return NexaTextRevealLineTiming(rect: fragment.rect, isRightToLeft: rtl, startTime: startTime, endTime: endTime, words: words)
         }
+        highlightLayoutManager.ensureLayout(for: highlightContainer)
+        for index in lineTimings.indices {
+            // Cache a superset of each line's glyph range. The dynamic reveal
+            // rectangle still clips drawing exactly; the one-point fringe
+            // avoids repeating device-scale conversions and TextKit queries
+            // at every display-link tick.
+            let bounds = lineTimings[index].rect.insetBy(dx: -1, dy: -1)
+            lineTimings[index].highlightGlyphRange = highlightLayoutManager.glyphRange(
+                forBoundingRectWithoutAdditionalLayout: bounds,
+                in: highlightContainer
+            )
+        }
+        needsLineTimings = false
+    }
+
+    private func segmentSnapshotsMatch(
+        _ segments: [Segment],
+        textOf: (Segment) -> String,
+        startTimeOf: (Segment) -> Double,
+        endTimeOf: (Segment) -> Double,
+        hasTrailingSpaceOf: (Segment) -> Bool
+    ) -> Bool {
+        guard segments.count == segmentSnapshots.count else { return false }
+        for index in segments.indices {
+            let segment = segments[index]
+            let snapshot = segmentSnapshots[index]
+            guard snapshot.text == textOf(segment),
+                  snapshot.startTime == startTimeOf(segment),
+                  snapshot.endTime == endTimeOf(segment),
+                  snapshot.hasTrailingSpace == hasTrailingSpaceOf(segment) else {
+                return false
+            }
+        }
+        return true
     }
 
     private func resolvedFont() -> UIFont {

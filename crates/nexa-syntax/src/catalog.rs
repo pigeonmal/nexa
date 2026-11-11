@@ -69,13 +69,19 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Column",
-        summary: "Vertical layout container with configurable child gap, padding, and outer margin",
+        summary: "Vertical layout container with configurable gap, padding, margin, and native Marquee motion",
         snippet: "Column(gap: ${1:0}, padding: ${2:16}) {\n    $0\n}",
         probe: "app P { body { Column(gap: 8, padding: Insets(top: 16)) { Text(\"a\") } } }",
     },
     ComponentEntry {
+        name: "ScrollView",
+        summary: "Explicit native scroll container for content that does not fit in its viewport",
+        snippet: "ScrollView(axis: ${1|Vertical,Horizontal|}, hideVerticalScrollbar: ${2|true,false|}) {\n    $0\n}",
+        probe: "app P { body { ScrollView(axis: Vertical, hideVerticalScrollbar: true, width: Fill, height: Fill, padding: Insets(top: 8), margin: Insets(bottom: 12)) { Column(gap: 8) { Text(\"Scrollable content\") } } } }",
+    },
+    ComponentEntry {
         name: "Row",
-        summary: "Horizontal layout container with configurable child gap, padding, and outer margin",
+        summary: "Horizontal layout container with configurable gap, padding, margin, and native Marquee motion",
         snippet: "Row(gap: ${1:0}, horizontalArrangement: ${2:Start}) {\n    $0\n}",
         probe: "app P { body { Row(gap: 8, horizontalArrangement: Center) { Text(\"a\") } } }",
     },
@@ -124,8 +130,14 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "TextReveal",
         summary: "Reveals timed text segments using native text layout and animation",
-        snippet: "TextReveal(\"${1:Timed text}\", segments: ${2:segments}, position: ${3:playbackPosition}, active: ${4:isActive}, playing: ${5:isPlaying}, enabled: ${6:true}, seekRevision: ${7:seekRevision})",
-        probe: "app P { body { TextReveal(\"Stay\", segments: [], position: 0.0, active: true, playing: true, enabled: true, seekRevision: 0) } }",
+        snippet: "TextReveal(\"${1:Timed text}\", segments: ${2:segments}, position: ${3:playbackPosition}, isActive: ${4:isActive}, isPlaying: ${5:isPlaying}, revealEnabled: ${6:true}, seekRevision: ${7:seekRevision})",
+        probe: "app P { body { TextReveal(\"Stay\", segments: [], position: 0.0, isActive: true, isPlaying: true, revealEnabled: true, seekRevision: 0) } }",
+    },
+    ComponentEntry {
+        name: "NumberFlow",
+        summary: "Formats a number and rolls each changing digit natively",
+        snippet: "NumberFlow(value: ${1:price}, format: ${2:Currency}, currencyCode: \"${3:EUR}\")",
+        probe: "app P { state price: Float64 = 42.99 body { NumberFlow(value: price, format: Currency, currencyCode: \"EUR\", maximumFractionDigits: 2, animation: Spring(response: 0.35, damping: 0.82)) } }",
     },
     ComponentEntry {
         name: "ContentUnavailable",
@@ -143,7 +155,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "TextInput",
         summary: "Text input control bound to mutable state",
         snippet: "TextInput(value: ${1:binding}, placeholder: \"${2:Enter text}\")",
-        probe: "app P { state name: String = \"\"\n state focused: Bool = false\n body { TextInput(value: name, placeholder: \"Name\", searchable: true, fontSize: 16, fontFamily: \"Inter-Regular\", textColor: \"#FFFFFF\", placeholderColor: \"#888888\", clearable: true, focused: focused).onFocus { focused = true } } }",
+        probe: "app P { state name: String = \"\"\n state focusEntries: Int32 = 0\n let inputRef = ComponentRef<TextInput>()\n body { TextInput(value: name, placeholder: \"Name\", searchable: true, fontSize: 16, fontFamily: \"Inter-Regular\", textColor: \"#FFFFFF\", placeholderColor: \"#888888\", clearable: true, focused: true, ref: inputRef).onFocus { focusEntries = focusEntries + 1 }\n Button(\"Focus name\") { inputRef.focus() } } }",
     },
     ComponentEntry {
         name: "Switch",
@@ -153,8 +165,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Slider",
-        summary: "Adjusts a Float64 state value within a styled, stepped or continuous range",
-        snippet: "Slider(value: ${1:amount}, min: 0.0, max: 1.0, step: 0.1).onChange { value ->\n    $0\n}",
+        summary: "Adjusts a Float64 state value within a native, optionally stepped range",
+        snippet: "Slider(value: ${1:amount}, min: 0.0, max: 1.0).onChange { value ->\n    $0\n}",
         probe: "app P { state amount: Float64 = 0.5\n state editing: Bool = false\n body { Slider(value: amount, min: 0.0, max: 1.0, step: 0.0, tint: \"#CA2828\", trackColor: \"#424242\", thumbColor: \"#FFFFFF\", trackHeight: 3.5, thumbSize: 14, hitSlop: 18).onChange { value -> amount = value }.onEditingChanged { active -> editing = active } } }",
     },
     ComponentEntry {
@@ -292,7 +304,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "FastList",
         summary: "High-performance virtualized list with configurable dividers and responsive grids",
-        snippet: "FastList(${1:items}) { ${2:item}, ${3:index} in\n    $0\n}",
+        snippet: "FastList(${1:items}, hideVerticalScrollbar: true) { ${2:item}, ${3:index} in\n    $0\n}",
         probe: "app P { state enabled: Bool = true\n state dragCount: Int32 = 0\n body { FastList(count: 3, scrollEnabled: enabled, showDividers: false) { index in Text(\"x\") }.onScrollBeginDrag { dragCount += 1 } } }",
     },
     ComponentEntry {
@@ -1005,6 +1017,44 @@ pub struct ComponentParameterDoc {
     pub behavior: &'static str,
 }
 
+/// Named arguments of the Row/Column animation preset.
+pub const MARQUEE_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
+    ComponentParameterDoc {
+        name: "edgeFade",
+        type_name: "nonnegative finite numeric literal",
+        default: "0",
+        behavior: "Alpha fade length at each viewport edge in points/dp; clamped to half the viewport; disabled for fitting content or accessibility-stationary motion",
+    },
+    ComponentParameterDoc {
+        name: "speed",
+        type_name: "positive finite numeric literal",
+        default: "32",
+        behavior: "Logical units per second; points on iOS and dp on Android",
+    },
+    ComponentParameterDoc {
+        name: "gap",
+        type_name: "nonnegative finite numeric literal",
+        default: "24",
+        behavior: "Logical distance between repeated renderings; independent of container gap",
+    },
+    ComponentParameterDoc {
+        name: "delay",
+        type_name: "nonnegative finite numeric literal",
+        default: "1",
+        behavior: "Seconds before first motion or after a content/layout restart; not between cycles",
+    },
+    ComponentParameterDoc {
+        name: "playing",
+        type_name: "Bool expression",
+        default: "true",
+        behavior: "Pauses and resumes the current position; lifecycle and accessibility restrictions still apply",
+    },
+];
+
+pub fn render_marquee_parameter_table() -> String {
+    render_parameter_table("Parameter", MARQUEE_PARAMETER_DOCS)
+}
+
 pub const TEXT_INPUT_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
     ComponentParameterDoc {
         name: "value",
@@ -1068,15 +1118,21 @@ pub const TEXT_INPUT_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
     },
     ComponentParameterDoc {
         name: "focused",
-        type_name: "mutable `Bool` state",
+        type_name: "`Bool` expression",
+        default: "`false`",
+        behavior: "Requests keyboard focus once when the native input mounts; changing it later does not control focus",
+    },
+    ComponentParameterDoc {
+        name: "ref",
+        type_name: "`ComponentRef<TextInput>`",
         default: "Omitted",
-        behavior: "Requests focus when true and reflects native focus changes",
+        behavior: "Provides `.focus()` and `.blur()` actions for the mounted input",
     },
     ComponentParameterDoc {
         name: "maxLength",
         type_name: "positive integer literal",
         default: "Unlimited",
-        behavior: "Bounds text accepted from native editing",
+        behavior: "Bounds user-perceived Unicode characters accepted from native editing",
     },
     ComponentParameterDoc {
         name: "font",
@@ -1105,14 +1161,14 @@ pub const TEXT_INPUT_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
     ComponentParameterDoc {
         name: "placeholderColor",
         type_name: "hex color `String` or color theme token",
-        default: "Platform default",
+        default: "`#8E8E93`",
         behavior: "Sets the placeholder color independently of entered text",
     },
     ComponentParameterDoc {
         name: "clearable",
         type_name: "`Bool`",
         default: "`false`",
-        behavior: "Shows an inline clear control on iOS while text is present; Android keeps its native field behavior",
+        behavior: "Shows an inline clear control on both platforms; clearing updates value and fires onChange",
     },
     ComponentParameterDoc {
         name: "minLines",
@@ -1124,7 +1180,7 @@ pub const TEXT_INPUT_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
         name: "maxLines",
         type_name: "positive integer literal",
         default: "Unlimited",
-        behavior: "Maximum visible line count; requires `multiline: true`",
+        behavior: "Maximum explicit input lines and visible line count; rejects edits adding excess line breaks; requires `multiline: true`",
     },
     ComponentParameterDoc {
         name: "searchable",
@@ -1151,7 +1207,7 @@ pub const TEXT_INPUT_EVENT_DOCS: &[ComponentParameterDoc] = &[
         name: ".onFocus",
         type_name: "actions",
         default: "Omitted",
-        behavior: "Runs when the field gains native focus; requires `focused` so both native targets can track the focus binding",
+        behavior: "Runs when the field gains native focus; does not require a focus state",
     },
 ];
 
@@ -1199,8 +1255,14 @@ pub const SLIDER_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
     ComponentParameterDoc {
         name: "step",
         type_name: "non-negative `Float64` literal",
-        default: "Required; use `0.0` for continuous values",
-        behavior: "Quantization interval; a zero step keeps native pointer precision",
+        default: "Optional; `0.0` (continuous)",
+        behavior: "Positive values quantize interaction; omitted or `0.0` keeps continuous native values",
+    },
+    ComponentParameterDoc {
+        name: "showStepIndicators",
+        type_name: "`Bool`",
+        default: "`true`",
+        behavior: "Shows native tick marks on stepped sliders; iOS displays them on iOS 26 and later",
     },
     ComponentParameterDoc {
         name: "tint",
@@ -1211,32 +1273,32 @@ pub const SLIDER_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
     ComponentParameterDoc {
         name: "trackColor",
         type_name: "color expression (`String`) or `String` state",
-        default: "Platform inactive track color",
-        behavior: "Unfilled portion of the track",
+        default: "Native platform color",
+        behavior: "Retained for source compatibility; native track styling takes precedence",
     },
     ComponentParameterDoc {
         name: "thumbColor",
         type_name: "color expression (`String`) or `String` state",
-        default: "White",
-        behavior: "Circular thumb fill",
+        default: "Native platform color",
+        behavior: "Retained for source compatibility; native thumb styling takes precedence",
     },
     ComponentParameterDoc {
         name: "trackHeight",
         type_name: "positive `Dp` number",
-        default: "4 dp",
-        behavior: "Track thickness",
+        default: "Native platform size",
+        behavior: "Retained for source compatibility; native control sizing takes precedence",
     },
     ComponentParameterDoc {
         name: "thumbSize",
         type_name: "positive `Dp` number",
-        default: "14 dp",
-        behavior: "Thumb diameter",
+        default: "Native platform size",
+        behavior: "Retained for source compatibility; native control sizing takes precedence",
     },
     ComponentParameterDoc {
         name: "hitSlop",
         type_name: "non-negative `Dp` number",
-        default: "0 dp",
-        behavior: "Extra vertical pointer hit area above and below the visual control",
+        default: "Native platform hit area",
+        behavior: "Retained for source compatibility; native control hit testing takes precedence",
     },
 ];
 
@@ -1251,7 +1313,7 @@ pub const SLIDER_EVENT_DOCS: &[ComponentParameterDoc] = &[
         name: ".onEditingChanged",
         type_name: "one `Bool` binding and actions",
         default: "Omitted",
-        behavior: "Runs with `true` when horizontal dragging begins and `false` when it ends; its `Bool` parameter is commonly named `editing`; taps do not enter editing state",
+        behavior: "Runs with `true` when native editing begins and `false` when it ends; its `Bool` parameter is commonly named `editing`",
     },
 ];
 
@@ -1537,6 +1599,39 @@ const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
     opt("animation"),
 ];
 
+/// ScrollView owns its viewport but leaves child arrangement to ordinary
+/// layout components such as Column and Row.
+const SCROLL_VIEW_ARGUMENTS: &[ArgSchema] = &[
+    opt("axis"),
+    opt("ref"),
+    opt("hideHorizontalScrollbar"),
+    opt("hideVerticalScrollbar"),
+    opt("margin"),
+    opt("padding"),
+    opt("width"),
+    opt("height"),
+    opt("minWidth"),
+    opt("maxWidth"),
+    opt("minHeight"),
+    opt("maxHeight"),
+    opt("background"),
+    opt("cornerRadius"),
+    opt("cornerRadiusBottom"),
+    opt("borderColor"),
+    opt("borderWidth"),
+    opt("opacity"),
+    opt("scale"),
+    opt("scaleY"),
+    opt("rotation"),
+    opt("offsetY"),
+    opt("shadow"),
+    opt("blur"),
+    opt("clip"),
+    opt("zIndex"),
+    opt("glass"),
+    opt("animation"),
+];
+
 /// Row shares the layout styling options but also exposes placement along its
 /// horizontal main axis. `alignment` remains the vertical cross-axis option.
 const ROW_LAYOUT_ARGUMENTS: &[ArgSchema] = &[
@@ -1631,6 +1726,19 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
+        name: "ScrollView",
+        doc: "components.md#scrollview",
+        features: &[FeatureTag::Layout],
+        parens: ParensModel::Optional,
+        positional: PositionalModel::None,
+        arguments: SCROLL_VIEW_ARGUMENTS,
+        exclusive: &[],
+        children: ChildModel::Nodes,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
         name: "Row",
         doc: "components.md#row",
         features: &[FeatureTag::Layout],
@@ -1662,7 +1770,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
         positional: PositionalModel::None,
-        arguments: &[opt("showDividers"), opt("background")],
+        arguments: &[
+            opt("showDividers"),
+            opt("background"),
+            opt("hideHorizontalScrollbar"),
+            opt("hideVerticalScrollbar"),
+        ],
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -1780,9 +1893,9 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         arguments: &[
             req("segments"),
             req("position"),
-            req("active"),
-            req("playing"),
-            req("enabled"),
+            req("isActive"),
+            req("isPlaying"),
+            req("revealEnabled"),
             req("seekRevision"),
             opt("revealOpacity"),
             opt("leadTime"),
@@ -1811,6 +1924,50 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("strikethrough"),
             opt("italic"),
             opt("underline"),
+        ],
+        exclusive: &[],
+        children: ChildModel::None,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
+        name: "NumberFlow",
+        doc: "components.md#numberflow",
+        features: &[FeatureTag::Typography],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[
+            req("value"),
+            opt("format"),
+            opt("currencyCode"),
+            opt("minimumFractionDigits"),
+            opt("maximumFractionDigits"),
+            opt("animation"),
+            opt("comment"),
+            opt("color"),
+            opt("alignment"),
+            opt("fontSize"),
+            opt("fontStyle"),
+            opt("fontDesign"),
+            opt("fontFamily"),
+            opt("fontWeight"),
+            opt("padding"),
+            opt("opacity"),
+            opt("scale"),
+            opt("scaleY"),
+            opt("rotation"),
+            opt("shadow"),
+            opt("blur"),
+            opt("clip"),
+            opt("zIndex"),
+            opt("lineLimit"),
+            opt("lineHeight"),
+            opt("letterSpacing"),
+            opt("strikethrough"),
+            opt("italic"),
+            opt("underline"),
+            opt("selectable"),
         ],
         exclusive: &[],
         children: ChildModel::None,
@@ -1885,6 +2042,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("autocorrect"),
             opt("capitalization"),
             opt("focused"),
+            opt("ref"),
             opt("maxLength"),
             opt("font"),
             opt("fontSize"),
@@ -1943,7 +2101,8 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             req("value"),
             req("min"),
             req("max"),
-            req("step"),
+            opt("step"),
+            opt("showStepIndicators"),
             opt("tint"),
             opt("trackColor"),
             opt("thumbColor"),
@@ -2306,7 +2465,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
         positional: PositionalModel::None,
-        arguments: &[opt("dismiss"), opt("behavior")],
+        arguments: &[
+            opt("dismiss"),
+            opt("behavior"),
+            opt("hideHorizontalScrollbar"),
+            opt("hideVerticalScrollbar"),
+        ],
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -2447,6 +2611,8 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("reverseLayout"),
             opt("pageSnap"),
             opt("showDividers"),
+            opt("hideHorizontalScrollbar"),
+            opt("hideVerticalScrollbar"),
             opt("ref"),
         ],
         exclusive: &[],

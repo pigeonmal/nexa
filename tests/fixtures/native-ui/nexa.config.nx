@@ -1,0 +1,8 @@
+config {
+    app { displayName: "ImageNetworkQuality", version: "1.0.0", buildNumber: 1, stagingSuffix: "staging", deepLinks: [], orientation: "all" }
+    assets { icon: "", splash: "" }
+    ios { minVersion: "16.0", bundleIdentifier: "com.nexa.imagenetworkquality", appGroupIdentifier: "", icon: "", alternateIcons: [] }
+    android { minSdk: 23, targetSdk: 36, applicationId: "com.nexa.imagenetworkquality", icon: "", alternateIcons: [], cronet { provider: "play-services", diskCacheSizeMb: 64 } }
+    permissions {
+    }
+}

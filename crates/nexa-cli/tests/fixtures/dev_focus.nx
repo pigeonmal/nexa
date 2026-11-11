@@ -1,8 +1,13 @@
 app FocusSmoke {
     state email: String = ""
-    state isFocused: Bool = false
+    state focusEvents: Int32 = 0
 
+    let emailInputRef = ComponentRef<TextInput>()
     body {
-        TextInput(value: email, placeholder: "Email", focused: isFocused, multiline: true, font: Title3, minLines: 1, maxLines: 5)
+        TextInput(value: email, placeholder: "Email", focused: true, ref: emailInputRef, multiline: true, font: Title3, minLines: 1, maxLines: 5).onFocus {
+            focusEvents = focusEvents + 1
+        }
+        Button("Focus email") { emailInputRef.focus() }
+        Button("Blur email") { emailInputRef.blur() }
     }
 }

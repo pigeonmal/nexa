@@ -739,7 +739,7 @@ fn native_call(
         });
     }
     if let Some(receiver) = receiver {
-        if namespace == "NexaFastListRef" {
+        if namespace == "NexaFastListRef" || namespace == "NexaScrollViewRef" {
             let rendered_receiver = expression_with_locals(receiver, locals);
             let call = match name {
                 "scrollToIndex" => format!(

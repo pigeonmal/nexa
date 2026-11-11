@@ -46,6 +46,7 @@ use crate::generator::engine::imports::ImportSet;
 use crate::generator::engine::types::kotlin_type;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    imports.add(features.uses_slider, "kotlinx.coroutines.flow.collect");
     imports.add(features.uses_haptic, "android.view.HapticFeedbackConstants");
     imports.add(
         features.uses_clickable || features.uses_link,
@@ -214,35 +215,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_switch, "androidx.compose.ui.Modifier");
     imports.add(features.uses_switch, "androidx.compose.ui.unit.sp");
     imports.add(features.uses_switch, "androidx.compose.ui.graphics.Color");
-    imports.add(
-        features.uses_slider,
-        "androidx.compose.foundation.layout.fillMaxSize",
-    );
-    imports.add(
-        features.uses_slider,
-        "androidx.compose.foundation.gestures.awaitEachGesture",
-    );
-    imports.add(
-        features.uses_slider,
-        "androidx.compose.foundation.gestures.awaitFirstDown",
-    );
-    imports.add(
-        features.uses_slider,
-        "androidx.compose.foundation.layout.fillMaxWidth",
-    );
-    imports.add(
-        features.uses_slider,
-        "androidx.compose.foundation.layout.height",
-    );
-    imports.add(
-        features.uses_slider,
-        "androidx.compose.ui.input.pointer.pointerInput",
-    );
-    imports.add(
-        features.uses_slider,
-        "androidx.compose.ui.graphics.drawscope.clipPath",
-    );
-    imports.add(features.uses_slider, "androidx.compose.ui.unit.dp");
     imports.add(
         features.uses_picker,
         "androidx.compose.foundation.layout.Row",
@@ -524,6 +496,7 @@ pub(crate) fn render_slider(
     min: &Expr,
     max: &Expr,
     step: f64,
+    show_step_indicators: bool,
     tint: Option<&nexa_ir::ColorExpression>,
     track_color: Option<&nexa_ir::ColorExpression>,
     thumb_color: Option<&nexa_ir::ColorExpression>,
@@ -576,8 +549,9 @@ pub(crate) fn render_slider(
     out.line_at(
         depth + 1,
         format_args!(
-            "minValue = ({min_value}).toFloat(), maxValue = ({max_value}).toFloat(), step = {}f,",
+            "minValue = ({min_value}).toFloat(), maxValue = ({max_value}).toFloat(), step = {}f, showStepIndicators = {},",
             step as f32,
+            show_step_indicators,
         ),
     );
     out.line_at(
@@ -1074,6 +1048,8 @@ pub(crate) fn render_pressable(
     if *fill_max_size {
         out.push_str(".fillMaxSize()");
     }
+    out.push_str(".defaultMinSize(minHeight = 48.dp)");
+    out.push_str(&format!(".alpha(if ({enabled}) 1f else 0.5f)"));
     if has_pinch {
         out.push_str(".pointerInput(");
         if has_drag {
@@ -2347,6 +2323,7 @@ mod tests {
             &min,
             &max,
             0.1,
+            true,
             None,
             None,
             None,
@@ -2360,7 +2337,7 @@ mod tests {
         );
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(\n    value = nexa_volume.toFloat(),\n    onValueChange = { next ->\n        val nextValue = (0.0 + kotlin.math.round((next.toDouble() - 0.0) / 0.1) * 0.1)\n        nexa_volume = nextValue\n    },\n    minValue = (0.0).toFloat(), maxValue = (1.0).toFloat(), step = 0.1f,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
+            "NexaSliderPrimitive(\n    value = nexa_volume.toFloat(),\n    onValueChange = { next ->\n        val nextValue = (0.0 + kotlin.math.round((next.toDouble() - 0.0) / 0.1) * 0.1)\n        nexa_volume = nextValue\n    },\n    minValue = (0.0).toFloat(), maxValue = (1.0).toFloat(), step = 0.1f, showStepIndicators = true,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
         );
     }
 
@@ -2375,6 +2352,7 @@ mod tests {
             &min,
             &max,
             0.25,
+            true,
             None,
             None,
             None,
@@ -2388,7 +2366,7 @@ mod tests {
         );
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(\n    value = nexa_zoom.toFloat(),\n    onValueChange = { next ->\n        val nextValue = (-1.0 + kotlin.math.round((next.toDouble() - -1.0) / 0.25) * 0.25)\n        nexa_zoom = nextValue\n    },\n    minValue = (-1.0).toFloat(), maxValue = (1.0).toFloat(), step = 0.25f,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
+            "NexaSliderPrimitive(\n    value = nexa_zoom.toFloat(),\n    onValueChange = { next ->\n        val nextValue = (-1.0 + kotlin.math.round((next.toDouble() - -1.0) / 0.25) * 0.25)\n        nexa_zoom = nextValue\n    },\n    minValue = (-1.0).toFloat(), maxValue = (1.0).toFloat(), step = 0.25f, showStepIndicators = true,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
         );
     }
 
@@ -2403,6 +2381,7 @@ mod tests {
             &min,
             &max,
             0.0,
+            true,
             None,
             None,
             None,
@@ -2416,7 +2395,7 @@ mod tests {
         );
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(\n    value = nexa_progress.toFloat(),\n    onValueChange = { next ->\n        val nextValue = next.toDouble()\n        nexa_progress = nextValue\n    },\n    minValue = (0.0).toFloat(), maxValue = (1.0).toFloat(), step = 0f,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
+            "NexaSliderPrimitive(\n    value = nexa_progress.toFloat(),\n    onValueChange = { next ->\n        val nextValue = next.toDouble()\n        nexa_progress = nextValue\n    },\n    minValue = (0.0).toFloat(), maxValue = (1.0).toFloat(), step = 0f, showStepIndicators = true,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
         );
     }
 

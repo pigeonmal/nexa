@@ -289,8 +289,13 @@ internal fun RenderNavigationStack(
                 val routeData = backStackEntry.arguments?.getString("routeData")
                 val destination = routeData?.let(store::decodeScreenRoute)
                 val screenName = destination?.optString("screen")
-                val screen = (0 until screens.length())
-                    .mapNotNull(screens::optJSONObject)
+                // The graph keeps destination lambdas alive across module patches.
+                // Read the current snapshot here so only the body definition changes;
+                // the back-stack entry and mounted native component identity survive.
+                val activeModule = store.module ?: module
+                val activeScreens = activeModule.optJSONArray("screens") ?: JSONArray()
+                val screen = (0 until activeScreens.length())
+                    .mapNotNull(activeScreens::optJSONObject)
                     .firstOrNull { it.optString("name") == screenName }
                 if (screen != null && destination != null) {
                     val animatedVisibilityScope = this
@@ -309,7 +314,7 @@ internal fun RenderNavigationStack(
                     }
                     val screenNodes = screen.optJSONArray("body") ?: JSONArray()
                     val screenToolbars = nexaDevTabToolbars(screenNodes)
-                    val screenBody = if (isRootScreen) {
+                    val screenBody = if (isRootScreen && (!showNavigationBar || screenToolbars.isEmpty())) {
                         screenNodes
                     } else {
                         nexaDevWithoutTabToolbars(screenNodes)
@@ -330,7 +335,7 @@ internal fun RenderNavigationStack(
                             NexaDevScreenLifecycle(screen, store, screenBindings, screenScope)
                             NexaDevNodeList(
                                 screenBody,
-                                module,
+                                activeModule,
                                 store,
                                 screenBindings,
                                 screenScope,
@@ -338,7 +343,7 @@ internal fun RenderNavigationStack(
                             )
                         }
                         val routeContent: @Composable () -> Unit = {
-                            if (isRootScreen || !showNavigationBar) {
+                            if (!showNavigationBar || (isRootScreen && screenToolbars.isEmpty())) {
                                 screenContent()
                             } else {
                                 NexaNavigationScreenPrimitive(
@@ -348,6 +353,7 @@ internal fun RenderNavigationStack(
                                         "Leading" -> true
                                         else -> false
                                     },
+                                    showBackButton = !isRootScreen,
                                     hasTrailingActions = screenToolbars.any {
                                         it.first == "Trailing" && it.second.length() > 0
                                     },
@@ -358,7 +364,7 @@ internal fun RenderNavigationStack(
                                         RenderTabToolbarItems(
                                             screenToolbars,
                                             "Leading",
-                                            module,
+                                            activeModule,
                                             store,
                                             screenBindings,
                                             screenScope,
@@ -368,7 +374,7 @@ internal fun RenderNavigationStack(
                                         RenderTabToolbarItems(
                                             screenToolbars,
                                             "Trailing",
-                                            module,
+                                            activeModule,
                                             store,
                                             screenBindings,
                                             screenScope,

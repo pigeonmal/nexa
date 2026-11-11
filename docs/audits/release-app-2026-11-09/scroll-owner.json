@@ -1,0 +1,11 @@
+{
+  "scope": "Native Marquee controller lifecycle; no app frame-time claim",
+  "ios": {
+    "animationBeforeDisposal": true,
+    "restartedAfterDisposal": false,
+    "queuedScrollCallback": true,
+    "pendingDelayCanceled": true,
+    "lateConfigurationIgnored": true,
+    "scrollOwnerStopped": true
+  }
+}

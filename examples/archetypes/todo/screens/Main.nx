@@ -97,7 +97,6 @@ screen Main {
                                     dueTimestamp = Time.now()
                                     hasTime = false
                                     priority = "None"
-                                    taskTitleFocused = editingID < 0
                                     showingDatePicker = false
                                     taskEditorSheetRef.present()
                                 }
@@ -150,7 +149,6 @@ screen Main {
                                                 dueTimestamp = task.dueTimestamp ?? Time.now()
                                                 hasTime = task.hasTime
                                                 priority = task.priority
-                                                taskTitleFocused = editingID < 0
                                                 showingDatePicker = false
                                                 taskEditorSheetRef.present()
                                             }.contextMenu {
@@ -163,7 +161,6 @@ screen Main {
                                                     dueTimestamp = task.dueTimestamp ?? Time.now()
                                                     hasTime = task.hasTime
                                                     priority = task.priority
-                                                    taskTitleFocused = editingID < 0
                                                     showingDatePicker = false
                                                     taskEditorSheetRef.present()
                                                 }
@@ -224,7 +221,6 @@ screen Main {
                                     dueTimestamp = Time.now()
                                     hasTime = false
                                     priority = "None"
-                                    taskTitleFocused = editingID < 0
                                     showingDatePicker = false
                                     taskEditorSheetRef.present()
                                 }
@@ -277,7 +273,6 @@ screen Main {
                                                 dueTimestamp = task.dueTimestamp ?? Time.now()
                                                 hasTime = task.hasTime
                                                 priority = task.priority
-                                                taskTitleFocused = editingID < 0
                                                 showingDatePicker = false
                                                 taskEditorSheetRef.present()
                                             }.contextMenu {
@@ -290,7 +285,6 @@ screen Main {
                                                     dueTimestamp = task.dueTimestamp ?? Time.now()
                                                     hasTime = task.hasTime
                                                     priority = task.priority
-                                                    taskTitleFocused = editingID < 0
                                                     showingDatePicker = false
                                                     taskEditorSheetRef.present()
                                                 }
@@ -351,7 +345,6 @@ screen Main {
                                     dueTimestamp = Time.addCalendarDays(Time.now(), 1)
                                     hasTime = false
                                     priority = "None"
-                                    taskTitleFocused = editingID < 0
                                     showingDatePicker = false
                                     taskEditorSheetRef.present()
                                 }
@@ -406,7 +399,6 @@ screen Main {
                                                 dueTimestamp = task.dueTimestamp ?? Time.now()
                                                 hasTime = task.hasTime
                                                 priority = task.priority
-                                                taskTitleFocused = editingID < 0
                                                 showingDatePicker = false
                                                 taskEditorSheetRef.present()
                                             }.contextMenu {
@@ -419,7 +411,6 @@ screen Main {
                                                     dueTimestamp = task.dueTimestamp ?? Time.now()
                                                     hasTime = task.hasTime
                                                     priority = task.priority
-                                                    taskTitleFocused = editingID < 0
                                                     showingDatePicker = false
                                                     taskEditorSheetRef.present()
                                                 }
@@ -610,7 +601,6 @@ screen Main {
                                                 dueTimestamp = task.dueTimestamp ?? Time.now()
                                                 hasTime = task.hasTime
                                                 priority = task.priority
-                                                taskTitleFocused = editingID < 0
                                                 showingDatePicker = false
                                                 taskEditorSheetRef.present()
                                             }.contextMenu {
@@ -622,7 +612,6 @@ screen Main {
                                                     dueTimestamp = task.dueTimestamp ?? Time.now()
                                                     hasTime = task.hasTime
                                                     priority = task.priority
-                                                    taskTitleFocused = editingID < 0
                                                     showingDatePicker = false
                                                     taskEditorSheetRef.present()
                                                 }
@@ -721,7 +710,7 @@ screen Main {
                                         }
                                     }
                                 }
-                                TextInput(value: taskTitle, placeholder: "Task name", multiline: true, focused: taskTitleFocused, maxLength: 240, font: Title3, minLines: 1, maxLines: 5)
+                                TextInput(value: taskTitle, placeholder: "Task name", multiline: true, focused: editingID < 0, maxLength: 240, font: Title3, minLines: 1, maxLines: 5)
                                 .onChange {
                                     newTitle - >
                                     if hasDueDate || dateSuggestionDismissed {
@@ -752,7 +741,6 @@ screen Main {
                                             pickerTimestamp = choice.timestamp
                                             pickerHasTime = hasTime
                                         if choice.needsPicker {
-                                            taskTitleFocused = false
                                         }
                                             showingDatePicker = choice.needsPicker
                                         }
@@ -787,7 +775,6 @@ screen Main {
                                                 detectedDate = null
                                                 pickerTimestamp = dueTimestamp
                                                 pickerHasTime = hasTime
-                                                taskTitleFocused = false
                                                 showingDatePicker = true
                                             }
                                             if hasDueDate {
@@ -859,7 +846,6 @@ screen Main {
                                     commentsSheetRef.dismiss()
                                     if returnToEditorAfterOverlay {
                                         returnToEditorAfterOverlay = false
-                                        taskTitleFocused = editingID < 0
                                         showingDatePicker = false
                                         taskEditorSheetRef.present()
                                     }
@@ -945,7 +931,6 @@ screen Main {
                                         remindersSheetRef.dismiss()
                                         if returnToEditorAfterOverlay {
                                             returnToEditorAfterOverlay = false
-                                            taskTitleFocused = editingID < 0
                                             showingDatePicker = false
                                             taskEditorSheetRef.present()
                                         }

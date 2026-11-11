@@ -1765,7 +1765,7 @@ fn generate_android(
             nexa_codegen::value::kotlin_runtime_source(),
         ));
     }
-    if project_features.uses_network {
+    if project_features.uses_network_api {
         value_codec_files.push((
             format!("{core_package_path}/NexaNetwork.kt"),
             kotlin_network_plugin_bridge_source(&package),
@@ -1842,7 +1842,7 @@ fn generate_android(
                 .join("NexaValue.kt"),
         );
     }
-    if !project_features.uses_network {
+    if !project_features.uses_network_api {
         let _ = fs::remove_file(
             root.join("android/app/src/main/java")
                 .join(&core_package_path)

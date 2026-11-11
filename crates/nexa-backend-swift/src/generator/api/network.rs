@@ -15,6 +15,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
             || features.uses_file_api,
         "Foundation",
     );
+    imports.add(features.uses_network_transport(), "os");
     imports.add(features.uses_network_api, "CryptoKit");
     imports.add(features.uses_network_api, "Security");
     imports.add(features.uses_network_connectivity, "Network");
@@ -84,6 +85,7 @@ private final class NexaNetworkPathStatus: @unchecked Sendable {
         );
     }
     if include_network || include_image_support {
+        out.push_str(include_str!("bounded_response.swift"));
         out.push_str(
             r#"
 private enum NexaURLSessionSupport {
@@ -96,7 +98,8 @@ private enum NexaURLSessionSupport {
         configuration.requestCachePolicy = .useProtocolCachePolicy
         return configuration
     }()
-    static let sharedSession = URLSession(configuration: configuration)
+    static let collector = NexaBoundedDataDelegate()
+    static let sharedSession = URLSession(configuration: configuration, delegate: collector, delegateQueue: nil)
 }
 
 "#,
@@ -221,13 +224,27 @@ private enum NexaCertificatePin {
     }
 }
 
-private final class NexaURLSessionDelegate: NSObject, URLSessionTaskDelegate {
+private final class NexaURLSessionDelegate: NSObject, URLSessionDataDelegate {
+    let collector = NexaBoundedDataDelegate()
     let followRedirects: Bool
     let certificatePins: Set<String>
 
     init(followRedirects: Bool, certificatePins: Set<String>) {
         self.followRedirects = followRedirects
         self.certificatePins = Set(certificatePins.map { $0.lowercased() })
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        collector.urlSession(session, dataTask: dataTask, didReceive: response, completionHandler: completionHandler)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        collector.urlSession(session, dataTask: dataTask, didReceive: data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        collector.urlSession(session, task: task, didCompleteWithError: error)
     }
 
     func urlSession(
@@ -341,8 +358,13 @@ public enum NexaNetwork {
         defer {
             if delegate != nil { session.finishTasksAndInvalidate() }
         }
-        let (data, response) = try await session.data(for: request)
-        return try makeResponse(data: data, response: response, maxResponseBytes: maxResponseBytes)
+        do {
+            let collector = delegate?.collector ?? NexaURLSessionSupport.collector
+            let (data, response) = try await collector.data(for: request, in: session, limit: maxResponseBytes)
+            return try makeResponse(data: data, response: response, maxResponseBytes: maxResponseBytes)
+        } catch NexaBoundedResponseError.responseTooLarge {
+            throw NexaNetworkError.responseTooLarge
+        }
     }
 
     public static func download(
@@ -378,22 +400,32 @@ public enum NexaNetwork {
         defer {
             if delegate != nil { session.finishTasksAndInvalidate() }
         }
-        let (temporaryURL, response) = try await session.download(for: request)
+        let destination = URL(fileURLWithPath: destinationPath)
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let temporaryURL = destination.deletingLastPathComponent()
+            .appendingPathComponent(".nexa-download-\(UUID().uuidString).tmp")
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        let collector = delegate?.collector ?? NexaURLSessionSupport.collector
+        let response: URLResponse
+        do {
+            (_, response) = try await collector.download(
+                for: request,
+                in: session,
+                limit: maxResponseBytes,
+                destinationURL: temporaryURL
+            )
+        } catch NexaBoundedResponseError.responseTooLarge {
+            throw NexaNetworkError.responseTooLarge
+        }
         guard let response = response as? HTTPURLResponse else {
             throw NexaNetworkError.invalidResponse
         }
         guard (200..<300).contains(response.statusCode) else {
             throw NexaNetworkError.httpStatus(response.statusCode)
         }
-        let destination = URL(fileURLWithPath: destinationPath)
-        if let size = try? FileManager.default.attributesOfItem(atPath: temporaryURL.path)[.size] as? NSNumber,
-           size.intValue > maxResponseBytes {
-            throw NexaNetworkError.responseTooLarge
-        }
-        try FileManager.default.createDirectory(
-            at: destination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         if FileManager.default.fileExists(atPath: destination.path) {
             _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporaryURL)
         } else {
@@ -469,11 +501,14 @@ public enum NexaNetwork {
         defer {
             if delegate != nil { session.finishTasksAndInvalidate() }
         }
-        let (data, response) = try await session.upload(
-            for: request,
-            fromFile: uploadURL
-        )
-        return try makeResponse(data: data, response: response, maxResponseBytes: maxResponseBytes)
+        do {
+            let collector = delegate?.collector ?? NexaURLSessionSupport.collector
+            let (data, response) = try await collector.data(for: request, in: session,
+                limit: maxResponseBytes, uploadFile: uploadURL)
+            return try makeResponse(data: data, response: response, maxResponseBytes: maxResponseBytes)
+        } catch NexaBoundedResponseError.responseTooLarge {
+            throw NexaNetworkError.responseTooLarge
+        }
     }
 
     private static func dispositionParameter(_ value: String) -> String {
@@ -617,9 +652,12 @@ private enum NexaRemoteImageError: Error {
 }
 
 private func nexaDownsampleImage(_ data: Data, maxPixelSize: Int = 2048) -> UIImage? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    guard let source = CGImageSourceCreateWithData(
+        data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
+    ) else { return nil }
     let options: [CFString: Any] = [
         kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceShouldCacheImmediately: true,
         kCGImageSourceCreateThumbnailWithTransform: true,
         kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
     ]
@@ -627,6 +665,19 @@ private func nexaDownsampleImage(_ data: Data, maxPixelSize: Int = 2048) -> UIIm
         return nil
     }
     return UIImage(cgImage: image)
+}
+
+private func nexaDecodeImage(_ data: Data) async throws -> UIImage? {
+    try Task.checkCancellation()
+    let decodeTask = Task.detached(priority: .utility) {
+        try Task.checkCancellation()
+        return nexaDownsampleImage(data)
+    }
+    let decoded = try await withTaskCancellationHandler {
+        try await decodeTask.value
+    } onCancel: { decodeTask.cancel() }
+    try Task.checkCancellation()
+    return decoded
 }
 
 struct NexaRemoteImage: View {
@@ -703,7 +754,9 @@ struct NexaRemoteImage: View {
                         localReadTask.cancel()
                     }
                 } else {
-                    let (remoteData, response) = try await NexaURLSessionSupport.sharedSession.data(from: parsedURL)
+                    let (remoteData, response) = try await NexaURLSessionSupport.collector.data(
+                        for: URLRequest(url: parsedURL), in: NexaURLSessionSupport.sharedSession,
+                        limit: 64 * 1024 * 1024)
                     guard let httpResponse = response as? HTTPURLResponse,
                           (200..<300).contains(httpResponse.statusCode) else {
                         throw NexaRemoteImageError.invalidResponse
@@ -711,11 +764,12 @@ struct NexaRemoteImage: View {
                     data = remoteData
                 }
                 try Task.checkCancellation()
-                guard data.count <= 64 * 1024 * 1024,
-                      let decoded = nexaDownsampleImage(data) else {
+                guard data.count <= 64 * 1024 * 1024 else {
                     throw NexaRemoteImageError.invalidResponse
                 }
+                let decoded = try await nexaDecodeImage(data)
                 try Task.checkCancellation()
+                guard let decoded else { throw NexaRemoteImageError.invalidResponse }
                 image = Image(uiImage: decoded)
             } catch is CancellationError {
                 return
@@ -842,7 +896,8 @@ mod tests {
         );
         assert!(output.contains("public static func upload("));
         assert!(output.contains("async throws -> NexaNetworkResponse"));
-        assert!(output.contains("fromFile: uploadURL"));
+        assert!(output.contains("uploadFile: uploadURL"));
+        assert!(output.contains("session.uploadTask(with: request, fromFile: $0)"));
         assert!(output.contains("defer { try? FileManager.default.removeItem(at: uploadURL) }"));
         assert!(output.contains("timeout: TimeInterval = 30"));
         assert!(output.contains("followRedirects: Bool = true"));
@@ -864,7 +919,10 @@ mod tests {
             .expect("find end of generated download helper")
             .0;
 
-        assert!(download.contains("try await session.download(for: request)"));
+        assert!(download.contains("try await collector.download("));
+        assert!(download.contains("limit: maxResponseBytes"));
+        assert!(download.contains("destinationURL: temporaryURL"));
+        assert!(!download.contains("session.download(for: request)"));
         assert!(download.contains("replaceItemAt(destination, withItemAt: temporaryURL)"));
         assert!(download.contains("moveItem(at: temporaryURL, to: destination)"));
         assert!(!download.contains("removeItem(at: destination)"));

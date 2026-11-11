@@ -89,6 +89,7 @@ private func nexaUpdateRefreshControl(
     controller?.update(isRefreshing: isRefreshing)
 }
 
+@MainActor
 private func nexaFastListIsOverscrolling(_ scrollView: UIScrollView, horizontal: Bool) -> Bool {
     let insets = scrollView.adjustedContentInset
     let leadingInset = horizontal ? insets.left : insets.top
@@ -101,6 +102,7 @@ private func nexaFastListIsOverscrolling(_ scrollView: UIScrollView, horizontal:
     return offset < minimumOffset - 1 || offset > maximumOffset + 1
 }
 
+@MainActor
 func nexaConfigureEdgeToEdgeScrollView(
     _ scrollView: UIScrollView,
     environment: EnvironmentValues,
@@ -132,6 +134,8 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
     let rowHeight: CGFloat?
     let spacing: CGFloat
     let showDividers: Bool
+    let hideHorizontalScrollbar: Bool
+    let hideVerticalScrollbar: Bool
     let scrollEnabled: Bool
     let rowKey: ((Int, Int) -> AnyHashable)?
     let componentRef: NexaFastListRef?
@@ -146,6 +150,8 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         rowHeight: CGFloat? = nil,
         spacing: CGFloat = 0,
         showDividers: Bool = true,
+        hideHorizontalScrollbar: Bool = false,
+        hideVerticalScrollbar: Bool = false,
         scrollEnabled: Bool = true,
         rowKey: ((Int, Int) -> AnyHashable)? = nil,
         componentRef: NexaFastListRef? = nil,
@@ -159,6 +165,8 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         self.rowHeight = rowHeight
         self.spacing = max(0, spacing)
         self.showDividers = showDividers
+        self.hideHorizontalScrollbar = hideHorizontalScrollbar
+        self.hideVerticalScrollbar = hideVerticalScrollbar
         self.scrollEnabled = scrollEnabled
         self.rowKey = rowKey
         self.componentRef = componentRef
@@ -188,6 +196,8 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         tableView.delegate = context.coordinator
         tableView.alwaysBounceVertical = onRefresh != nil
         tableView.isScrollEnabled = scrollEnabled
+        tableView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
+        tableView.showsVerticalScrollIndicator = !hideVerticalScrollbar
         tableView.sectionHeaderTopPadding = 0
         nexaUpdateRefreshControl(
             tableView,
@@ -234,10 +244,13 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         let previousSectionCount = coordinator.sectionCount
         let previousSectionCounts = coordinator.sectionCounts
         coordinator.sectionCount = sectionCount
-        coordinator.sectionCounts = sectionCounts.map { max(0, $0) }
+        // The immutable view initializer already normalizes these counts.
+        coordinator.sectionCounts = sectionCounts
         coordinator.rowHeight = rowHeight
         coordinator.spacing = max(0, spacing)
         tableView.isScrollEnabled = scrollEnabled
+        tableView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
+        tableView.showsVerticalScrollIndicator = !hideVerticalScrollbar
         nexaAttachFastListRef(componentRef, to: tableView, horizontal: false) { [weak tableView] index, animated, viewPosition in
             guard let tableView else { return }
             var remaining = max(0, Int(index))
@@ -265,6 +278,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         )
         guard previousSectionCount == coordinator.sectionCount,
               previousSectionCounts == coordinator.sectionCounts else {
+            coordinator.sectionHeaders.removeAll()
             tableView.reloadData()
             return
         }
@@ -272,8 +286,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
             tableView.reconfigureRows(at: visibleRows)
         }
         if let headerContent {
-            for section in 0..<coordinator.sectionCount {
-                guard let header = tableView.headerView(forSection: section) else { continue }
+            coordinator.sectionHeaders.forEach { section, header in
                 header.contentConfiguration = UIHostingConfiguration {
                     headerContent(section)
                 }
@@ -282,7 +295,9 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         }
     }
 
+    @MainActor
     final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+        let sectionHeaders = NexaSectionHeaderRegistry()
         var sectionCount: Int
         var sectionCounts: [Int]
         var rowHeight: CGFloat?
@@ -356,6 +371,15 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
             return header
         }
 
+        func tableView(_ tableView: UITableView, willDisplayHeaderView view: UIView, forSection section: Int) {
+            guard let header = view as? UITableViewHeaderFooterView else { return }
+            sectionHeaders.register(header, section: section)
+        }
+
+        func tableView(_ tableView: UITableView, didEndDisplayingHeaderView view: UIView, forSection section: Int) {
+            sectionHeaders.remove(view, section: section)
+        }
+
         func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
             headerContent == nil ? .leastNormalMagnitude : UITableView.automaticDimension
         }
@@ -409,6 +433,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let rowHeight: CGFloat?
     let spacing: CGFloat
     let showDividers: Bool
+    let hideHorizontalScrollbar: Bool
+    let hideVerticalScrollbar: Bool
     let scrollEnabled: Bool
     let rowKey: ((Int) -> AnyHashable)?
     let reverseLayout: Bool
@@ -434,6 +460,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         rowHeight: CGFloat? = nil,
         spacing: CGFloat = 0,
         showDividers: Bool = true,
+        hideHorizontalScrollbar: Bool = false,
+        hideVerticalScrollbar: Bool = false,
         scrollEnabled: Bool = true,
         rowKey: ((Int) -> AnyHashable)? = nil,
         reverseLayout: Bool = false,
@@ -458,6 +486,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         self.rowHeight = rowHeight
         self.spacing = max(0, spacing)
         self.showDividers = showDividers
+        self.hideHorizontalScrollbar = hideHorizontalScrollbar
+        self.hideVerticalScrollbar = hideVerticalScrollbar
         self.scrollEnabled = scrollEnabled
         self.rowKey = rowKey
         self.reverseLayout = reverseLayout
@@ -526,6 +556,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         }
         tableView.isPagingEnabled = pageSnap
         tableView.isScrollEnabled = scrollEnabled
+        tableView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
+        tableView.showsVerticalScrollIndicator = !hideVerticalScrollbar
         tableView.alwaysBounceVertical = onRefresh != nil
         nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment, reverseLayout: reverseLayout)
         if reverseLayout {
@@ -615,6 +647,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         coordinator.rowHeight = rowHeight
         coordinator.spacing = max(0, spacing)
         tableView.isScrollEnabled = scrollEnabled
+        tableView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
+        tableView.showsVerticalScrollIndicator = !hideVerticalScrollbar
         tableView.separatorStyle = showDividers ? .singleLine : .none
         coordinator.rowKey = rowKey
         coordinator.reverseLayout = reverseLayout
@@ -828,7 +862,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             guard !reverseLayout,
                   let pinnedHeader = tableView.headerView(forSection: 0)
             else {
-                let positions = visibleRows.map(\.row)
+                // Project lazily: scroll callbacks only need one extremum, not a temporary array.
+                let positions = visibleRows.lazy.map(\.row)
                 return reverseLayout ? positions.max() : positions.min()
             }
 
@@ -840,7 +875,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
                 tableView.bounds.minY + tableView.adjustedContentInset.top,
                 pinnedHeader.frame.maxY
             )
-            let unobscuredPositions = visibleRows.compactMap { indexPath in
+            let unobscuredPositions = visibleRows.lazy.compactMap { indexPath in
                 tableView.rectForRow(at: indexPath).minY >= visibleTop - 1
                     ? indexPath.row
                     : nil
@@ -1235,6 +1270,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
 private let nexaFastHorizontalListCellReuseIdentifier = "NexaFastHorizontalListCell"
 
 @available(iOS 16.0, *)
+@MainActor
 private func nexaFastHorizontalEstimatedItemSize<RowContent: View>(
     rowCount: Int,
     itemExtent: CGFloat?,
@@ -1291,6 +1327,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
     let rowCount: Int
     let itemExtent: CGFloat?
     let spacing: CGFloat
+    let hideHorizontalScrollbar: Bool
+    let hideVerticalScrollbar: Bool
     let scrollEnabled: Bool
     let rowKey: ((Int) -> AnyHashable)?
     let scrollPosition: Int32?
@@ -1308,6 +1346,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         rowCount: Int,
         itemExtent: CGFloat? = nil,
         spacing: CGFloat = 0,
+        hideHorizontalScrollbar: Bool = false,
+        hideVerticalScrollbar: Bool = false,
         scrollEnabled: Bool = true,
         rowKey: ((Int) -> AnyHashable)? = nil,
         scrollPosition: Int32? = nil,
@@ -1324,6 +1364,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         self.rowCount = max(0, rowCount)
         self.itemExtent = itemExtent
         self.spacing = max(0, spacing)
+        self.hideHorizontalScrollbar = hideHorizontalScrollbar
+        self.hideVerticalScrollbar = hideVerticalScrollbar
         self.scrollEnabled = scrollEnabled
         self.rowKey = rowKey
         self.scrollPosition = scrollPosition
@@ -1380,7 +1422,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         )
         collectionView.alwaysBounceHorizontal = onRefresh != nil
         collectionView.isScrollEnabled = scrollEnabled
-        collectionView.showsHorizontalScrollIndicator = true
+        collectionView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
+        collectionView.showsVerticalScrollIndicator = !hideVerticalScrollbar
         collectionView.backgroundColor = .clear
         collectionView.reloadData()
         nexaAttachFastListRef(componentRef, to: collectionView, horizontal: true) { [weak collectionView] index, animated, viewPosition in
@@ -1431,6 +1474,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         coordinator.itemExtent = itemExtent
         coordinator.spacing = max(0, spacing)
         collectionView.isScrollEnabled = scrollEnabled
+        collectionView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
+        collectionView.showsVerticalScrollIndicator = !hideVerticalScrollbar
         if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
             var shouldInvalidateLayout = false
             if layout.minimumLineSpacing != spacing {
@@ -1547,7 +1592,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
 
         func seedInitialScrollPosition(in collectionView: UICollectionView) {
             collectionView.layoutIfNeeded()
-            lastReportedScrollPosition = collectionView.indexPathsForVisibleItems.map(\.item).min()
+            lastReportedScrollPosition = collectionView.indexPathsForVisibleItems.lazy.map(\.item).min()
             isReadyToReportScroll = true
             reportEndReachedIfVisible(in: collectionView)
         }
@@ -1555,7 +1600,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         // __NEXA_RECONFIGURE_HORIZONTAL__
 
         private func seedVisibleScrollPosition(in collectionView: UICollectionView) {
-            lastReportedScrollPosition = collectionView.indexPathsForVisibleItems.map(\.item).min()
+            lastReportedScrollPosition = collectionView.indexPathsForVisibleItems.lazy.map(\.item).min()
         }
 
         private func flushVisibleItemReconfigurationIfNeeded(in scrollView: UIScrollView) {
@@ -1625,14 +1670,14 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
             if !isOverscrolling,
                !isIgnoringProgrammaticScrollCallbacks,
                (onScrollPositionChanged != nil || onScroll != nil),
-               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.lazy.map(\.item).min(),
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-active:end>
             // <nexa:scroll-events-condition-inactive:begin>
             if !isOverscrolling,
                !isIgnoringProgrammaticScrollCallbacks,
                onScrollPositionChanged != nil,
-               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.lazy.map(\.item).min(),
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-inactive:end>
             {
@@ -1686,7 +1731,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         func applyScrollPosition(to collectionView: UICollectionView) {
             guard let scrollPosition, rowCount > 0 else { return }
             let target = min(max(Int(scrollPosition), 0), rowCount - 1)
-            guard (collectionView.indexPathsForVisibleItems.map(\.item).min() ?? -1) != target else {
+            guard (collectionView.indexPathsForVisibleItems.lazy.map(\.item).min() ?? -1) != target else {
                 return
             }
             // Let scrollViewDidScroll report the new leading item.
@@ -1701,7 +1746,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
             )
             collectionView.layoutIfNeeded()
             isApplyingProgrammaticScrollPosition = false
-            if let position = collectionView.indexPathsForVisibleItems.map(\.item).min() {
+            if let position = collectionView.indexPathsForVisibleItems.lazy.map(\.item).min() {
                 reportProgrammaticScrollPosition(position)
             }
             reportEndReachedIfVisible(in: collectionView)
@@ -1739,6 +1784,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
 private let nexaFastGridListCellReuseIdentifier = "NexaFastGridListCell"
 
 @available(iOS 16.0, *)
+@MainActor
 private func nexaFastGridLayout(
     columns: Int,
     minCellWidth: CGFloat?,
@@ -1923,6 +1969,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
     let itemHeight: CGFloat?
     let masonry: Bool
     let spacing: CGFloat
+    let hideHorizontalScrollbar: Bool
+    let hideVerticalScrollbar: Bool
     let scrollEnabled: Bool
     let rowKey: ((Int) -> AnyHashable)?
     let scrollPosition: Int32?
@@ -1943,6 +1991,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         itemHeight: CGFloat? = nil,
         masonry: Bool = false,
         spacing: CGFloat = 0,
+        hideHorizontalScrollbar: Bool = false,
+        hideVerticalScrollbar: Bool = false,
         scrollEnabled: Bool = true,
         rowKey: ((Int) -> AnyHashable)? = nil,
         scrollPosition: Int32? = nil,
@@ -1962,6 +2012,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         self.itemHeight = itemHeight
         self.masonry = masonry
         self.spacing = max(0, spacing)
+        self.hideHorizontalScrollbar = hideHorizontalScrollbar
+        self.hideVerticalScrollbar = hideVerticalScrollbar
         self.scrollEnabled = scrollEnabled
         self.rowKey = rowKey
         self.scrollPosition = scrollPosition
@@ -2015,7 +2067,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         )
         collectionView.alwaysBounceVertical = onRefresh != nil
         collectionView.isScrollEnabled = scrollEnabled
-        collectionView.showsVerticalScrollIndicator = true
+        collectionView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
+        collectionView.showsVerticalScrollIndicator = !hideVerticalScrollbar
         collectionView.backgroundColor = .clear
         collectionView.reloadData()
         nexaAttachFastListRef(componentRef, to: collectionView, horizontal: false) { [weak collectionView] index, animated, viewPosition in
@@ -2056,6 +2109,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         coordinator.masonry = masonry
         coordinator.spacing = max(0, spacing)
         collectionView.isScrollEnabled = scrollEnabled
+        collectionView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
+        collectionView.showsVerticalScrollIndicator = !hideVerticalScrollbar
         coordinator.rowKey = rowKey
         coordinator.scrollPosition = scrollPosition
         nexaAttachFastListRef(componentRef, to: collectionView, horizontal: false) { [weak collectionView] index, animated, viewPosition in
@@ -2171,7 +2226,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
 
         func seedInitialScrollPosition(in collectionView: UICollectionView) {
             collectionView.layoutIfNeeded()
-            lastReportedScrollPosition = collectionView.indexPathsForVisibleItems.map(\.item).min()
+            lastReportedScrollPosition = collectionView.indexPathsForVisibleItems.lazy.map(\.item).min()
             isReadyToReportScroll = true
             reportEndReachedIfVisible(in: collectionView)
         }
@@ -2179,7 +2234,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         // __NEXA_RECONFIGURE_GRID__
 
         private func seedVisibleScrollPosition(in collectionView: UICollectionView) {
-            lastReportedScrollPosition = collectionView.indexPathsForVisibleItems.map(\.item).min()
+            lastReportedScrollPosition = collectionView.indexPathsForVisibleItems.lazy.map(\.item).min()
         }
 
         private func flushVisibleItemReconfigurationIfNeeded(in scrollView: UIScrollView) {
@@ -2240,14 +2295,14 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             if !isOverscrolling,
                !isIgnoringProgrammaticScrollCallbacks,
                (onScrollPositionChanged != nil || onScroll != nil),
-               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.lazy.map(\.item).min(),
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-active:end>
             // <nexa:scroll-events-condition-inactive:begin>
             if !isOverscrolling,
                !isIgnoringProgrammaticScrollCallbacks,
                onScrollPositionChanged != nil,
-               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.lazy.map(\.item).min(),
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-inactive:end>
             {
@@ -2301,7 +2356,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         func applyScrollPosition(to collectionView: UICollectionView) {
             guard let scrollPosition, rowCount > 0 else { return }
             let target = min(max(Int(scrollPosition), 0), rowCount - 1)
-            guard (collectionView.indexPathsForVisibleItems.map(\.item).min() ?? -1) != target else {
+            guard (collectionView.indexPathsForVisibleItems.lazy.map(\.item).min() ?? -1) != target else {
                 return
             }
             // Let scrollViewDidScroll report the new leading item.
@@ -2316,7 +2371,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             )
             collectionView.layoutIfNeeded()
             isApplyingProgrammaticScrollPosition = false
-            if let position = collectionView.indexPathsForVisibleItems.map(\.item).min() {
+            if let position = collectionView.indexPathsForVisibleItems.lazy.map(\.item).min() {
                 reportProgrammaticScrollPosition(position)
             }
             reportEndReachedIfVisible(in: collectionView)
@@ -2474,6 +2529,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         out.push_str(&grid_list_primitive(uses_scroll_events));
     }
     if uses_sectioned_list {
+        out.push_str(include_str!("list_headers.swift"));
         out.push_str(sectioned_list_primitive());
     }
 }
@@ -2501,7 +2557,7 @@ fn visible_content_reconfiguration(collection: bool, horizontal: bool) -> String
         )
     };
     let report_completion = if collection {
-        "            let expectedContentOffset = collectionView.contentOffset\n            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak collectionView] in\n                guard let self, let collectionView else { return }\n                let currentContentOffset = collectionView.contentOffset\n                guard abs(currentContentOffset.x - expectedContentOffset.x) <= 1,\n                      abs(currentContentOffset.y - expectedContentOffset.y) <= 1\n                else { return }\n                collectionView.layoutIfNeeded()\n                if let position = collectionView.indexPathsForVisibleItems.map(\\.item).min() {\n                    self.reportProgrammaticScrollPosition(position)\n                }\n                self.reportEndReachedIfVisible(in: collectionView)\n            }"
+        "            let expectedContentOffset = collectionView.contentOffset\n            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak collectionView] in\n                guard let self, let collectionView else { return }\n                let currentContentOffset = collectionView.contentOffset\n                guard abs(currentContentOffset.x - expectedContentOffset.x) <= 1,\n                      abs(currentContentOffset.y - expectedContentOffset.y) <= 1\n                else { return }\n                collectionView.layoutIfNeeded()\n                if let position = collectionView.indexPathsForVisibleItems.lazy.map(\\.item).min() {\n                    self.reportProgrammaticScrollPosition(position)\n                }\n                self.reportEndReachedIfVisible(in: collectionView)\n            }"
     } else {
         "            if pageSnap {\n                reportSettledPage(in: tableView)\n            } else if let position = leadingVisibleRowPosition(in: tableView) {\n                reportProgrammaticScrollPosition(reverseLayout ? rowCount - 1 - position : position)\n            }\n            reportEndReachedIfVisible(in: tableView)"
     };
@@ -2589,6 +2645,8 @@ fn horizontal_list_primitive(uses_scroll_events: bool) -> String {
     );
     out.push_str("    rowCount: Int,\n    itemExtent: CGFloat? = nil,\n");
     out.push_str("    spacing: CGFloat = 0,\n");
+    out.push_str("    hideHorizontalScrollbar: Bool = false,\n");
+    out.push_str("    hideVerticalScrollbar: Bool = false,\n");
     out.push_str("    scrollEnabled: Bool = true,\n");
     out.push_str("    rowKey: ((Int) -> AnyHashable)? = nil,\n");
     out.push_str("    scrollPosition: Int32? = nil,\n");
@@ -2605,6 +2663,8 @@ fn horizontal_list_primitive(uses_scroll_events: bool) -> String {
     out.push_str(
         "        rowCount: rowCount,\n        itemExtent: itemExtent,\n        spacing: spacing,\n",
     );
+    out.push_str("        hideHorizontalScrollbar: hideHorizontalScrollbar,\n");
+    out.push_str("        hideVerticalScrollbar: hideVerticalScrollbar,\n");
     out.push_str("        scrollEnabled: scrollEnabled,\n");
     out.push_str("        rowKey: rowKey,\n        scrollPosition: scrollPosition,\n");
     out.push_str("        componentRef: componentRef,\n");
@@ -2625,6 +2685,8 @@ fn grid_list_primitive(uses_scroll_events: bool) -> String {
     out.push_str(
         "    rowCount: Int,\n    columns: Int,\n    minCellWidth: CGFloat? = nil,\n    itemHeight: CGFloat? = nil,\n    spacing: CGFloat = 0,\n",
     );
+    out.push_str("    hideHorizontalScrollbar: Bool = false,\n");
+    out.push_str("    hideVerticalScrollbar: Bool = false,\n");
     out.push_str("    scrollEnabled: Bool = true,\n");
     out.push_str("    rowKey: ((Int) -> AnyHashable)? = nil,\n");
     out.push_str("    masonry: Bool = false,\n");
@@ -2643,6 +2705,8 @@ fn grid_list_primitive(uses_scroll_events: bool) -> String {
         "        rowCount: rowCount,\n        columns: columns,\n        minCellWidth: minCellWidth,\n        itemHeight: itemHeight,\n        masonry: masonry,\n",
     );
     out.push_str("        spacing: spacing,\n");
+    out.push_str("        hideHorizontalScrollbar: hideHorizontalScrollbar,\n");
+    out.push_str("        hideVerticalScrollbar: hideVerticalScrollbar,\n");
     out.push_str("        scrollEnabled: scrollEnabled,\n");
     out.push_str("        rowKey: rowKey,\n        scrollPosition: scrollPosition,\n");
     out.push_str("        componentRef: componentRef,\n");
@@ -2666,6 +2730,8 @@ func NexaFastSectionedListPrimitive<RowContent: View, HeaderContent: View>(
     rowHeight: CGFloat? = nil,
     spacing: CGFloat = 0,
     showDividers: Bool = true,
+    hideHorizontalScrollbar: Bool = false,
+    hideVerticalScrollbar: Bool = false,
     scrollEnabled: Bool = true,
     rowKey: ((Int, Int) -> AnyHashable)? = nil,
     componentRef: NexaFastListRef? = nil,
@@ -2680,6 +2746,8 @@ func NexaFastSectionedListPrimitive<RowContent: View, HeaderContent: View>(
         rowHeight: rowHeight,
         spacing: spacing,
         showDividers: showDividers,
+        hideHorizontalScrollbar: hideHorizontalScrollbar,
+        hideVerticalScrollbar: hideVerticalScrollbar,
         scrollEnabled: scrollEnabled,
         rowKey: rowKey,
         componentRef: componentRef,
@@ -2798,6 +2866,8 @@ fn append_fast_list_primitive(
     out.push_str("    rowHeight: CGFloat? = nil,\n");
     out.push_str("    spacing: CGFloat = 0,\n");
     out.push_str("    showDividers: Bool = true,\n");
+    out.push_str("    hideHorizontalScrollbar: Bool = false,\n");
+    out.push_str("    hideVerticalScrollbar: Bool = false,\n");
     out.push_str("    scrollEnabled: Bool = true,\n");
     out.push_str("    rowKey: ((Int) -> AnyHashable)? = nil,\n");
     out.push_str("    reverseLayout: Bool = false,\n");
@@ -2820,7 +2890,7 @@ fn append_fast_list_primitive(
     out.push_str(") -> some View {\n");
     if !has_header {
         out.push_str(
-            "    if pageSnap && !reverseLayout && componentRef == nil {\n        if #available(iOS 17.0, *) {\n            NexaSwiftUIPageSnapList(\n                rowCount: rowCount,\n                scrollPosition: scrollPosition.map(Int.init),\n                scrollEnabled: scrollEnabled,\n                onScrollPositionChanged: onScrollPositionChanged,\n                onRefresh: onRefresh,\n",
+            "    if pageSnap && !reverseLayout && componentRef == nil {\n        if #available(iOS 17.0, *) {\n            NexaSwiftUIPageSnapList(\n                rowCount: rowCount,\n                scrollPosition: scrollPosition.map(Int.init),\n                scrollEnabled: scrollEnabled,\n                hideHorizontalScrollbar: hideHorizontalScrollbar,\n                hideVerticalScrollbar: hideVerticalScrollbar,\n                onScrollPositionChanged: onScrollPositionChanged,\n                onRefresh: onRefresh,\n",
         );
         if uses_scroll_events {
             out.push_str(
@@ -2875,6 +2945,8 @@ fn append_native_fast_list_call(
     } else {
         "            showDividers: showDividers,\n"
     });
+    out.push_str("            hideHorizontalScrollbar: hideHorizontalScrollbar,\n");
+    out.push_str("            hideVerticalScrollbar: hideVerticalScrollbar,\n");
     out.push_str("            scrollEnabled: scrollEnabled,\n");
     out.push_str("            rowKey: rowKey,\n");
     out.push_str("            reverseLayout: reverseLayout,\n");
@@ -2935,6 +3007,8 @@ private struct NexaSwiftUIPageSnapList<RowContent: View>: View {
     let rowCount: Int
     let scrollPosition: Int?
     let scrollEnabled: Bool
+    let hideHorizontalScrollbar: Bool
+    let hideVerticalScrollbar: Bool
     let onScrollPositionChanged: ((Int) -> Void)?
     let onRefresh: (() -> Void)?
     let onScroll: ((Int) -> Void)?
@@ -2947,6 +3021,8 @@ private struct NexaSwiftUIPageSnapList<RowContent: View>: View {
         rowCount: Int,
         scrollPosition: Int?,
         scrollEnabled: Bool,
+        hideHorizontalScrollbar: Bool,
+        hideVerticalScrollbar: Bool,
         onScrollPositionChanged: ((Int) -> Void)?,
         onRefresh: (() -> Void)?,
         onScroll: ((Int) -> Void)?,
@@ -2956,6 +3032,8 @@ private struct NexaSwiftUIPageSnapList<RowContent: View>: View {
         self.rowCount = max(0, rowCount)
         self.scrollPosition = scrollPosition
         self.scrollEnabled = scrollEnabled
+        self.hideHorizontalScrollbar = hideHorizontalScrollbar
+        self.hideVerticalScrollbar = hideVerticalScrollbar
         self.onScrollPositionChanged = onScrollPositionChanged
         self.onRefresh = onRefresh
         self.onScroll = onScroll
@@ -3009,7 +3087,10 @@ private struct NexaSwiftUIPageSnapList<RowContent: View>: View {
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $selectedPage, anchor: .top)
         .scrollDisabled(!scrollEnabled)
-        .scrollIndicators(.hidden)
+        .modifier(NexaScrollIndicatorVisibility(
+            hideHorizontal: hideHorizontalScrollbar,
+            hideVertical: hideVerticalScrollbar
+        ))
         .modifier(NexaPageSnapRefreshModifier(action: onRefresh))
         .onChange(of: scrollPosition) { _, requestedPage in
             guard rowCount > 0, let requestedPage else { return }
@@ -3103,6 +3184,37 @@ mod tests {
     use nexa_codegen::SourceWriter;
 
     use super::render;
+
+    #[test]
+    fn section_header_registry_is_only_emitted_for_sectioned_lists() {
+        let mut sectioned = SourceWriter::new();
+        render(&mut sectioned, false, false, false, false, false, true);
+        let source = sectioned.as_str();
+        assert!(source.contains("private final class NexaSectionHeaderRegistry"));
+        assert!(source.contains("coordinator.sectionHeaders.forEach"));
+        assert!(source.contains("willDisplayHeaderView view: UIView, forSection section: Int"));
+        assert!(
+            source.contains("didEndDisplayingHeaderView view: UIView, forSection section: Int")
+        );
+        assert!(!source.contains("for section in 0..<coordinator.sectionCount"));
+
+        let mut plain = SourceWriter::new();
+        render(&mut plain, false, false, true, true, true, false);
+        assert!(!plain.as_str().contains("NexaSectionHeaderRegistry"));
+    }
+
+    #[test]
+    fn scroll_observation_does_not_materialize_index_arrays() {
+        let mut generated = SourceWriter::new();
+        render(&mut generated, true, true, true, true, true, false);
+        let source = generated.as_str();
+        assert!(source.contains("visibleRows.lazy.map(\\.row)"));
+        assert!(source.contains("visibleRows.lazy.compactMap"));
+        assert!(!source.contains("visibleRows.map("));
+        assert!(!source.contains("visibleRows.compactMap"));
+        assert!(source.contains("indexPathsForVisibleItems.lazy.map(\\.item).min()"));
+        assert!(!source.contains("indexPathsForVisibleItems.map("));
+    }
 
     #[test]
     fn short_lists_bounce_only_when_refresh_is_enabled() {

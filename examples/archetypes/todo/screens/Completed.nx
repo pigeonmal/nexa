@@ -32,7 +32,6 @@ screen Completed {
                         dueTimestamp = task.dueTimestamp ?? Time.now()
                         hasTime = task.hasTime
                         priority = task.priority
-                        taskTitleFocused = editingID < 0
                         taskEditorSheetRef.present()
                     }.contextMenu {
                         Button("Edit", icon: "edit") {
@@ -43,7 +42,6 @@ screen Completed {
                             dueTimestamp = task.dueTimestamp ?? Time.now()
                             hasTime = task.hasTime
                             priority = task.priority
-                            taskTitleFocused = editingID < 0
                             taskEditorSheetRef.present()
                         }
                         Button("Mark Incomplete", icon: "undo") {

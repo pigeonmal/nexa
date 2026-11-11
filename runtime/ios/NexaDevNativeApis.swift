@@ -377,6 +377,18 @@ extension NexaDevStateStore {
            let reference = try await evaluateAsync(rawReceiver, locals: locals, scope: scope) as? NexaFastListRef {
             return nexaDevInvokeFastListRef(reference, name: name, options: options)
         }
+        if namespace == "NexaScrollViewRef",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull),
+           let reference = try await evaluateAsync(rawReceiver, locals: locals, scope: scope) as? NexaScrollViewRef {
+            return nexaDevInvokeScrollViewRef(reference, name: name, options: options)
+        }
+        if namespace == "NexaTextInputRef",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull),
+           let reference = try await evaluateAsync(rawReceiver, locals: locals, scope: scope) as? NexaTextInputRef {
+            return nexaDevInvokeTextInputRef(reference, name: name)
+        }
         if namespace == "NexaBottomSheetRef",
            let rawReceiver = call["receiver"],
            !(rawReceiver is NSNull),
@@ -667,6 +679,18 @@ extension NexaDevStateStore {
            let reference = evaluate(rawReceiver, locals: locals, scope: scope) as? NexaFastListRef {
             return nexaDevInvokeFastListRef(reference, name: name, options: options)
         }
+        if namespace == "NexaScrollViewRef",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull),
+           let reference = evaluate(rawReceiver, locals: locals, scope: scope) as? NexaScrollViewRef {
+            return nexaDevInvokeScrollViewRef(reference, name: name, options: options)
+        }
+        if namespace == "NexaTextInputRef",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull),
+           let reference = evaluate(rawReceiver, locals: locals, scope: scope) as? NexaTextInputRef {
+            return nexaDevInvokeTextInputRef(reference, name: name)
+        }
         if namespace == "NexaBottomSheetRef",
            let rawReceiver = call["receiver"],
            !(rawReceiver is NSNull),
@@ -867,6 +891,41 @@ private func nexaDevInvokeFastListRef(
         )
     default: return NSNull()
     }
+    switch result {
+    case .success: return ["Ok": NSNull()]
+    case .failure(.notAttached): return ["Err": ["NotAttached": NSNull()]]
+    case .failure(.failure(_)): return ["Err": ["NotAttached": NSNull()]]
+    }
+}
+
+@MainActor
+private func nexaDevInvokeScrollViewRef(
+    _ reference: NexaScrollViewRef,
+    name: String,
+    options: [String: Any]
+) -> Any {
+    let animated = (options["animated"] as? Bool) ?? true
+    let result: Result<Void, NexaComponentRefError<Never>>
+    switch name {
+    case "scrollToTop": result = reference.scrollToTop(animated: animated)
+    case "scrollToEnd": result = reference.scrollToEnd(animated: animated)
+    case "scrollToOffset":
+        result = reference.scrollToOffset(
+            (options["offset"] as? NSNumber)?.doubleValue ?? 0,
+            animated: animated
+        )
+    default: return NSNull()
+    }
+    switch result {
+    case .success: return ["Ok": NSNull()]
+    case .failure(.notAttached): return ["Err": ["NotAttached": NSNull()]]
+    case .failure(.failure(_)): return ["Err": ["NotAttached": NSNull()]]
+    }
+}
+
+@MainActor
+private func nexaDevInvokeTextInputRef(_ reference: NexaTextInputRef, name: String) -> Any {
+    let result = name == "focus" ? reference.focus() : reference.blur()
     switch result {
     case .success: return ["Ok": NSNull()]
     case .failure(.notAttached): return ["Err": ["NotAttached": NSNull()]]

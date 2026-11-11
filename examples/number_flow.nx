@@ -1,0 +1,29 @@
+app NumberFlowDemo {
+    state completedOrders: Int32 = 1249
+    state cartTotal: Float64 = 42.99
+    state completion: Float64 = 0.25
+
+    body {
+        Column(gap: 20, padding: 24) {
+            Text("Animated number formats", fontSize: 26, fontWeight: Bold)
+
+            Column(gap: 6) {
+                Text("Completed orders", color: "#777780")
+                NumberFlow(value: completedOrders, format: Compact, maximumFractionDigits: 1, fontSize: 30, fontWeight: Semibold)
+                Button("Add an order") { completedOrders = completedOrders + 1 }
+            }
+
+            Column(gap: 6) {
+                Text("Cart total", color: "#777780")
+                NumberFlow(value: cartTotal, format: Currency, currencyCode: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2, fontSize: 30)
+                Button("Add €0.10") { cartTotal = cartTotal + 0.1 }
+            }
+
+            Column(gap: 6) {
+                Text("Completion", color: "#777780")
+                NumberFlow(value: completion, format: Percent, maximumFractionDigits: 1, fontSize: 30)
+                Button("Advance progress") { completion = completion + 0.05 }
+            }
+        }
+    }
+}

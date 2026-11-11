@@ -320,6 +320,53 @@ fn render_layout_inner(
     row_width_weight: bool,
 ) {
     let LayoutRenderContext { scope, depth, out } = context;
+    if let Some(marquee) = &style.marquee {
+        let horizontal = matches!(kind, LayoutKind::Row);
+        let playing = crate::generator::engine::expressions::expression(&marquee.playing);
+        let mut values = Vec::new();
+        nexa_ir::walk::walk_ir(children, &mut |_| {}, &mut |expr| {
+            if matches!(
+                expr,
+                Expr::State(
+                    _,
+                    nexa_ir::Type::String | nexa_ir::Type::Bool | nexa_ir::Type::Numeric(_)
+                )
+            ) {
+                let value = format!(
+                    "({}).toString()",
+                    crate::generator::engine::expressions::expression(expr)
+                );
+                if !values.contains(&value) {
+                    values.push(value);
+                }
+            }
+        });
+        out.line_at(depth, format_args!("NexaMarqueePrimitive(horizontal = {horizontal}, speed = {:?}, gap = {:?}, delaySeconds = {:?}, edgeFade = {:?}, playing = {playing}, revision = listOf({}), modifier = Modifier", marquee.speed, marquee.gap, marquee.delay, marquee.edge_fade, values.join(", ")));
+        if row_width_weight {
+            out.push_str(".weight(1f)");
+        }
+        render_modifiers(style, depth + 1, out);
+        out.push_str(") {\n");
+        let inner = ViewStyle {
+            alignment: style.alignment,
+            horizontal_arrangement: style.horizontal_arrangement,
+            ..ViewStyle::default()
+        };
+        render_layout_inner(
+            kind,
+            spacing,
+            &inner,
+            children,
+            LayoutRenderContext {
+                scope,
+                depth: depth + 1,
+                out,
+            },
+            false,
+        );
+        out.line_at(depth, format_args!("}}"));
+        return;
+    }
     let preserve_row_child_widths = row_has_only_fixed_width_layout_children(kind, children);
     let layout = match kind {
         LayoutKind::Column => "NexaColumnPrimitive",
@@ -661,16 +708,16 @@ fn render_required_outer_height(style: &ViewStyle, depth: usize, out: &mut Sourc
     match style.height {
         Some(Dimension::Fixed(height)) => {
             // Match SwiftUI's fixed frame when a parent offers less height: keep
-            // the child's requested size and align its overflow to the top.
+            // the child's requested size and use its parent's overflow alignment.
             out.push_str(&format!(
-                "\n{}.wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight({}.dp)",
+                "\n{}.wrapContentHeight(LocalNexaLayoutOverflowAlignment.current, unbounded = true).requiredHeight({}.dp)",
                 spaces(depth),
                 number(height)
             ));
         }
         Some(Dimension::ScreenHeightFraction(fraction)) => {
             out.push_str(&format!(
-                "\n{}.wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight((LocalNexaWindowMetrics.current.viewportHeightDp * {}f).dp)",
+                "\n{}.wrapContentHeight(LocalNexaLayoutOverflowAlignment.current, unbounded = true).requiredHeight((LocalNexaWindowMetrics.current.viewportHeightDp * {}f).dp)",
                 spaces(depth),
                 number(fraction),
             ));
@@ -705,11 +752,9 @@ fn kotlin_static_dimension_value(
     }
 }
 
-fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
-    // SwiftUI appends `clip` after sizing and visual effects, so it clips the
-    // component's final rendered output. Compose modifiers are outer-to-inner;
-    // put this clip first so fixed-size overflow and transformed descendants
-    // are clipped by the component's final bounds.
+pub(crate) fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
+    // The explicit clip effect masks final bounds. Corner styling below masks
+    // the component's own fixed size before its parent crops overflow.
     if let Some(radius) = style.effects.clip_rounded {
         out.push_str(&format!(
             "\n{}.clip(RoundedCornerShape({}.dp))",
@@ -717,6 +762,95 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             number(radius)
         ));
     }
+    render_required_outer_width(style, depth, out);
+    render_required_outer_height(style, depth, out);
+    let effects = &style.effects;
+    if let Some(opacity) = style.opacity {
+        out.push_str(&format!(
+            "\n{}.graphicsLayer(alpha = {}f, compositingStrategy = CompositingStrategy.Offscreen)",
+            spaces(depth),
+            number(opacity)
+        ));
+    }
+    if effects.scale.is_some()
+        || effects.scale_expression.is_some()
+        || effects.scale_y.is_some()
+        || effects.scale_y_expression.is_some()
+        || effects.opacity_expression.is_some()
+        || effects.offset_y_expression.is_some()
+        || effects.rotation.is_some()
+    {
+        super::graphics_layer::append_multiline(effects, depth, out);
+    }
+    if let Some(blur) = effects.blur {
+        out.push_str(&format!("\n{}.blur({}.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)", spaces(depth), number(blur)));
+    }
+    if let Some(shadow) = effects.shadow {
+        let shape = if let Some(radius) = effects.clip_rounded {
+            format!("RoundedCornerShape({}.dp)", number(radius))
+        } else {
+            kotlin_corner_shape(style)
+        };
+        out.push_str(&format!(
+            "\n{}.dropShadow(shape = {}, shadow = Shadow(radius = {}.dp, color = {}, offset = DpOffset({}.dp, {}.dp)))",
+            spaces(depth),
+            shape,
+            number(shadow.radius),
+            colors::expression(shadow.color),
+            number(shadow.x),
+            number(shadow.y)
+        ));
+    }
+    if style.corner_radius.is_some()
+        || style.corner_radius_expression.is_some()
+        || style.corner_radius_bottom.is_some()
+    {
+        out.push_str(&format!(
+            "\n{}.clip({})",
+            spaces(depth),
+            kotlin_corner_shape(style)
+        ));
+    }
+    if let Some(color) = style.background {
+        out.push_str(&format!(
+            "\n{}.background({})",
+            spaces(depth),
+            colors::expression(color)
+        ));
+    }
+    if let (Some(color), Some(width)) = (style.border_color, style.border_width) {
+        let shape = kotlin_corner_shape(style);
+        out.push_str(&format!(
+            "\n{}.border(width = {}.dp, color = {}, shape = {})",
+            spaces(depth),
+            number(width),
+            colors::expression(color),
+            shape
+        ));
+    }
+    if let Some(glass) = &effects.glass {
+        // Android represents glass with a solid Material 3 surface. Place it
+        // outside padding and sizing so it covers the full layout, like SwiftUI.
+        let shape = match glass.shape {
+            nexa_ir::GlassShape::Circle => "CircleShape".to_owned(),
+            nexa_ir::GlassShape::Capsule => "RoundedCornerShape(percent = 50)".to_owned(),
+            nexa_ir::GlassShape::Rounded(radius) => {
+                format!("RoundedCornerShape({}.dp)", number(radius))
+            }
+        };
+        let tint = glass
+            .tint
+            .map(colors::expression)
+            .map(|tint| format!("{tint}.copy(alpha = 1f)"))
+            .or_else(|| style.background.map(colors::expression))
+            .unwrap_or_else(|| "MaterialTheme.colorScheme.surface".to_owned());
+        out.push_str(&format!(
+            "\n{}.let {{ val surfaceShape: Shape = {shape}; val surfaceColor = {tint}; it.clip(surfaceShape).background(surfaceColor, surfaceShape) }}",
+            spaces(depth),
+        ));
+    }
+    // Surface styling wraps the interpolated bounds in both directions.
+    // Placing it inside animateContentSize makes collapse appear instantaneous.
     if let Some(animation) = style.animation {
         let spec = match animation {
             AnimationSpec::Spring { response, damping } => {
@@ -759,90 +893,6 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
         out.push_str(&format!(
             "\n{}.animateContentSize(animationSpec = {spec})",
             spaces(depth)
-        ));
-    }
-    render_required_outer_width(style, depth, out);
-    render_required_outer_height(style, depth, out);
-    let effects = &style.effects;
-    if let Some(opacity) = style.opacity {
-        out.push_str(&format!(
-            "\n{}.graphicsLayer(alpha = {}f, compositingStrategy = CompositingStrategy.Offscreen)",
-            spaces(depth),
-            number(opacity)
-        ));
-    }
-    if effects.scale.is_some()
-        || effects.scale_expression.is_some()
-        || effects.scale_y.is_some()
-        || effects.scale_y_expression.is_some()
-        || effects.opacity_expression.is_some()
-        || effects.offset_y_expression.is_some()
-        || effects.rotation.is_some()
-    {
-        super::graphics_layer::append_multiline(effects, depth, out);
-    }
-    if let Some(blur) = effects.blur {
-        out.push_str(&format!("\n{}.blur({}.dp)", spaces(depth), number(blur)));
-    }
-    if let Some(shadow) = effects.shadow {
-        let shape = if let Some(radius) = effects.clip_rounded {
-            format!("RoundedCornerShape({}.dp)", number(radius))
-        } else {
-            kotlin_corner_shape(style)
-        };
-        out.push_str(&format!(
-            "\n{}.dropShadow(shape = {}, shadow = Shadow(radius = {}.dp, color = {}, offset = DpOffset({}.dp, {}.dp)))",
-            spaces(depth),
-            shape,
-            number(shadow.radius),
-            colors::expression(shadow.color),
-            number(shadow.x),
-            number(shadow.y)
-        ));
-    }
-    if style.corner_radius.is_some()
-        || style.corner_radius_expression.is_some()
-        || style.corner_radius_bottom.is_some()
-    {
-        let shape = kotlin_corner_shape(style);
-        out.push_str(&format!("\n{}.clip({})", spaces(depth), shape));
-    }
-    if let Some(color) = style.background {
-        out.push_str(&format!(
-            "\n{}.background({})",
-            spaces(depth),
-            colors::expression(color)
-        ));
-    }
-    if let (Some(color), Some(width)) = (style.border_color, style.border_width) {
-        let shape = kotlin_corner_shape(style);
-        out.push_str(&format!(
-            "\n{}.border(width = {}.dp, color = {}, shape = {})",
-            spaces(depth),
-            number(width),
-            colors::expression(color),
-            shape
-        ));
-    }
-    if let Some(glass) = &effects.glass {
-        // Android represents glass with a solid Material 3 surface. Place it
-        // outside padding and sizing so it covers the full layout, like SwiftUI.
-        let shape = match glass.shape {
-            nexa_ir::GlassShape::Circle => "CircleShape".to_owned(),
-            nexa_ir::GlassShape::Capsule => "RoundedCornerShape(percent = 50)".to_owned(),
-            nexa_ir::GlassShape::Rounded(radius) => {
-                format!("RoundedCornerShape({}.dp)", number(radius))
-            }
-        };
-        let tint = glass
-            .tint
-            .map(colors::expression)
-            .map(|tint| format!("{tint}.copy(alpha = 1f)"))
-            .or_else(|| style.background.map(colors::expression))
-            .unwrap_or_else(|| "MaterialTheme.colorScheme.surface".to_owned());
-        out.push_str(&format!(
-            "\n{}.let {{ val surfaceShape: Shape = {shape}; val surfaceColor = {tint}; it.clip(surfaceShape).background(surfaceColor, surfaceShape) }}",
-            spaces(depth),
         ));
     }
     if let Some(width) = style.width {
@@ -996,6 +1046,33 @@ mod tests {
     };
 
     #[test]
+    fn blur_wraps_rounded_background_without_clamping_its_edges() {
+        let style = ViewStyle {
+            background: Some(ColorValue::Static(Color {
+                red: 232,
+                green: 240,
+                blue: 255,
+                alpha: 255,
+            })),
+            corner_radius: Some(8.0),
+            effects: nexa_ir::ViewEffects {
+                blur: Some(2.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut output = SourceWriter::new();
+        render_modifiers(&style, 0, &mut output);
+        let generated = output.finish();
+        let blur = generated.find(".blur(2.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)").expect("soften edges beyond the surface");
+        let clip = generated
+            .find(".clip(RoundedCornerShape(8.dp))")
+            .expect("rounded surface");
+        let background = generated.find(".background(").expect("surface fill");
+        assert!(blur < clip && clip < background);
+    }
+
+    #[test]
     fn screen_fraction_dimensions_use_the_window_viewport() {
         let style = ViewStyle {
             width: Some(Dimension::ScreenWidthFraction(0.9)),
@@ -1023,11 +1100,44 @@ mod tests {
     }
 
     #[test]
-    fn content_size_animation_wraps_size_constraints() {
+    fn marquee_frame_drawing_does_not_publish_animation_restarts() {
+        let source = include_str!("marquee.kt");
+        let source_modifier = source
+            .split_once("val sourceModifier =")
+            .expect("find the single cached marquee source layer")
+            .1
+            .split_once("val rtl =")
+            .expect("find the end of the source modifier")
+            .0;
+
+        assert!(source_modifier.contains("Modifier.graphicsLayer()"));
+        assert!(!source_modifier.contains("drawWithContent"));
+        assert!(!source_modifier.contains("updates.value"));
+        assert!(!source.contains("contentInvalidated"));
+        assert!(!source.contains("contentRevision"));
+        assert!(source.contains("revision: List<String>"));
+    }
+
+    #[test]
+    fn content_size_animation_keeps_surface_outside_and_constraints_inside() {
         let style = ViewStyle {
             animation: Some(nexa_ir::AnimationSpec::EaseInOut),
             width: Some(Dimension::Fixed(200.0)),
             min_height: Some(Dimension::Fixed(48.0)),
+            background: Some(ColorValue::Static(Color {
+                red: 232,
+                green: 240,
+                blue: 255,
+                alpha: 255,
+            })),
+            corner_radius: Some(8.0),
+            border_color: Some(ColorValue::Static(Color {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 255,
+            })),
+            border_width: Some(1.0),
             ..ViewStyle::default()
         };
         let mut output = SourceWriter::new();
@@ -1038,6 +1148,17 @@ mod tests {
         let animation = generated
             .find(".animateContentSize(")
             .expect("emit the content-size animation");
+        for surface in [
+            ".background(",
+            ".clip(RoundedCornerShape(8.dp))",
+            ".border(",
+        ] {
+            let surface = generated.find(surface).expect("emit the animated surface");
+            assert!(
+                surface < animation,
+                "surface must follow the interpolated bounds on collapse"
+            );
+        }
         for sizing_modifier in [".width(200.dp)", ".heightIn(min = 48.dp)"] {
             let sizing = generated
                 .find(sizing_modifier)
@@ -1102,8 +1223,8 @@ mod tests {
 
         let generated = output.finish();
         let required_height = generated
-            .find(".wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight(84.dp)")
-            .expect("preserve the fixed child height without centering its overflow");
+            .find(".wrapContentHeight(LocalNexaLayoutOverflowAlignment.current, unbounded = true).requiredHeight(84.dp)")
+            .expect("preserve the fixed child height with the parent overflow alignment");
         let rotation = generated
             .find("rotationZ = 28")
             .expect("keep child transforms");
@@ -1160,7 +1281,7 @@ mod tests {
 
         let generated = output.finish();
         assert!(generated.contains(
-            ".wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight((LocalNexaWindowMetrics.current.viewportHeightDp * 0.5f).dp)"
+            ".wrapContentHeight(LocalNexaLayoutOverflowAlignment.current, unbounded = true).requiredHeight((LocalNexaWindowMetrics.current.viewportHeightDp * 0.5f).dp)"
         ));
         assert!(
             generated
@@ -1177,7 +1298,9 @@ mod tests {
             .and_then(|source| source.split("\n        \"Text\" -> {").next())
             .expect("find DevRuntime layout dispatch");
 
-        assert!(layout.contains(".wrapContentHeight(Alignment.Top, unbounded = true)"));
+        assert!(layout.contains(
+            ".wrapContentHeight(LocalNexaLayoutOverflowAlignment.current, unbounded = true)"
+        ));
         assert!(layout.contains(".requiredHeight(it)"));
         assert!(layout.contains("modifier = modifier.height(it)"));
 
@@ -1431,6 +1554,7 @@ mod tests {
             autocorrect: None,
             capitalization: None,
             focused: None,
+            component_ref: None,
             max_length: None,
             font: None,
             font_size: None,

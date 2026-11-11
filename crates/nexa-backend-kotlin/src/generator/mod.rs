@@ -21,19 +21,39 @@ pub(super) use engine::{
     colors, expressions, features, functions, runtime, state, structs, utils, value,
 };
 
-const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"internal fun nexaColorFromHex(hex: String): androidx.compose.ui.graphics.Color {
+const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"@androidx.compose.runtime.Composable
+internal fun nexaColorFromHex(hex: String): androidx.compose.ui.graphics.Color {
     val digits = hex.removePrefix("#")
     val hasAlpha = digits.length == 8
     val parsed = if (digits.length == 6 || hasAlpha) digits.toLongOrNull(16) else null
-    val color = parsed ?: 0xD63031L
-    val red = if (hasAlpha && parsed != null) (color shr 24) and 0xFF else (color shr 16) and 0xFF
-    val green = if (hasAlpha && parsed != null) (color shr 16) and 0xFF else (color shr 8) and 0xFF
-    val blue = if (hasAlpha && parsed != null) (color shr 8) and 0xFF else color and 0xFF
-    val alpha = if (hasAlpha && parsed != null) (color and 0xFF).toFloat() / 255f else 1f
+    if (parsed == null) {
+        return if (androidx.compose.foundation.isSystemInDarkTheme()) {
+            androidx.compose.ui.graphics.Color(__NEXA_DARK_ACCENT_ARGB__)
+        } else {
+            androidx.compose.ui.graphics.Color(__NEXA_DEFAULT_ACCENT_ARGB__)
+        }
+    }
+    val color = parsed
+    val red = if (hasAlpha) (color shr 24) and 0xFF else (color shr 16) and 0xFF
+    val green = if (hasAlpha) (color shr 16) and 0xFF else (color shr 8) and 0xFF
+    val blue = if (hasAlpha) (color shr 8) and 0xFF else color and 0xFF
+    val alpha = if (hasAlpha) (color and 0xFF).toFloat() / 255f else 1f
     return androidx.compose.ui.graphics.Color(red.toFloat() / 255f, green.toFloat() / 255f, blue.toFloat() / 255f, alpha)
 }
 
 "##;
+
+fn dynamic_color_helper() -> String {
+    NEXA_DYNAMIC_COLOR_HELPER
+        .replace(
+            "__NEXA_DEFAULT_ACCENT_ARGB__",
+            &format!("0x{:08X}", nexa_codegen::design_system::DEFAULT_ACCENT_ARGB),
+        )
+        .replace(
+            "__NEXA_DARK_ACCENT_ARGB__",
+            &format!("0x{:08X}", nexa_codegen::design_system::DARK_ACCENT_ARGB),
+        )
+}
 
 fn project_features_from_analysis(
     module: &Module,
@@ -41,12 +61,14 @@ fn project_features_from_analysis(
 ) -> crate::KotlinProjectFeatures {
     crate::KotlinProjectFeatures {
         uses_network: features.uses_network_transport(),
+        uses_network_api: features.uses_network_api,
         uses_network_connectivity: features.uses_network_connectivity,
         uses_remote_image: features.uses_remote_image,
         uses_system_icons: !features.facts.ui.system_icons.is_empty()
             || features.uses_picker
             || features.uses_navigation_link,
-        uses_coroutines: features.uses_network_transport()
+        uses_coroutines: features.facts.ui.style.marquee
+            || features.uses_network_transport()
             || features.uses_file_async
             || features.uses_permission_request
             || features.uses_tasks
@@ -70,7 +92,8 @@ fn project_features_from_analysis(
         uses_expressive_motion: features.uses_segmented_control,
         uses_wavy_progress_bar: features.uses_wavy_progress_bar,
         uses_wavy_progress_ring: features.uses_wavy_progress_ring,
-        uses_compose_animation: features.uses_conditional_transition
+        uses_compose_animation: features.facts.ui.style.marquee
+            || features.uses_conditional_transition
             || features.uses_shared_elements
             || features.uses_segmented_control
             || features.uses_animation
@@ -78,7 +101,8 @@ fn project_features_from_analysis(
         uses_compose_graphics: features.uses_color
             || features.uses_asset
             || features.uses_placeholder,
-        uses_lifecycle_events: module.on_active.is_some()
+        uses_lifecycle_events: features.facts.ui.style.marquee
+            || module.on_active.is_some()
             || module.on_inactive.is_some()
             || module.on_background.is_some()
             || !module.widgets.is_empty(),
@@ -471,7 +495,7 @@ internal fun nexaSafeAreaDynamicInsets(): NexaSafeAreaInsets {
     return logical.subtractClamped(consumed)
 }
 
-// nexa-codegen: NexaViewInsetsPrimitive
+// nexa-codegen: LocalNexaScrollContentPadding
 internal val LocalNexaScrollContentPadding =
     androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.foundation.layout.PaddingValues> {
         androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
@@ -510,6 +534,7 @@ internal fun NexaScrollContentPrimitive(
     }
 }
 
+// nexa-codegen: NexaViewInsetsPrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaViewInsetsPrimitive(
     paddingTop: androidx.compose.ui.unit.Dp = 0.dp,
@@ -868,6 +893,8 @@ internal fun NexaFastListDividerPrimitive() {
 }
 
 // nexa-codegen: NexaTextPrimitive
+// Fixed-size children retain their own shape when a parent crops overflow.
+internal val LocalNexaLayoutOverflowAlignment = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.ui.Alignment.Vertical> { androidx.compose.ui.Alignment.Top }
 internal val LocalNexaTextAlignment = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.ui.text.style.TextAlign?> { null }
 
 internal data class NexaGlyphShadow(
@@ -1854,6 +1881,7 @@ internal fun NexaNavigationScreenPrimitive(
     title: String,
     inline: Boolean,
     leadingTitle: Boolean,
+    showBackButton: Boolean = true,
     hasTrailingActions: Boolean,
     onBack: () -> Unit,
     leadingActions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
@@ -1865,8 +1893,16 @@ internal fun NexaNavigationScreenPrimitive(
         NexaNavigationTitleSlot()
     }
     val hasTitleOverride = navigationTitleSlot.identity.value != null
-    val displayTitle = if (hasTitleOverride) navigationTitleSlot.title.value else title
-    val displayLargeTitle = if (hasTitleOverride) navigationTitleSlot.largeTitle.value else !inline
+    val displayTitle = when {
+        hasTitleOverride -> navigationTitleSlot.title.value
+        showBackButton -> title
+        else -> ""
+    }
+    val displayLargeTitle = if (hasTitleOverride) {
+        navigationTitleSlot.largeTitle.value
+    } else {
+        !inline && showBackButton
+    }
     val displayCenterTitle = if (hasTitleOverride) navigationTitleSlot.centerTitle.value else !leadingTitle
     val displayLeadingActions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
         if (hasTitleOverride) {
@@ -1901,11 +1937,13 @@ internal fun NexaNavigationScreenPrimitive(
                 androidx.compose.foundation.layout.Row(
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                 ) {
-                    androidx.compose.material3.IconButton(onClick = onBack) {
-                        androidx.compose.material3.Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
+                    if (showBackButton) {
+                        androidx.compose.material3.IconButton(onClick = onBack) {
+                            androidx.compose.material3.Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                            )
+                        }
                     }
                     if (!inline || !leadingTitle || hasTitleOverride) {
                         displayLeadingActions()
@@ -2132,181 +2170,14 @@ private fun nexaKeyboardAwareModifier(
     interactiveDismiss: Boolean,
     avoidIme: Boolean,
 ): androidx.compose.ui.Modifier {
-    val imeVisible = androidx.compose.runtime.rememberUpdatedState(
-        androidx.compose.foundation.layout.WindowInsets.isImeVisible,
-    )
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-    val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
-    var modifier = androidx.compose.ui.Modifier.pointerInput(focusManager, touchSlop) {
-        awaitEachGesture {
-            val keyboardWasVisible = imeVisible.value
-            val down = awaitFirstDown(
-                requireUnconsumed = false,
-                pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial,
-            )
-            var dragStarted = false
-            while (true) {
-                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                if (!change.pressed) break
-                val movedX = kotlin.math.abs(change.position.x - down.position.x)
-                val movedY = kotlin.math.abs(change.position.y - down.position.y)
-                if (!keyboardWasVisible && (movedX > touchSlop || movedY > touchSlop)) {
-                    dragStarted = true
-                    focusManager.clearFocus()
-                    break
-                }
-            }
-            if (dragStarted) {
-                do {
-                    val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
-                } while (event.changes.any { it.pressed })
-                focusManager.clearFocus()
-            }
-        }
-    }
+    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    var modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
     if (avoidIme) modifier = modifier.imePadding()
-    // imeNestedScroll is only meaningful while the IME is already visible.
-    // Keeping it attached to every hidden-IME scroll can issue a show request
-    // on Android when the scroll reaches its edge, even if no field is focused.
-    if (interactiveDismiss && imeVisible.value) modifier = modifier.imeNestedScroll()
+    // Compose's nested-scroll integration owns interactive IME dismissal. A
+    // parallel pointer recognizer can steal taps from text fields while the
+    // keyboard animates and move focus to another field.
+    if (interactiveDismiss && imeVisible) modifier = modifier.imeNestedScroll()
     return modifier
-}
-
-// nexa-codegen: NexaTextInputPrimitive
-@androidx.compose.runtime.Composable
-internal fun NexaTextInputPrimitive(
-    value: String,
-    onValueChange: (String) -> Unit,
-    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
-    focusModifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
-    placeholder: String = "",
-    searchable: Boolean = false,
-    searchIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    textStyle: androidx.compose.ui.text.TextStyle = androidx.compose.material3.LocalTextStyle.current,
-    textColor: androidx.compose.ui.graphics.Color? = null,
-    placeholderColor: androidx.compose.ui.graphics.Color? = null,
-    minLines: Int = 1,
-    maxLines: Int = Int.MAX_VALUE,
-    singleLine: Boolean = true,
-    secure: Boolean = false,
-    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions(),
-    keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions(),
-) {
-    val bringIntoViewRequester = androidx.compose.runtime.remember {
-        androidx.compose.foundation.relocation.BringIntoViewRequester()
-    }
-    val inputHasFocus = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    val keyboardInset = androidx.compose.foundation.layout.WindowInsets.ime
-        .getBottom(androidx.compose.ui.platform.LocalDensity.current)
-    val inputFocusModifier = focusModifier
-        .bringIntoViewRequester(bringIntoViewRequester)
-        .onFocusChanged { inputHasFocus.value = it.isFocused }
-    androidx.compose.runtime.LaunchedEffect(inputHasFocus.value, keyboardInset) {
-        if (inputHasFocus.value && keyboardInset > 0) {
-            bringIntoViewRequester.bringIntoView()
-        }
-    }
-    if (searchable) {
-        androidx.compose.foundation.layout.Row(
-            modifier = modifier,
-            horizontalArrangement = if (searchIcon != null) {
-                androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(8f))
-            } else {
-                androidx.compose.foundation.layout.Arrangement.Start
-            },
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        ) {
-            if (searchIcon != null) {
-                androidx.compose.material3.Icon(
-                    imageVector = searchIcon,
-                    contentDescription = null,
-                    modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(20f)),
-                    tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            androidx.compose.foundation.layout.Box(
-                modifier = androidx.compose.ui.Modifier.weight(1f),
-                contentAlignment = androidx.compose.ui.Alignment.CenterStart,
-            ) {
-                androidx.compose.foundation.text.BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    modifier = inputFocusModifier.fillMaxWidth(),
-                    textStyle = textStyle.copy(
-                        color = textColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
-                    ),
-                    minLines = minLines,
-                    maxLines = maxLines,
-                    singleLine = singleLine,
-                    visualTransformation = if (secure) {
-                        androidx.compose.ui.text.input.PasswordVisualTransformation()
-                    } else {
-                        androidx.compose.ui.text.input.VisualTransformation.None
-                    },
-                    keyboardOptions = keyboardOptions,
-                    keyboardActions = keyboardActions,
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
-                        androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                    ),
-                    decorationBox = { innerTextField ->
-                        androidx.compose.foundation.layout.Box(
-                            contentAlignment = androidx.compose.ui.Alignment.CenterStart,
-                        ) {
-                            if (value.isEmpty() && placeholder.isNotEmpty()) {
-                                androidx.compose.material3.Text(
-                                    placeholder,
-                                    style = textStyle.copy(
-                                        color = placeholderColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                                    ),
-                                    maxLines = 1,
-                                )
-                            }
-                            innerTextField()
-                        }
-                    },
-                )
-            }
-        }
-    } else {
-        androidx.compose.foundation.text.BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = modifier.then(inputFocusModifier),
-            textStyle = textStyle.copy(
-                color = textColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
-            ),
-            minLines = minLines,
-            maxLines = maxLines,
-            singleLine = singleLine,
-            visualTransformation = if (secure) {
-                androidx.compose.ui.text.input.PasswordVisualTransformation()
-            } else {
-                androidx.compose.ui.text.input.VisualTransformation.None
-            },
-            keyboardOptions = keyboardOptions,
-            keyboardActions = keyboardActions,
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(
-                androidx.compose.material3.MaterialTheme.colorScheme.primary,
-            ),
-            decorationBox = { innerTextField ->
-                androidx.compose.foundation.layout.Box(
-                    contentAlignment = androidx.compose.ui.Alignment.CenterStart,
-                ) {
-                    if (value.isEmpty() && placeholder.isNotEmpty()) {
-                        androidx.compose.material3.Text(
-                            placeholder,
-                            style = textStyle.copy(
-                                color = placeholderColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                            maxLines = 1,
-                        )
-                    }
-                    innerTextField()
-                }
-            },
-        )
-    }
 }
 
 // nexa-codegen: NexaSwitchPrimitive
@@ -2355,12 +2226,14 @@ internal fun NexaSwitchPrimitive(
 
 // nexa-codegen: NexaSliderPrimitive
 @androidx.compose.runtime.Composable
+@Suppress("UNUSED_PARAMETER")
 internal fun NexaSliderPrimitive(
     value: Float,
     onValueChange: (Float) -> Unit,
     minValue: Float,
     maxValue: Float,
     step: Float,
+    showStepIndicators: Boolean = true,
     tint: androidx.compose.ui.graphics.Color? = null,
     trackColor: androidx.compose.ui.graphics.Color? = null,
     thumbColor: androidx.compose.ui.graphics.Color? = null,
@@ -2369,134 +2242,90 @@ internal fun NexaSliderPrimitive(
     hitSlop: Float? = null,
     onEditingChanged: ((Boolean) -> Unit)? = null,
 ) {
-    val thumbDp = (thumbSize ?: 14f).coerceAtLeast(1f)
-    val trackDp = (trackHeight ?: 4f).coerceAtLeast(1f)
-    val hitSlopDp = (hitSlop ?: 0f).coerceAtLeast(0f)
     val rangeIsValid = minValue.isFinite() && maxValue.isFinite() && maxValue > minValue
     val lowerBound = if (minValue.isFinite()) minValue else 0f
     val upperBound = if (maxValue.isFinite() && maxValue > lowerBound) maxValue else lowerBound + 1f
-    val editing = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    val animatedValue = androidx.compose.animation.core.animateFloatAsState(
-        targetValue = value,
-        animationSpec = androidx.compose.animation.core.tween(
-            durationMillis = if (editing.value) 0 else 250,
-            easing = androidx.compose.animation.core.LinearEasing,
-        ),
-        label = "Nexa slider value",
-    ).value
-    val inactive = trackColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
-    val active = tint ?: androidx.compose.material3.MaterialTheme.colorScheme.primary
-    val thumb = thumbColor ?: androidx.compose.ui.graphics.Color.White
-    val trackClipPath = androidx.compose.runtime.remember { androidx.compose.ui.graphics.Path() }
-    androidx.compose.ui.layout.Layout(
-        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-        content = {
-            androidx.compose.foundation.layout.Box(
-                modifier = androidx.compose.ui.Modifier
-                    .fillMaxWidth()
-                    .height((thumbDp + hitSlopDp * 2f).dp)
-                    .pointerInput(lowerBound, upperBound, step, rangeIsValid) {
-                        if (rangeIsValid) awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val width = size.width.toFloat().coerceAtLeast(1f)
-                            fun update(position: Float) {
-                                val fraction = (position / width).coerceIn(0f, 1f)
-                                val raw = lowerBound + fraction * (upperBound - lowerBound)
-                                val quantized = if (step > 0f) {
-                                    lowerBound + kotlin.math.round((raw - lowerBound) / step) * step
-                                } else raw
-                                onValueChange(quantized.coerceIn(lowerBound, upperBound))
-                            }
-                            var dragging = false
-                            var verticalScroll = false
-                            var lastX = down.position.x
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!change.pressed) {
-                                    break
-                                }
-                                lastX = change.position.x
-                                val horizontal = kotlin.math.abs(change.position.x - down.position.x)
-                                val vertical = kotlin.math.abs(change.position.y - down.position.y)
-                                if (!dragging && horizontal > viewConfiguration.touchSlop && horizontal > vertical) {
-                                    dragging = true
-                                    editing.value = true
-                                    onEditingChanged?.invoke(true)
-                                } else if (!dragging && vertical > viewConfiguration.touchSlop) {
-                                    verticalScroll = true
-                                    break
-                                }
-                                if (dragging) {
-                                    update(lastX)
-                                    change.consume()
-                                }
-                            }
-                            if (dragging) {
-                                update(lastX)
-                                editing.value = false
-                                onEditingChanged?.invoke(false)
-                            } else if (!verticalScroll) {
-                                update(down.position.x)
-                                down.consume()
-                            }
-                        }
-                    },
-                contentAlignment = androidx.compose.ui.Alignment.CenterStart,
+    val interactionEditing = androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    val interactionSource = androidx.compose.runtime.remember {
+        androidx.compose.foundation.interaction.MutableInteractionSource()
+    }
+    androidx.compose.runtime.LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            if (interaction is androidx.compose.foundation.interaction.DragInteraction.Start) {
+                if (!interactionEditing.value) {
+                    interactionEditing.value = true
+                    onEditingChanged?.invoke(true)
+                }
+            } else if (
+                interaction is androidx.compose.foundation.interaction.DragInteraction.Stop ||
+                interaction is androidx.compose.foundation.interaction.DragInteraction.Cancel
             ) {
-                androidx.compose.foundation.Canvas(androidx.compose.ui.Modifier.fillMaxSize()) {
-                    val thumbPx = thumbDp.dp.toPx()
-                    val trackPx = trackDp.dp.toPx()
-                    val fraction = if (upperBound > lowerBound) {
-                        ((animatedValue - lowerBound) / (upperBound - lowerBound)).coerceIn(0f, 1f)
-                    } else 0f
-                    val centerY = size.height / 2f
-                    val trackTop = centerY - trackPx / 2f
-                    val corner = androidx.compose.ui.geometry.CornerRadius(trackPx / 2f)
-                    drawRoundRect(
-                        color = inactive,
-                        topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
-                        size = androidx.compose.ui.geometry.Size(size.width, trackPx),
-                        cornerRadius = corner,
-                    )
-                    trackClipPath.reset()
-                    trackClipPath.addRoundRect(
-                        androidx.compose.ui.geometry.RoundRect(
-                            androidx.compose.ui.geometry.Rect(
-                                0f,
-                                trackTop,
-                                size.width,
-                                trackTop + trackPx,
-                            ),
-                            corner,
-                        ),
-                    )
-                    clipPath(trackClipPath) {
-                        drawRect(
-                            color = active,
-                            topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
-                            size = androidx.compose.ui.geometry.Size(size.width * fraction, trackPx),
-                        )
-                    }
-                    drawCircle(
-                        color = thumb,
-                        radius = thumbPx / 2f,
-                        center = androidx.compose.ui.geometry.Offset(size.width * fraction, centerY),
-                    )
+                if (interactionEditing.value) {
+                    interactionEditing.value = false
+                    onEditingChanged?.invoke(false)
                 }
             }
-        },
-    ) { measurables, constraints ->
-        val visualHeight = thumbDp.dp.roundToPx().coerceAtMost(constraints.maxHeight)
-        val slopPx = hitSlopDp.dp.roundToPx().coerceAtMost((constraints.maxHeight - visualHeight) / 2)
-        val hitHeight = visualHeight + slopPx * 2
-        val placeable = measurables.first().measure(
-            androidx.compose.ui.unit.Constraints.fixed(constraints.maxWidth, hitHeight),
-        )
-        layout(placeable.width, visualHeight) {
-            placeable.placeRelative(0, -slopPx)
         }
     }
+    val intervals = if (step > 0f) ((upperBound - lowerBound) / step).let {
+        kotlin.math.round(it).toInt().coerceAtLeast(1)
+    } else 0
+    val hasUniformSteps = step > 0f && intervals > 1 &&
+        kotlin.math.abs(lowerBound + intervals * step - upperBound) <=
+            kotlin.math.max(0.0001f, kotlin.math.abs(upperBound) * 0.00001f)
+    val nativeSteps = if (hasUniformSteps) intervals - 1 else 0
+    val safeValue = if (value.isFinite()) value.coerceIn(lowerBound, upperBound) else lowerBound
+    val sliderState = androidx.compose.runtime.remember(lowerBound, upperBound, nativeSteps) {
+        androidx.compose.material3.SliderState(
+            value = safeValue,
+            steps = nativeSteps,
+            trackRange = lowerBound..upperBound,
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(safeValue) {
+        sliderState.value = safeValue
+    }
+    val sliderColors = androidx.compose.material3.SliderDefaults.colors(
+        activeTrackColor = tint ?: androidx.compose.material3.MaterialTheme.colorScheme.primary,
+    )
+
+    androidx.compose.material3.Slider(
+        state = sliderState,
+        onValueChange = { next ->
+            val quantized = if (step > 0f) {
+                lowerBound + kotlin.math.round((next - lowerBound) / step) * step
+            } else next
+            val boundedValue = quantized.coerceIn(lowerBound, upperBound)
+            sliderState.value = boundedValue
+            onValueChange(boundedValue)
+        },
+        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+        enabled = rangeIsValid,
+        onValueChangeFinished = {
+            if (interactionEditing.value) {
+                interactionEditing.value = false
+                onEditingChanged?.invoke(false)
+            }
+        },
+        interactionSource = interactionSource,
+        colors = sliderColors,
+        track = { state ->
+            if (showStepIndicators) {
+                androidx.compose.material3.SliderDefaults.Track(
+                    sliderState = state,
+                    colors = sliderColors,
+                )
+            } else {
+                androidx.compose.material3.SliderDefaults.Track(
+                    sliderState = state,
+                    colors = sliderColors,
+                    drawTick = { _, _ -> },
+                )
+            }
+        },
+    )
 }
 
 // nexa-codegen: NexaProgressBarPrimitive
@@ -2579,7 +2408,14 @@ internal fun NexaProgressRingPrimitive(
 // nexa-codegen: NexaDividerPrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaDividerPrimitive(color: androidx.compose.ui.graphics.Color, thickness: androidx.compose.ui.unit.Dp) {
-    androidx.compose.material3.HorizontalDivider(color = color, thickness = thickness)
+    if (thickness > androidx.compose.ui.unit.Dp(0f)) {
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier
+                .fillMaxWidth()
+                .height(thickness)
+                .background(color)
+        )
+    }
 }
 
 // nexa-codegen: NexaSystemDividerPrimitive
@@ -2924,6 +2760,7 @@ internal fun NexaColumnPrimitive(
     }
     androidx.compose.runtime.CompositionLocalProvider(
         LocalNexaTextAlignment provides textAlignment,
+        LocalNexaLayoutOverflowAlignment provides androidx.compose.ui.Alignment.Top,
     ) {
         androidx.compose.foundation.layout.Column(modifier, verticalArrangement = arrangement, horizontalAlignment = horizontalAlignment, content = content)
     }
@@ -2964,6 +2801,7 @@ internal fun NexaRowPrimitive(
     }
     androidx.compose.runtime.CompositionLocalProvider(
         LocalNexaTextAlignment provides null,
+        LocalNexaLayoutOverflowAlignment provides verticalAlignment,
     ) {
         androidx.compose.foundation.layout.Row(rowModifier, horizontalArrangement = arrangement, verticalAlignment = verticalAlignment, content = content)
     }
@@ -2982,10 +2820,24 @@ internal fun NexaStackPrimitive(
         androidx.compose.ui.Alignment.BottomEnd -> androidx.compose.ui.text.style.TextAlign.End
         else -> null
     }
+    val verticalOverflowAlignment = when (contentAlignment) {
+        androidx.compose.ui.Alignment.TopStart,
+        androidx.compose.ui.Alignment.TopCenter,
+        androidx.compose.ui.Alignment.TopEnd -> androidx.compose.ui.Alignment.Top
+        androidx.compose.ui.Alignment.BottomStart,
+        androidx.compose.ui.Alignment.BottomCenter,
+        androidx.compose.ui.Alignment.BottomEnd -> androidx.compose.ui.Alignment.Bottom
+        else -> androidx.compose.ui.Alignment.CenterVertically
+    }
     androidx.compose.runtime.CompositionLocalProvider(
         LocalNexaTextAlignment provides textAlignment,
+        LocalNexaLayoutOverflowAlignment provides verticalOverflowAlignment,
     ) {
-        androidx.compose.foundation.layout.Box(modifier, contentAlignment = contentAlignment, content = content)
+        androidx.compose.foundation.layout.Box(
+            modifier = modifier,
+            contentAlignment = contentAlignment,
+            content = content,
+        )
     }
 }
 
@@ -4174,6 +4026,11 @@ fn shared_component_primitives_with_wave(
         source.replace(token, value)
     });
     source.push_str(include_str!("components/date_picker.kt"));
+    source.push_str(include_str!("components/text_input.kt"));
+    source.push_str(include_str!("components/text_input_edit.kt"));
+    source.push_str(include_str!("components/scroll_view.kt"));
+    source.push_str(include_str!("components/list_observation.kt"));
+    source.push_str(include_str!("components/marquee.kt"));
     let text_reveal = include_str!("components/text_reveal.kt")
         .replace(
             "__NEXA_DEFAULT_BODY_FONT_SIZE__",
@@ -4184,6 +4041,16 @@ fn shared_component_primitives_with_wave(
             &nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
         );
     source.push_str(&text_reveal);
+    let number_flow = include_str!("components/number_flow.kt")
+        .replace(
+            "__NEXA_DEFAULT_BODY_FONT_SIZE__",
+            &nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
+        )
+        .replace(
+            "__NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__",
+            &nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
+        );
+    source.push_str(&number_flow);
     source
 }
 
@@ -4228,7 +4095,6 @@ fn generate_with_analysis(
     include_all_shared_primitives: bool,
 ) -> GeneratedSources {
     components::controls::register_known_screens(&module.screens);
-    let focus_bindings = features.facts.focus_bindings.app.clone();
     let imports = engine::imports::render(engine::imports::ImportContext {
         features,
         include_all_shared_primitives,
@@ -4321,6 +4187,78 @@ public class NexaFastListRef {
         animated: Boolean = true,
     ): NexaResult<Unit, NexaComponentRefError<Unit>> =
         offsetAction?.let { it(offset.coerceAtLeast(0.0), animated); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+}
+
+public class NexaScrollViewRef {
+    private var generation = 0L
+    private var topAction: ((Boolean) -> Unit)? = null
+    private var endAction: ((Boolean) -> Unit)? = null
+    private var offsetAction: ((Double, Boolean) -> Unit)? = null
+
+    public fun attach(
+        scrollToTop: (Boolean) -> Unit,
+        scrollToEnd: (Boolean) -> Unit,
+        scrollToOffset: (Double, Boolean) -> Unit,
+    ): Long {
+        generation += 1
+        topAction = scrollToTop
+        endAction = scrollToEnd
+        offsetAction = scrollToOffset
+        return generation
+    }
+
+    public fun detach(expectedGeneration: Long) {
+        if (generation != expectedGeneration) return
+        topAction = null
+        endAction = null
+        offsetAction = null
+    }
+
+    public fun scrollToTop(animated: Boolean = true): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        topAction?.let { it(animated); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+
+    public fun scrollToEnd(animated: Boolean = true): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        endAction?.let { it(animated); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+
+    public fun scrollToOffset(
+        offset: Double,
+        animated: Boolean = true,
+    ): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        offsetAction?.let {
+            val logicalOffset = if (offset.isFinite()) offset.coerceAtLeast(0.0) else 0.0
+            it(logicalOffset, animated)
+            dev.nexa.core.NexaResult.Success(Unit)
+        }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+}
+
+public class NexaTextInputRef {
+    private var generation = 0L
+    private var focusAction: (() -> Unit)? = null
+    private var blurAction: (() -> Unit)? = null
+
+    public fun attach(focus: () -> Unit, blur: () -> Unit): Long {
+        generation += 1
+        focusAction = focus
+        blurAction = blur
+        return generation
+    }
+
+    public fun detach(expectedGeneration: Long) {
+        if (generation != expectedGeneration) return
+        focusAction = null
+        blurAction = null
+    }
+
+    public fun focus(): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        focusAction?.let { it(); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+
+    public fun blur(): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        blurAction?.let { it(); dev.nexa.core.NexaResult.Success(Unit) }
             ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
 }
 
@@ -4455,7 +4393,7 @@ public class NexaBottomSheetRef {
             out.push_str(NEXA_APP_BOTTOM_BAR_PRIMITIVE);
         }
         if features.facts.ui.style.dynamic_color {
-            out.push_str(NEXA_DYNAMIC_COLOR_HELPER);
+            out.push_str(&dynamic_color_helper());
         }
         for declaration in &module.enums {
             out.push_str(&format!(
@@ -4609,21 +4547,6 @@ public class NexaBottomSheetRef {
                 1,
                 out,
             );
-            if !focus_bindings.is_empty() {
-                for binding in &focus_bindings {
-                    out.push_str(&format!(
-                        "    val {} = remember {{ FocusRequester() }}\n",
-                        input::focus_requester_name(binding)
-                    ));
-                }
-                for binding in &focus_bindings {
-                    let state_name = nexa_codegen::names::state_name(binding);
-                    let requester_name = input::focus_requester_name(binding);
-                    out.push_str(&format!(
-                        "    LaunchedEffect({state_name}) {{\n        if ({state_name}) {requester_name}.requestFocus() else {requester_name}.freeFocus()\n    }}\n"
-                    ));
-                }
-            }
             if !module.states.is_empty() {
                 out.push('\n');
             }
@@ -4825,6 +4748,18 @@ mod tests {
         ViewTransition, WhenCase,
     };
 
+    #[test]
+    fn dynamic_color_fallback_matches_shared_light_and_dark_accents() {
+        let helper = super::dynamic_color_helper();
+
+        assert!(helper.contains("@androidx.compose.runtime.Composable"));
+        assert!(helper.contains("androidx.compose.foundation.isSystemInDarkTheme()"));
+        assert!(helper.contains("androidx.compose.ui.graphics.Color(0xFF007AFF)"));
+        assert!(helper.contains("androidx.compose.ui.graphics.Color(0xFF0A84FF)"));
+        assert!(!helper.contains("__NEXA_"));
+        assert!(!helper.contains("0xD63031"));
+    }
+
     fn braced_block(source: &str, start: usize) -> &str {
         let open = source[start..]
             .find('{')
@@ -4911,27 +4846,28 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_aware_scroll_does_not_refocus_a_field_during_a_drag() {
+    fn keyboard_aware_uses_nested_scroll_without_intercepting_text_field_taps() {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaKeyboardAwareColumnPrimitive("));
         assert!(primitives.contains("internal fun NexaKeyboardAwareOwnerPrimitive("));
         let keyboard_aware = primitives
             .split("private fun nexaKeyboardAwareModifier(")
             .nth(1)
-            .expect("shared keyboard-aware modifier is emitted");
-        let keyboard_snapshot = keyboard_aware
-            .find("val keyboardWasVisible = imeVisible.value")
-            .expect("capture keyboard visibility before waiting for the gesture");
-        let gesture_wait = keyboard_aware
-            .find("val down = awaitFirstDown(")
-            .expect("observe drag start after capturing keyboard visibility");
-        assert!(keyboard_snapshot < gesture_wait);
-        assert!(primitives.contains("if (!keyboardWasVisible && (movedX > touchSlop"));
-        assert!(primitives.contains(
-            "if (interactiveDismiss && imeVisible.value) modifier = modifier.imeNestedScroll()"
+            .expect("shared keyboard-aware modifier is emitted")
+            .split("// nexa-codegen:")
+            .next()
+            .expect("keyboard-aware modifier ends at the next native primitive");
+        assert!(keyboard_aware.contains(
+            "val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible"
         ));
-        assert!(primitives.contains("if (avoidIme) modifier = modifier.imePadding()"));
-        assert!(primitives.contains("focusManager.clearFocus()"));
+        assert!(!keyboard_aware.contains("awaitEachGesture"));
+        assert!(!keyboard_aware.contains("awaitFirstDown"));
+        assert!(!keyboard_aware.contains("pointerInput"));
+        assert!(!keyboard_aware.contains("focusManager.clearFocus"));
+        assert!(keyboard_aware.contains(
+            "if (interactiveDismiss && imeVisible) modifier = modifier.imeNestedScroll()"
+        ));
+        assert!(keyboard_aware.contains("if (avoidIme) modifier = modifier.imePadding()"));
     }
 
     #[test]
@@ -4968,6 +4904,8 @@ mod tests {
                     common: ListCommon {
                         axis: ListAxis::Horizontal,
                         show_dividers: true,
+                        hide_horizontal_scrollbar: false,
+                        hide_vertical_scrollbar: false,
                         reverse_layout: false,
                         page_snap: false,
                         item_extent: Some(80.0),
@@ -5100,6 +5038,8 @@ mod tests {
         };
         let common = SectionedListCommon {
             show_dividers: true,
+            hide_horizontal_scrollbar: false,
+            hide_vertical_scrollbar: false,
             item_extent: None,
             gap: 0.0,
             scroll_enabled: None,
@@ -5175,6 +5115,8 @@ mod tests {
                     common: ListCommon {
                         axis: ListAxis::Vertical,
                         show_dividers: true,
+                        hide_horizontal_scrollbar: false,
+                        hide_vertical_scrollbar: false,
                         reverse_layout: true,
                         page_snap: false,
                         item_extent: Some(48.0),
@@ -5214,12 +5156,8 @@ mod tests {
         assert!(kotlin.contains("val nexa_index: Int = itemPosition"));
         assert!(!kotlin.contains("nexaListCount0 - 1 - itemPosition"));
         assert!(kotlin.contains("fun leadingVisibleDataItemIndex(): Int"));
-        assert!(kotlin.contains(
-            "val visibleItems = layoutInfo.visibleItemsInfo.filter { it.offset + it.size > layoutInfo.viewportStartOffset && it.offset < layoutInfo.viewportEndOffset }"
-        ));
-        assert!(kotlin.contains(
-            "if (leadingIndex < 0 || item.index > leadingIndex) leadingIndex = item.index"
-        ));
+        assert!(kotlin.contains("visibleItems = layoutInfo.visibleItemsInfo,"));
+        assert!(kotlin.contains("(reverseLayout && index > leadingIndex)"));
         assert!(
             kotlin
                 .contains("snapshotFlow { leadingVisibleDataItemIndex() }.distinctUntilChanged()")
@@ -5268,11 +5206,13 @@ mod tests {
     }
 
     #[test]
-    fn divider_primitive_passes_thickness_through_to_compose() {
+    fn divider_primitive_zero_thickness_is_invisible_on_compose() {
         let primitives = shared_component_primitives();
 
         assert!(primitives.contains("internal fun NexaDividerPrimitive("));
-        assert!(primitives.contains("HorizontalDivider(color = color, thickness = thickness)"));
+        assert!(primitives.contains("if (thickness > androidx.compose.ui.unit.Dp(0f))"));
+        assert!(primitives.contains(".height(thickness)\n                .background(color)"));
+        assert!(!primitives.contains("HorizontalDivider(color = color, thickness = thickness)"));
     }
 
     #[test]
@@ -5451,6 +5391,8 @@ mod tests {
         let primitives = shared_component_primitives();
 
         assert!(primitives.contains("internal fun NexaButtonPrimitive("));
+        assert!(primitives.contains("maxLines = 1,"));
+        assert!(primitives.contains("softWrap = false,"));
         assert!(primitives.contains("accessibilityLabel: String? = null"));
         assert!(primitives.contains("modifier.semantics(mergeDescendants = true)"));
         assert!(primitives.contains("contentDescription = accessibilityLabel"));
@@ -5799,6 +5741,86 @@ mod tests {
     }
 
     #[test]
+    fn shared_text_input_clear_control_reuses_the_focused_field() {
+        let primitives = shared_component_primitives();
+        let input = primitives
+            .split("// nexa-codegen: NexaTextInputPrimitive")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen: NexaSwitchPrimitive").next())
+            .unwrap_or_default();
+
+        assert!(input.contains("clearable: Boolean = false"));
+        assert!(input.contains("NexaTextInputClearButtonSlot(visible = value.isNotEmpty())"));
+        assert!(input.contains("acceptEdit(\"\")"));
+        assert!(input.contains("Icons.Filled.Cancel"));
+        assert!(input.contains("modifier = inputFocusModifier.fillMaxWidth()"));
+        assert!(input.contains(
+            "modifier = androidx.compose.ui.Modifier.weight(1f).then(inputFocusModifier)"
+        ));
+    }
+
+    #[test]
+    fn text_reveal_records_one_paragraph_and_replays_it_under_independent_line_clips() {
+        let source = include_str!("components/text_reveal.kt");
+        let recording = source
+            .find("revealPicture.beginRecording(")
+            .expect("TextReveal should cache its paragraph drawing");
+        let lines = source
+            .find("while (lineIndexInTimings < lineTimings.size)")
+            .expect("TextReveal should visit cached line timings without iterator allocations");
+        let loop_end = source[lines..]
+            .find("lineIndexInTimings += 1")
+            .map(|offset| lines + offset)
+            .expect("line timing loop should advance its index");
+        let loop_body = &source[lines..loop_end];
+
+        assert!(source.contains("Modifier.drawWithCache"));
+        assert!(
+            recording < lines,
+            "recording belongs outside the animated line loop"
+        );
+        assert!(loop_body.contains("clipRect("));
+        assert!(loop_body.contains("drawPicture(revealPicture)"));
+        assert!(
+            !source.contains("revealPath") && !source.contains("clipPath("),
+            "independent line clips preserve the reference renderer's compositing"
+        );
+        assert!(!loop_body.contains("drawText("));
+        assert_eq!(
+            source.matches("drawPicture(revealPicture)").count(),
+            2,
+            "one fallback draw and one cached replay in the per-line clip loop are expected"
+        );
+    }
+
+    #[test]
+    fn text_reveal_drawing_imports_are_emitted_only_when_reveal_is_used() {
+        let mut plain_text = super::engine::features::Features::default();
+        plain_text.uses_text_node = true;
+        let mut imports = super::engine::imports::ImportSet::default();
+        super::components::text::imports(&plain_text, false, &mut imports);
+        let plain_imports = imports.render();
+        assert!(!plain_imports.contains("androidx.compose.ui.text.drawText"));
+        assert!(!plain_imports.contains("androidx.compose.ui.draw.drawWithCache"));
+
+        let mut text_reveal = super::engine::features::Features::default();
+        text_reveal.uses_text_node = true;
+        text_reveal.uses_text_reveal = true;
+        let mut imports = super::engine::imports::ImportSet::default();
+        super::components::text::imports(&text_reveal, false, &mut imports);
+        let reveal_imports = imports.render();
+        assert!(reveal_imports.contains("androidx.compose.ui.text.drawText"));
+        assert!(reveal_imports.contains("androidx.compose.ui.draw.drawWithCache"));
+
+        let mut imports = super::engine::imports::ImportSet::default();
+        super::components::text::imports(&plain_text, true, &mut imports);
+        let dev_runtime_imports = imports.render();
+        assert!(dev_runtime_imports.contains("androidx.compose.ui.text.drawText"));
+        assert!(dev_runtime_imports.contains("androidx.compose.ui.draw.drawWithCache"));
+        assert!(dev_runtime_imports.contains("androidx.compose.material3.Text"));
+    }
+
+    #[test]
     fn shared_search_input_uses_a_plain_icon_and_field_row() {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaTextInputPrimitive("));
@@ -5815,7 +5837,7 @@ mod tests {
         assert!(primitives.contains(
             "textColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface"
         ));
-        assert!(primitives.contains("placeholderColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant"));
+        assert!(primitives.contains("placeholderColor ?: androidx.compose.ui.graphics.Color(0xFF8E8E93)"));
     }
 
     #[test]
@@ -5963,9 +5985,10 @@ mod tests {
             .split("// nexa-codegen: NexaProgressBarPrimitive")
             .next()
             .unwrap_or_default();
-        assert!(slider.contains("awaitEachGesture"));
-        assert!(slider.contains("drawCircle("));
-        assert!(slider.contains("onEditingChanged?.invoke(false)"));
+        assert!(slider.contains("androidx.compose.material3.Slider("));
+        assert!(slider.contains("onValueChangeFinished = {"));
+        assert!(!slider.contains("awaitEachGesture"));
+        assert!(!slider.contains("drawCircle("));
         assert!(bottom_sheet.contains("NexaCustomBottomSheetPrimitive("));
         assert!(bottom_sheet.contains("ModalBottomSheet("));
         assert!(bottom_sheet.contains("nativeValues.size == detents.size"));
@@ -6088,7 +6111,42 @@ mod tests {
         assert!(primitives.contains(
             "androidx.compose.ui.Alignment.BottomEnd -> androidx.compose.ui.text.style.TextAlign.End"
         ));
+        let form_row = primitives
+            .split("internal fun NexaFormRowPrimitive(")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        assert!(form_row.contains(
+            "LocalNexaTextAlignment provides androidx.compose.ui.text.style.TextAlign.Start"
+        ));
         assert!(primitives.contains("LocalNexaTextAlignment provides null"));
+        assert!(primitives.contains("LocalNexaLayoutOverflowAlignment provides verticalAlignment"));
+        assert!(primitives.contains(
+            "LocalNexaLayoutOverflowAlignment provides androidx.compose.ui.Alignment.Top"
+        ));
+    }
+
+    #[test]
+    fn stack_resolves_fixed_child_overflow_from_its_own_alignment() {
+        let primitives = shared_component_primitives();
+        let stack = primitives
+            .split("// nexa-codegen: NexaStackPrimitive")
+            .nth(1)
+            .unwrap_or_default()
+            .split("// nexa-codegen: NexaFormRowPrimitive")
+            .next()
+            .unwrap_or_default();
+
+        assert!(stack.contains("androidx.compose.foundation.layout.Box("));
+        assert!(stack.contains("contentAlignment = contentAlignment"));
+        assert!(stack.contains("content = content"));
+        assert!(
+            stack.contains("LocalNexaLayoutOverflowAlignment provides verticalOverflowAlignment")
+        );
+        assert!(stack.contains("androidx.compose.ui.Alignment.TopCenter"));
+        assert!(stack.contains("androidx.compose.ui.Alignment.CenterVertically"));
+        assert!(stack.contains("androidx.compose.ui.Alignment.BottomCenter"));
+        assert!(!stack.contains("androidx.compose.ui.layout.Layout("));
     }
 
     #[test]
@@ -6384,6 +6442,8 @@ mod tests {
                         common: ListCommon {
                             axis: ListAxis::Vertical,
                             show_dividers: true,
+                            hide_horizontal_scrollbar: false,
+                            hide_vertical_scrollbar: false,
                             reverse_layout: false,
                             page_snap: true,
                             item_extent: None,
@@ -6613,6 +6673,8 @@ mod tests {
                         },
                         Node::Form {
                             show_dividers: true,
+                            hide_horizontal_scrollbar: false,
+                            hide_vertical_scrollbar: false,
                             background: None,
                             children: vec![Node::FormSection {
                                 title: Some(Expr::String("Settings".to_owned())),
@@ -6777,6 +6839,93 @@ mod tests {
             .nth(1)
             .expect("pushed destination exists");
         assert!(no_toolbar_destination.contains("nexaLeadingTitle = false"));
+    }
+
+    #[test]
+    fn root_navigation_toolbar_uses_inset_aware_chrome_without_back_button() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "RootToolbar".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: vec![Screen {
+                id: ScreenId(0),
+                name: "Home".to_owned(),
+                parameters: Vec::new(),
+                states: Vec::new(),
+                body: vec![Node::Layout {
+                    kind: LayoutKind::Column,
+                    gap: 0.0,
+                    style: Default::default(),
+                    children: vec![
+                        Node::Toolbar {
+                            placement: nexa_ir::ToolbarPlacement::Trailing,
+                            children: vec![Node::Button {
+                                label: Expr::String("Save".to_owned()),
+                                icon: None,
+                                loading: None,
+                                disabled: None,
+                                style: None,
+                                size: None,
+                                shape: None,
+                                tint: None,
+                                glass: false,
+                                accessibility_label: None,
+                                actions: Vec::new(),
+                            }],
+                        },
+                        Node::Text {
+                            value: Expr::String("Home content".to_owned()),
+                            style: TextStyle::default(),
+                        },
+                    ],
+                }],
+                status_bar: None,
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            components: Vec::new(),
+            body: vec![Node::NavigationStack {
+                root: ScreenId(0),
+                arguments: Vec::new(),
+                show_navigation_bar: true,
+                title_mode: nexa_ir::NavigationTitleMode::Inline,
+                title_alignment: nexa_ir::NavigationTitleAlignment::Automatic,
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        let root = kotlin
+            .split("fun nexaScreen0(")
+            .nth(1)
+            .expect("root screen composable exists")
+            .split("fun NexaNavigationScreenPrimitive(")
+            .next()
+            .expect("root screen body exists");
+
+        assert!(root.contains("if (nexaIsRoot) {"), "{root}");
+        assert!(root.contains("NexaNavigationScreenPrimitive("));
+        assert!(root.contains("showBackButton = !nexaIsRoot"));
+        assert!(root.contains("actions = {"));
+        assert!(root.contains("nexaScreenContent()"));
+        assert!(!root.contains(
+            "Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End"
+        ));
     }
 
     #[test]
@@ -7091,7 +7240,15 @@ mod tests {
         assert!(kotlin.contains("import androidx.compose.foundation.combinedClickable"));
         assert!(kotlin.contains("androidx.compose.foundation.ExperimentalFoundationApi::class"));
         assert!(kotlin.contains("combinedClickable("));
-        assert!(kotlin.contains(".fillMaxSize().combinedClickable("));
+        let target_modifiers = kotlin
+            .split_once("modifier = Modifier.fillMaxSize()")
+            .expect("explicit full-size pressable fills its own layout bounds")
+            .1
+            .split_once(".combinedClickable(")
+            .expect("click handling belongs to the sized target")
+            .0;
+        assert!(target_modifiers.contains(".defaultMinSize(minHeight = 48.dp)"));
+        assert!(target_modifiers.contains(".alpha("));
         assert!(kotlin.contains("contentAlignment = Alignment.Center,"));
         let pressable_arguments = kotlin
             .split(".combinedClickable(")

@@ -168,7 +168,12 @@ fn android_dev_scroll_tracking_does_not_allocate_filtered_visible_rows() {
     let helper = &runtime[helper_start..helper_end];
 
     assert!(!helper.contains("visibleItems.filter"));
-    assert!(helper.contains("for (item in visibleItems)"));
+    assert!(helper.contains("return nexaLeadingVisibleDataItemIndex("));
+    let shared_helper =
+        include_str!("../../nexa-backend-kotlin/src/generator/components/list_observation.kt");
+    assert!(!shared_helper.contains(".filter"));
+    assert!(!shared_helper.contains("Int?"));
+    assert!(shared_helper.contains("while (position < visibleItems.size)"));
     assert!(runtime.contains("private data class NexaDevScrollSnapshot("));
     assert_eq!(runtime.matches("NexaDevScrollSnapshot(").count(), 4);
     assert!(!runtime.contains("isScrollInProgress to Triple("));
@@ -281,7 +286,8 @@ fn ios_dev_single_root_preserves_native_text_alignment() {
     let runtime = include_str!("../../../runtime/ios/NexaDevRuntime.swift");
     let renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
 
-    assert!(runtime.contains("NexaDevNodeList(\n                    nodes: module[\"body\"]"));
+    assert!(runtime.contains("let rootNodes = runtime.module?[\"body\"] as? [Any] ?? []"));
+    assert!(runtime.contains("NexaDevNodeList(\n                    nodes: rootNodes,"));
     assert!(
         !runtime.contains("NexaColumnPrimitive(alignment: .center, textAlignment: .center"),
         "the DevRuntime host must not force centered text alignment on native root components"
@@ -1826,7 +1832,7 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
 }
 
 #[test]
-fn development_runtime_restores_text_input_focus_after_compatible_module_replacement() {
+fn development_runtime_uses_mount_focus_and_text_input_component_refs() {
     let root = temporary_project();
     let entry = root.join("App.nx");
     fs::write(&entry, include_str!("fixtures/dev_focus.nx")).expect("write focus smoke app");
@@ -1843,25 +1849,24 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
     .expect("generate text input dev hosts");
 
     let swift = read_ios_dev_runtime(&output);
-    assert!(swift.contains("let focusBindingName = fields[\"focused\"] as? String"));
-    assert!(swift.contains("if focusBindingName != nil"));
-    assert!(swift.contains("input.focused(focusedField, equals: identity)"));
-    assert!(swift.contains("return values[identity] as? Bool == true"));
+    assert!(swift.contains("let initialFocus = store.evaluate(fields[\"focused\"], locals: locals, scope: scope) as? Bool ?? false"));
+    assert!(swift.contains("componentRef: componentRef"));
+    assert!(!swift.contains("focusBinding"));
     assert!(swift.contains("store.hotRestart(module: module)"));
     assert!(swift.contains("func hotRestart(module: [String: Any])"));
-    assert!(swift.contains("case \"Title3\": input = AnyView(input.font(.title3))"));
-    assert!(swift.contains("fields[\"min_lines\"] as? Int"));
-    assert!(swift.contains("input.lineLimit(minimum...maximum)"));
+    assert!(swift.contains("minLines: fields[\"min_lines\"] as? Int"));
+    assert!(swift.contains("maxLines: fields[\"max_lines\"] as? Int"));
 
     let kotlin = read_android_dev_runtime(&output);
-    assert!(kotlin.contains("FocusRequester()"));
-    assert!(kotlin.contains("fields.optString(\"focused\").takeIf(String::isNotEmpty)"));
-    assert!(kotlin.contains("store.setState(focusedState, focusState.isFocused, scope)"));
-    assert!(
-        kotlin
-            .contains("if (focused) focusRequester.requestFocus() else focusRequester.freeFocus()")
-    );
-    assert!(!kotlin.contains("store.focusedFieldKey == focusKey"));
+    assert!(kotlin.contains("val initialFocus = store.evaluatePresented(fields.opt(\"focused\"), locals, scope) as? Boolean ?: false"));
+    assert!(kotlin.contains("componentRef = componentRef"));
+    assert!(!kotlin.contains("focusedState"));
+    assert!(!kotlin.contains("nativeFocus?.value"));
+    let kotlin_primitives = fs::read_to_string(output.join(
+        "android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt",
+    )).expect("read shared input primitives");
+    assert!(kotlin_primitives.contains("remember { initialFocus }"));
+    assert!(kotlin_primitives.contains("if (inputHasFocus.value) focusManager.clearFocus(force = true)"));
     assert!(kotlin.contains("store.hotRestart()"));
     assert!(kotlin.contains("fun hotRestart()"));
     assert!(kotlin.contains("val minLines = fields.optInt(\"min_lines\", 1)"));
