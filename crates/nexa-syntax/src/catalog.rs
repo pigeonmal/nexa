@@ -155,7 +155,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "TextInput",
         summary: "Text input control bound to mutable state",
         snippet: "TextInput(value: ${1:binding}, placeholder: \"${2:Enter text}\")",
-        probe: "app P { state name: String = \"\"\n state focusEntries: Int32 = 0\n let inputRef = ComponentRef<TextInput>()\n body { TextInput(value: name, placeholder: \"Name\", searchable: true, fontSize: 16, fontFamily: \"Inter-Regular\", textColor: \"#FFFFFF\", placeholderColor: \"#888888\", clearable: true, focused: true, ref: inputRef).onFocus { focusEntries = focusEntries + 1 }\n Button(\"Focus name\") { inputRef.focus() } } }",
+        probe: "app P { state name: String = \"\"\n state focusEntries: Int32 = 0\n let inputRef = ComponentRef<TextInput>()\n body { TextInput(value: name, placeholder: \"Name\", searchable: true, fontSize: 16, fontFamily: \"Inter\", textColor: \"#FFFFFF\", placeholderColor: \"#888888\", clearable: true, focused: true, ref: inputRef).onFocus { focusEntries = focusEntries + 1 }\n Button(\"Focus name\") { inputRef.focus() } } }",
     },
     ComponentEntry {
         name: "Switch",
@@ -1164,9 +1164,9 @@ pub const TEXT_INPUT_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
     },
     ComponentParameterDoc {
         name: "fontFamily",
-        type_name: "registered font-face `String` or font-family theme token",
+        type_name: "font-family `String` or font-family theme token",
         default: "`Theme.Default` when declared, otherwise platform default",
-        behavior: "Uses the registered native font face from `assets/fonts/`",
+        behavior: "Selects an automatically discovered font family from `assets/fonts/` and resolves its closest packaged face for `fontWeight`",
     },
     ComponentParameterDoc {
         name: "textColor",

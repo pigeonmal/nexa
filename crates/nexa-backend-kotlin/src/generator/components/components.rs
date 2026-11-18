@@ -181,7 +181,9 @@ pub(crate) fn render_node(
             render_children(children, module, features, depth + 1, out);
             out.line_at(depth, format_args!("}}"));
         }
-        Node::Text { value, style, .. } => text::render(value, style, depth, out),
+        Node::Text { value, style, .. } => {
+            text::render_with_catalog(value, style, &features.font_catalog, depth, out)
+        }
         Node::ContentUnavailable {
             title,
             icon,
@@ -214,7 +216,7 @@ pub(crate) fn render_node(
                     "NexaContentUnavailablePrimitive(title = {}, description = {}, icon = {}, iconDescription = {}, titleColor = {}, descriptionColor = {}, iconTint = {}, background = {})",
                     crate::generator::engine::expressions::text_expression(title),
                     description.as_ref().map(crate::generator::engine::expressions::text_expression).unwrap_or_else(|| "null".to_owned()),
-                    system_icons::spec(icon),
+                    system_icons::spec_with_catalog(icon, &features.font_catalog),
                     crate::generator::utils::kotlin_string(&icon_description),
                     title_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
                     description_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
@@ -415,10 +417,11 @@ pub(crate) fn render_node(
             actions,
             ..
         } => {
-            controls::render_button(
+            controls::render_button_with_catalog(
                 label,
                 accessibility_label.as_deref(),
                 icon.as_ref(),
+                &features.font_catalog,
                 loading.as_ref(),
                 disabled.as_ref(),
                 *style,
@@ -432,7 +435,7 @@ pub(crate) fn render_node(
                 out,
             );
         }
-        Node::TextInput { .. } => render_text_input_node(node, false, depth, out),
+        Node::TextInput { .. } => render_text_input_node(node, false, features, depth, out),
         Node::Switch {
             state,
             label,
@@ -518,7 +521,7 @@ pub(crate) fn render_node(
             label,
             tint,
             ..
-        } => controls::render_picker(
+        } => controls::render_picker_with_catalog(
             items,
             item_icons,
             state,
@@ -526,6 +529,7 @@ pub(crate) fn render_node(
             label.as_ref(),
             tint.as_ref(),
             true,
+            &features.font_catalog,
             depth,
             out,
         ),
@@ -556,14 +560,31 @@ pub(crate) fn render_node(
             description,
             size,
             tint,
-        } => system_icons::render(icon, description, *size, tint, depth, out),
+        } => system_icons::render_with_catalog(
+            icon,
+            description,
+            *size,
+            tint,
+            &features.font_catalog,
+            depth,
+            out,
+        ),
         Node::FontIcon {
             font_family,
             glyph,
             description,
             size,
             tint,
-        } => system_icons::render_font(font_family, glyph, description, size, tint, depth, out),
+        } => system_icons::render_font_with_catalog(
+            font_family,
+            glyph,
+            description,
+            size,
+            tint,
+            &features.font_catalog,
+            depth,
+            out,
+        ),
         Node::LinearGradient {
             start_color,
             end_color,
@@ -915,7 +936,7 @@ pub(crate) fn render_node_in_row(
     out: &mut SourceWriter,
 ) {
     match node {
-        Node::TextInput { .. } => render_text_input_node(node, true, depth, out),
+        Node::TextInput { .. } => render_text_input_node(node, true, features, depth, out),
         Node::Layout {
             kind,
             gap,
@@ -956,10 +977,11 @@ pub(crate) fn render_node_in_form_row(
             tint,
             actions,
             ..
-        } => controls::render_button(
+        } => controls::render_button_with_catalog(
             label,
             accessibility_label.as_deref(),
             icon.as_ref(),
+            &features.font_catalog,
             loading.as_ref(),
             disabled.as_ref(),
             *style,
@@ -976,7 +998,13 @@ pub(crate) fn render_node_in_form_row(
     }
 }
 
-fn render_text_input_node(node: &Node, weight_in_row: bool, depth: usize, out: &mut SourceWriter) {
+fn render_text_input_node(
+    node: &Node,
+    weight_in_row: bool,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     let Node::TextInput {
         state,
         placeholder,
@@ -1008,6 +1036,16 @@ fn render_text_input_node(node: &Node, weight_in_row: bool, depth: usize, out: &
         return;
     };
 
+    let resolved_font_family = font_family.as_deref().map(|family| {
+        features
+            .font_catalog
+            .resolve(family, nexa_ir::FontWeight::Normal)
+            .map(|face| face.android_resource_name.clone())
+            .unwrap_or_else(|| {
+                nexa_codegen::names::font_face_name(family, nexa_ir::FontWeight::Normal)
+            })
+    });
+
     input::render_text_input(
         input::TextInputProps {
             state,
@@ -1025,7 +1063,7 @@ fn render_text_input_node(node: &Node, weight_in_row: bool, depth: usize, out: &
             max_length: *max_length,
             font: *font,
             font_size: *font_size,
-            font_family: font_family.as_deref(),
+            font_family: resolved_font_family.as_deref(),
             text_color: *text_color,
             placeholder_color: *placeholder_color,
             min_lines: *min_lines,

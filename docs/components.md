@@ -509,7 +509,7 @@ Refs attach only to mounted editors, so temporary layout measurements cannot tak
 | `maxLength` | positive integer literal | Unlimited | Bounds user-perceived Unicode characters accepted from native editing |
 | `font` | `Body` or `Title3` | Platform default | Selects a shared native text style |
 | `fontSize` | non-negative number or `FontSize` theme token | Platform default | Sets entered-text and placeholder size in points on iOS and `sp` on Android |
-| `fontFamily` | registered font-face `String` or font-family theme token | `Theme.Default` when declared, otherwise platform default | Uses the registered native font face from `assets/fonts/` |
+| `fontFamily` | font-family `String` or font-family theme token | `Theme.Default` when declared, otherwise platform default | Selects an automatically discovered font family from `assets/fonts/` and resolves its closest packaged face for `fontWeight` |
 | `textColor` | hex color `String` or color theme token | Platform default | Sets the entered-text color |
 | `placeholderColor` | hex color `String` or color theme token | `#8E8E93` | Sets the placeholder color independently of entered text |
 | `clearable` | `Bool` | `false` | Shows an inline clear control on both platforms; clearing updates value and fires onChange |
@@ -1399,7 +1399,7 @@ Image(
 | `fontSize` | Dimension | Platform body size | Uses points on iOS and `sp` on Android. Overrides the semantic style's size. |
 | `fontStyle` | `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`, `Footnote`, `Caption`, `Caption2` | None | Applies the matching semantic size and default weight; the style scales with accessibility text settings. |
 | `fontDesign` | `Default`, `Serif`, `Rounded`, `Monospaced` | Platform default design | Selects the system font design. Ignored when `fontFamily` is supplied. |
-| `fontFamily` | Static registered font face `String` or `Theme` font-family token | `Theme.Default` when declared, otherwise platform default | Selects a registered PostScript font face from `assets/fonts/`. The name must contain letters, numbers, spaces, `_`, or `-`, and begin with a letter. |
+| `fontFamily` | Font-family `String` or `Theme` font-family token | `Theme.Default` when declared, otherwise platform default | Selects a discovered or configured family from `assets/fonts/`. Nexa matches the requested `fontWeight` to the closest packaged face on both platforms. |
 | `fontWeight` | `Normal`, `Medium`, `Semibold`, `Bold` | Semantic style weight, otherwise `Normal` | Explicit weight overrides the weight associated with `fontStyle`. |
 | `padding` | Dimension | None | Adds equal padding around the text. |
 | `opacity` | `Float` from `0` to `1` | `1` | Applies alpha to the rendered text. |
@@ -1421,7 +1421,24 @@ Image(
 | `accessibilityValue` | `String` | None | Supplies an accessibility value. |
 | `accessibilityRole` | Accessibility role | Text role | Overrides the accessibility role. |
 
-Declare an app-wide default face once with `theme { fontFamily Default: "Gilroy-Regular" }`; an explicit `Text(fontFamily:)` overrides it. Place `.ttf` or `.otf` files directly in `assets/fonts/`. Name weighted faces `<family>_regular`, `<family>_medium`, or `<family>_semibold`; Nexa registers their PostScript names (for example `Gilroy-Regular`) on iOS and the matching static resource IDs on Android. A single-face font uses its PostScript name, such as `Mazicon`. For a face ending in `-Regular` or `_regular`, Nexa selects the matching Medium or Semibold face from `fontWeight`; Bold uses Semibold when the family has no separate bold file.
+Put `.ttf` or `.otf` files directly in `assets/fonts/`. Nexa reads each file's family, style weight, PostScript name, and Android resource name during project generation, so ordinary text refers to the family: `fontFamily: "Inter", fontWeight: Semibold`. Add faces with any filenames; their font metadata drives the family and weight selection. Each requested weight uses the exact packaged face when available and a deterministic closest-weight fallback otherwise. Both AOT backends emit the selected iOS PostScript name or Android `R.font` resource at build time.
+
+Use `assets.fonts` in `nexa.config.nx` when a font family needs a source-level alias or explicit weight mapping. Paths are relative to the project root and must point to files directly inside `assets/fonts/`.
+
+```nexa
+config {
+    assets {
+        fonts {
+            "Brand Display" {
+                normal: "assets/fonts/brand-regular.otf",
+                semibold: "assets/fonts/brand-demi.otf"
+            }
+        }
+    }
+}
+```
+
+Then use the alias in text or a theme token: `Text("Weekly report", fontFamily: "Brand Display", fontWeight: Semibold)`. The optional config mapping is useful when the embedded metadata does not use the family name you want in `.nx` or when a face should be explicitly assigned to a shared weight.
 
 All numeric dimensions use the app's shared logical units: points on iOS and `dp`/`sp` on Android as appropriate. `fontDesign` (`Default`, `Serif`, `Rounded`, or `Monospaced`) selects the system font family while keeping the design choice aligned across targets.
 
@@ -1498,7 +1515,7 @@ app AudioTranscript {
 | `fontSize` | Dimension | Platform body size | Uses points on iOS and `sp` on Android. |
 | `fontStyle` | Semantic text style | None | Uses the same semantic style names and default weights as `Text`. |
 | `fontDesign` | `Default`, `Serif`, `Rounded`, `Monospaced` | Platform default | Selects the system font design when no registered `fontFamily` is supplied. |
-| `fontFamily` | Registered font face or theme font-family token | Theme default or platform default | Selects a font registered from `assets/fonts/`. |
+| `fontFamily` | Font-family or theme font-family token | Theme default or platform default | Uses the closest packaged face from the discovered or configured font family. |
 | `fontWeight` | `Normal`, `Medium`, `Semibold`, `Bold` | Semantic style weight, otherwise `Normal` | Selects the requested native font weight. |
 | `padding` | Dimension | None | Adds equal padding around the measured text. |
 | `opacity` | `Float` from `0` to `1` | `1` | Applies alpha to both base text and reveal overlay. |

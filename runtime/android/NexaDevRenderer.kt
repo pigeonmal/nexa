@@ -206,75 +206,14 @@ private fun nexaDevDimension(raw: Any?): NexaDevDimension? = when (raw) {
     else -> null
 }
 
-private object NexaDevFontRegistry {
-    private val families = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.text.font.FontFamily>()
-
-    fun resolve(
-        context: Context,
-        familyName: String,
-        weight: FontWeight,
-    ): androidx.compose.ui.text.font.FontFamily {
-        val faceName = nexaDevFontFaceName(familyName, weight)
-        val resourceName = buildString {
-            var separator = false
-            for (character in faceName) {
-                if (character in 'a'..'z' || character in 'A'..'Z' || character in '0'..'9') {
-                    if (separator && isNotEmpty()) append('_')
-                    append(character.lowercaseChar())
-                    separator = false
-                } else {
-                    separator = true
-                }
-            }
-        }
-        val cacheKey = "$resourceName:${weight.weight}"
-        return families.getOrPut(cacheKey) {
-            val resourceId = context.resources.getIdentifier(resourceName, "font", context.packageName)
-            val resourceFace = if (resourceId != 0) {
-                androidx.compose.ui.text.font.Font(resourceId, weight = weight)
-            } else {
-                null
-            }
-            val assetPath = listOf("ttf", "otf")
-                .asSequence()
-                .map { extension -> "nexa/fonts/$resourceName.$extension" }
-                .firstOrNull { path ->
-                    try {
-                        context.assets.open(path).use { true }
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-            val face = resourceFace ?: assetPath?.let { path ->
-                androidx.compose.ui.text.font.Font(path = path, assetManager = context.assets, weight = weight)
-            }
-            if (face == null) {
-                androidx.compose.ui.text.font.FontFamily.Default
-            } else {
-                androidx.compose.ui.text.font.FontFamily(face)
-            }
-        }
-    }
-}
-
-private fun nexaDevFontFaceName(familyName: String, weight: FontWeight): String {
-    val separatorIndex = familyName.lastIndexOfAny(charArrayOf('-', '_'))
-    if (separatorIndex <= 0 || !familyName.substring(separatorIndex + 1).equals("regular", ignoreCase = true)) {
-        return familyName
-    }
-    val face = when (weight) {
-        FontWeight.Normal -> "Regular"
-        FontWeight.Medium -> "Medium"
-        FontWeight.SemiBold, FontWeight.Bold -> "Semibold"
-        else -> "Regular"
-    }
-    return familyName.substring(0, separatorIndex + 1) + face
-}
-
 @Composable
 private fun nexaDevFontFamily(name: String, weight: FontWeight): androidx.compose.ui.text.font.FontFamily {
-    val context = LocalContext.current.applicationContext
-    return remember(context, name, weight) { NexaDevFontRegistry.resolve(context, name, weight) }
+    return remember(name.lowercase(), weight) {
+        when (name.lowercase() to weight) {
+__NEXA_ANDROID_FONT_FAMILY_CASES__
+            else -> androidx.compose.ui.text.font.FontFamily.Default
+        }
+    }
 }
 
 private const val nexaDevDefaultBodyFontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__

@@ -846,7 +846,7 @@ fn project_icon_registry(
     };
     let config_root = config_path.parent().unwrap_or_else(|| Path::new("."));
     let mut families = HashSet::with_capacity(assets.icon_fonts.len());
-    let mut native_font_names = HashSet::with_capacity(assets.icon_fonts.len());
+    let mut native_font_names = HashMap::with_capacity(assets.icon_fonts.len());
     for font in &assets.icon_fonts {
         let path = Path::new(&font.path);
         let valid_relative_path = !path.is_absolute()
@@ -890,18 +890,8 @@ fn project_icon_registry(
             .file_stem()
             .and_then(|value| value.to_str())
             .unwrap_or_default();
-        let resource_name = font_resource_key(&font.family);
-        if resource_name != font_resource_key(stem) {
-            return Err(CompileError::new(
-                font.span,
-                format!(
-                    "icon font family `{}` must match its font filename `{stem}` so Android can resolve it statically",
-                    font.family
-                ),
-            )
-            .with_file(config_path.display().to_string()));
-        }
-        if !families.insert(font.family.as_str()) {
+        let resource_name = font_resource_key(stem);
+        if !families.insert(font.family.to_ascii_lowercase()) {
             return Err(CompileError::new(
                 font.span,
                 format!(
@@ -911,11 +901,14 @@ fn project_icon_registry(
             )
             .with_file(config_path.display().to_string()));
         }
-        if !native_font_names.insert(resource_name) {
+        if native_font_names
+            .insert(resource_name, path.to_path_buf())
+            .is_some_and(|existing| existing.as_path() != path)
+        {
             return Err(CompileError::new(
                 font.span,
                 format!(
-                    "icon font family `{}` conflicts with another native font resource",
+                    "icon font `{}` conflicts with another native font resource",
                     font.family
                 ),
             )
@@ -935,7 +928,7 @@ fn project_icon_registry(
             )
             .with_file(config_path.display().to_string()));
         }
-        if !families.contains(icon.family.as_str()) {
+        if !families.contains(&icon.family.to_ascii_lowercase()) {
             return Err(CompileError::new(
                 icon.span,
                 format!(
@@ -983,8 +976,38 @@ fn font_resource_key(name: &str) -> String {
     }
     if key.is_empty() {
         key.push_str("font");
+    } else if key.as_bytes()[0].is_ascii_digit() {
+        key.insert_str(0, "font_");
     }
     key
+}
+
+#[cfg(test)]
+mod icon_registry_tests {
+    use super::compile_file;
+    use nexa_testkit::TestProject;
+
+    #[test]
+    fn configured_icon_font_family_can_alias_a_differently_named_file() {
+        let project = TestProject::new("nexa-icon-font-family-alias");
+        let entry = project.write_app(
+            r##"app BrandIcons { body { Icon(system: "brand_marker", description: "Brand marker", size: 24, tint: "#000000") } }"##,
+        );
+        let font_directory = project.join("assets/fonts");
+        std::fs::create_dir_all(&font_directory).expect("create font directory");
+        std::fs::write(font_directory.join("custom-icons.ttf"), b"font fixture")
+            .expect("write font fixture");
+        project.write_config(
+            r#"config {
+                assets {
+                    iconFonts { "Brand Icons": "assets/fonts/custom-icons.ttf" },
+                    icons { brand_marker: ["Brand Icons", 57345] }
+                }
+            }"#,
+        );
+
+        compile_file(&entry).expect("configured icon font alias compiles");
+    }
 }
 
 #[cfg(test)]

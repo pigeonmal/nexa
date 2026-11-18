@@ -244,10 +244,35 @@ pub struct Config {
 pub struct AssetsConfig {
     pub icon: Option<String>,
     pub splash: Option<String>,
+    /// Optional logical-family aliases and explicit font face paths.
+    pub fonts: Vec<FontFamilyConfig>,
     /// Font families available to named `assets.icons` glyph definitions.
     pub icon_fonts: Vec<IconFontConfig>,
     /// Named glyphs resolved by every built-in component `icon:` parameter.
     pub icons: Vec<IconGlyphConfig>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FontFaceWeight {
+    Normal,
+    Medium,
+    Semibold,
+    Bold,
+}
+
+#[derive(Clone, Debug)]
+pub struct FontFamilyConfig {
+    /// Family key accepted by `fontFamily` in `.nx` source.
+    pub family: String,
+    pub faces: Vec<FontFaceConfig>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct FontFaceConfig {
+    pub weight: FontFaceWeight,
+    pub path: String,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]

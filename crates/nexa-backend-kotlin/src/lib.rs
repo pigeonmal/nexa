@@ -99,12 +99,33 @@ impl KotlinBackend {
         generator::generate_units_with_project_features(module)
     }
 
+    /// Generate release units using the project's build-time font catalog.
+    pub fn generate_units_with_font_catalog_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> (nexa_codegen::GeneratedSources, KotlinProjectFeatures) {
+        generator::generate_units_with_font_catalog_and_project_features(module, font_catalog)
+    }
+
     /// Generate release units with Nexa's network runtime for native plugins.
     pub fn generate_units_with_network_and_project_features(
         &self,
         module: &nexa_ir::Module,
     ) -> (nexa_codegen::GeneratedSources, KotlinProjectFeatures) {
         generator::generate_units_with_network_and_project_features(module)
+    }
+
+    /// Generate release units with plugin networking and project fonts.
+    pub fn generate_units_with_network_and_font_catalog_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> (nexa_codegen::GeneratedSources, KotlinProjectFeatures) {
+        generator::generate_units_with_network_and_font_catalog_and_project_features(
+            module,
+            font_catalog,
+        )
     }
 
     /// Generate the development host as one concatenated source string.
@@ -122,6 +143,18 @@ impl KotlinBackend {
         module: &nexa_ir::Module,
     ) -> (nexa_codegen::GeneratedSources, KotlinProjectFeatures) {
         generator::generate_for_dev_units_with_project_features(module)
+    }
+
+    /// Generate development units using the project's build-time font catalog.
+    pub fn generate_for_dev_units_with_font_catalog_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> (nexa_codegen::GeneratedSources, KotlinProjectFeatures) {
+        generator::generate_for_dev_units_with_font_catalog_and_project_features(
+            module,
+            font_catalog,
+        )
     }
 }
 

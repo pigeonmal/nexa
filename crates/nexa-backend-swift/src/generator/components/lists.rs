@@ -81,7 +81,7 @@ fn render_swipe_action_content(
 ) {
     for node in nodes {
         if matches!(node, Node::Button { .. }) {
-            super::controls::render_swipe_action_button(node, depth, out);
+            super::controls::render_swipe_action_button(node, &features.font_catalog, depth, out);
         } else {
             render_children(std::slice::from_ref(node), module, features, depth, out);
         }

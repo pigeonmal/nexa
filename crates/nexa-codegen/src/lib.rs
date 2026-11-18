@@ -1,4 +1,121 @@
-use nexa_ir::Module;
+use std::collections::BTreeMap;
+
+use nexa_ir::{FontWeight, Module};
+
+/// A resolved custom font face shared by both native backends.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FontFace {
+    /// The family name used by `.nx` source.
+    pub family: String,
+    /// The closest packaged face selected for the requested weight.
+    pub weight: FontWeight,
+    /// The registered PostScript name used by SwiftUI.
+    pub postscript_name: String,
+    /// The static Android `R.font` resource name.
+    pub android_resource_name: String,
+}
+
+/// Build-time mapping from a source font family and weight to native faces.
+///
+/// The catalog is resolved while generating native code. Apps receive static
+/// PostScript names and Android resource IDs rather than performing runtime
+/// font discovery.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FontCatalog {
+    faces: BTreeMap<(String, u8), FontFace>,
+}
+
+impl FontCatalog {
+    /// Adds or replaces one family face. Family lookup is case-insensitive.
+    pub fn insert(&mut self, face: FontFace) -> Option<FontFace> {
+        let key = (
+            face.family.to_ascii_lowercase(),
+            font_weight_key(face.weight),
+        );
+        self.faces.insert(key, face)
+    }
+
+    /// Returns an exact face when available, otherwise the nearest packaged
+    /// weight using the shared deterministic fallback order.
+    pub fn resolve(&self, family: &str, weight: FontWeight) -> Option<&FontFace> {
+        let requested = family.to_ascii_lowercase();
+        let family = if self.faces.keys().any(|(name, _)| name == &requested) {
+            requested
+        } else {
+            self.faces
+                .values()
+                .find(|face| face.postscript_name.eq_ignore_ascii_case(family))?
+                .family
+                .to_ascii_lowercase()
+        };
+        fallback_order(weight).iter().find_map(|candidate| {
+            self.faces
+                .get(&(family.clone(), font_weight_key(*candidate)))
+        })
+    }
+
+    /// Returns the exact family face without applying fallback.
+    pub fn resolve_exact(&self, family: &str, weight: FontWeight) -> Option<&FontFace> {
+        self.faces
+            .get(&(family.to_ascii_lowercase(), font_weight_key(weight)))
+    }
+
+    /// Iterates faces in stable family and weight order.
+    pub fn faces(&self) -> impl Iterator<Item = &FontFace> {
+        self.faces.values()
+    }
+
+    /// Iterates the distinct source-level family names in stable order.
+    pub fn families(&self) -> impl Iterator<Item = &str> {
+        let mut seen = std::collections::BTreeSet::new();
+        self.faces.values().filter_map(move |face| {
+            seen.insert(face.family.to_ascii_lowercase())
+                .then_some(face.family.as_str())
+        })
+    }
+}
+
+fn font_weight_key(weight: FontWeight) -> u8 {
+    match weight {
+        FontWeight::Normal => 0,
+        FontWeight::Medium => 1,
+        FontWeight::Semibold => 2,
+        FontWeight::Bold => 3,
+    }
+}
+
+fn fallback_order(weight: FontWeight) -> &'static [FontWeight] {
+    const NORMAL: &[FontWeight] = &[
+        FontWeight::Normal,
+        FontWeight::Medium,
+        FontWeight::Semibold,
+        FontWeight::Bold,
+    ];
+    const MEDIUM: &[FontWeight] = &[
+        FontWeight::Medium,
+        FontWeight::Normal,
+        FontWeight::Semibold,
+        FontWeight::Bold,
+    ];
+    const SEMIBOLD: &[FontWeight] = &[
+        FontWeight::Semibold,
+        FontWeight::Bold,
+        FontWeight::Medium,
+        FontWeight::Normal,
+    ];
+    const BOLD: &[FontWeight] = &[
+        FontWeight::Bold,
+        FontWeight::Semibold,
+        FontWeight::Medium,
+        FontWeight::Normal,
+    ];
+    match weight {
+        FontWeight::Normal => NORMAL,
+        FontWeight::Medium => MEDIUM,
+        FontWeight::Semibold => SEMIBOLD,
+        FontWeight::Bold => BOLD,
+    }
+}
 
 pub mod names {
     /// Keeps generated declaration names away from platform keywords and APIs.
@@ -64,30 +181,32 @@ pub mod names {
         }
         if slug.is_empty() {
             slug.push_str("font");
+        } else if slug.as_bytes()[0].is_ascii_digit() {
+            slug.insert_str(0, "font_");
         }
         slug
     }
 
-    /// Resolves a face declared with a `-Regular` or `_regular` PostScript
-    /// suffix to the closest packaged face for a shared text weight.
+    /// Resolves a source family name to the conventional face name used by
+    /// font files when no project font catalog is available.
     pub fn font_face_name(name: &str, weight: nexa_ir::FontWeight) -> String {
-        let Some((family, separator, style)) = name
+        let Some((family, separator)) = name
             .rsplit_once('-')
-            .map(|(family, style)| (family, "-", style))
+            .filter(|(_, style)| style.eq_ignore_ascii_case("regular"))
+            .map(|(family, _)| (family, "-"))
             .or_else(|| {
                 name.rsplit_once('_')
-                    .map(|(family, style)| (family, "_", style))
+                    .filter(|(_, style)| style.eq_ignore_ascii_case("regular"))
+                    .map(|(family, _)| (family, "_"))
             })
         else {
             return name.to_owned();
         };
-        if !style.eq_ignore_ascii_case("regular") {
-            return name.to_owned();
-        }
         let face = match weight {
             nexa_ir::FontWeight::Normal => "Regular",
             nexa_ir::FontWeight::Medium => "Medium",
-            nexa_ir::FontWeight::Semibold | nexa_ir::FontWeight::Bold => "Semibold",
+            nexa_ir::FontWeight::Semibold => "Semibold",
+            nexa_ir::FontWeight::Bold => "Bold",
         };
         format!("{family}{separator}{face}")
     }
@@ -214,7 +333,80 @@ pub trait BackendTarget: Backend {
 
 #[cfg(test)]
 mod tests {
-    use super::names;
+    use super::{FontCatalog, FontFace, names};
+    use nexa_ir::FontWeight;
+
+    fn font_face(weight: FontWeight, postscript_name: &str, resource: &str) -> FontFace {
+        FontFace {
+            family: "Inter".to_owned(),
+            weight,
+            postscript_name: postscript_name.to_owned(),
+            android_resource_name: resource.to_owned(),
+        }
+    }
+
+    #[test]
+    fn font_catalog_resolves_family_weights_and_postscript_aliases() {
+        let mut catalog = FontCatalog::default();
+        catalog.insert(font_face(
+            FontWeight::Normal,
+            "Inter-Regular",
+            "inter_regular",
+        ));
+        catalog.insert(font_face(
+            FontWeight::Semibold,
+            "Inter-SemiBold",
+            "inter_semibold",
+        ));
+
+        assert_eq!(
+            catalog.resolve("inter", FontWeight::Normal),
+            Some(&font_face(
+                FontWeight::Normal,
+                "Inter-Regular",
+                "inter_regular"
+            ))
+        );
+        assert_eq!(
+            catalog.resolve("Inter-Regular", FontWeight::Semibold),
+            Some(&font_face(
+                FontWeight::Semibold,
+                "Inter-SemiBold",
+                "inter_semibold"
+            ))
+        );
+        assert_eq!(
+            catalog.resolve("Inter", FontWeight::Bold),
+            Some(&font_face(
+                FontWeight::Semibold,
+                "Inter-SemiBold",
+                "inter_semibold"
+            ))
+        );
+        assert_eq!(catalog.families().collect::<Vec<_>>(), ["Inter"]);
+    }
+
+    #[test]
+    fn font_resource_names_are_valid_android_identifiers() {
+        assert_eq!(
+            names::font_resource_name("Inter SemiBold"),
+            "inter_semibold"
+        );
+        assert_eq!(names::font_resource_name("123 Icons"), "font_123_icons");
+        assert_eq!(names::font_resource_name("🎨"), "font");
+    }
+
+    #[test]
+    fn legacy_font_face_names_keep_single_face_postscript_names() {
+        assert_eq!(
+            names::font_face_name("Mazicon", FontWeight::Normal),
+            "Mazicon"
+        );
+        assert_eq!(
+            names::font_face_name("Gilroy-Regular", FontWeight::Semibold),
+            "Gilroy-Semibold"
+        );
+    }
 
     #[test]
     fn declaration_names_are_stable_and_avoid_platform_collisions() {

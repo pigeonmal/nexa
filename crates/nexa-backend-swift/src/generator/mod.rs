@@ -4748,7 +4748,17 @@ pub(super) fn generate_widget_units(
 pub(super) fn generate_units_with_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::SwiftProjectFeatures) {
-    let features = features::Features::analyze(module);
+    generate_units_with_font_catalog_and_project_features(
+        module,
+        nexa_codegen::FontCatalog::default(),
+    )
+}
+
+pub(super) fn generate_units_with_font_catalog_and_project_features(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+) -> (GeneratedSources, crate::SwiftProjectFeatures) {
+    let features = features::Features::analyze_with_font_catalog(module, font_catalog);
     let project_features = project_features_from_analysis(&features);
     (generate_with_analysis(module, features), project_features)
 }
@@ -4756,20 +4766,41 @@ pub(super) fn generate_units_with_project_features(
 pub(super) fn generate_units_with_network_and_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::SwiftProjectFeatures) {
-    generate_units_with_network_requirements(module, false)
+    generate_units_with_network_and_font_catalog_and_project_features(
+        module,
+        nexa_codegen::FontCatalog::default(),
+    )
+}
+
+pub(super) fn generate_units_with_network_and_font_catalog_and_project_features(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+) -> (GeneratedSources, crate::SwiftProjectFeatures) {
+    generate_units_with_network_requirements(module, font_catalog, false)
 }
 
 pub(super) fn generate_units_with_plugin_value_runtime_and_network_and_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::SwiftProjectFeatures) {
-    generate_units_with_network_requirements(module, true)
+    generate_units_with_plugin_value_runtime_and_network_and_font_catalog_and_project_features(
+        module,
+        nexa_codegen::FontCatalog::default(),
+    )
+}
+
+pub(super) fn generate_units_with_plugin_value_runtime_and_network_and_font_catalog_and_project_features(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+) -> (GeneratedSources, crate::SwiftProjectFeatures) {
+    generate_units_with_network_requirements(module, font_catalog, true)
 }
 
 fn generate_units_with_network_requirements(
     module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
     plugin_value_runtime: bool,
 ) -> (GeneratedSources, crate::SwiftProjectFeatures) {
-    let mut features = features::Features::analyze(module);
+    let mut features = features::Features::analyze_with_font_catalog(module, font_catalog);
     features.uses_network_api = true;
     features.uses_native_library = true;
     let project_features = project_features_from_analysis(&features);
@@ -4798,7 +4829,17 @@ pub(super) fn generate_units_with_plugin_value_runtime(module: &Module) -> Gener
 pub(super) fn generate_units_with_plugin_value_runtime_and_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::SwiftProjectFeatures) {
-    let features = features::Features::analyze(module);
+    generate_units_with_plugin_value_runtime_and_font_catalog_and_project_features(
+        module,
+        nexa_codegen::FontCatalog::default(),
+    )
+}
+
+pub(super) fn generate_units_with_plugin_value_runtime_and_font_catalog_and_project_features(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+) -> (GeneratedSources, crate::SwiftProjectFeatures) {
+    let features = features::Features::analyze_with_font_catalog(module, font_catalog);
     let project_features = project_features_from_analysis(&features);
     (
         generate_with_analysis_mode(module, features, false, true),
@@ -5215,7 +5256,17 @@ pub(super) fn generate_for_dev_units(module: &Module) -> GeneratedSources {
 pub(super) fn generate_for_dev_units_with_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::SwiftProjectFeatures) {
-    let mut features = features::Features::analyze(module);
+    generate_for_dev_units_with_font_catalog_and_project_features(
+        module,
+        nexa_codegen::FontCatalog::default(),
+    )
+}
+
+pub(super) fn generate_for_dev_units_with_font_catalog_and_project_features(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+) -> (GeneratedSources, crate::SwiftProjectFeatures) {
+    let mut features = features::Features::analyze_with_font_catalog(module, font_catalog);
     // Hot reload can introduce any FastList axis after the native host has
     // been built. Keep the same UIKit list primitives used by AOT apps ready
     // in the DevRuntime host.

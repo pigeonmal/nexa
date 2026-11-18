@@ -166,13 +166,10 @@ pub(super) fn copy_ios_project_fonts(
 pub(super) fn copy_android_project_fonts(
     source_root: &Path,
     output_root: &Path,
-    include_dev_assets: bool,
 ) -> Result<(), String> {
     let fonts = project_fonts(source_root)?;
     let resources = output_root.join("android/app/src/main/res/font");
     let marker = output_root.join("android/app/src/main/res/.nexa-project-fonts");
-    let dev_assets = output_root.join("android/app/src/main/assets/nexa/fonts");
-    let dev_marker = dev_assets.join(".nexa-project-fonts");
     let mut generated = BTreeSet::new();
     for font in &fonts {
         generated.insert(format!("{}.{}", font.resource_name, font.extension));
@@ -190,24 +187,183 @@ pub(super) fn copy_android_project_fonts(
     }
     write_marker(&marker, &generated)?;
 
-    if include_dev_assets {
-        let mut dev_generated = BTreeSet::new();
-        for font in &fonts {
-            let filename = format!("{}.{}", font.resource_name, font.extension);
-            dev_generated.insert(filename.clone());
-            let destination = dev_assets.join(&filename);
-            ensure_owned_destination(&destination, &dev_marker, &filename)?;
-            fs::create_dir_all(&dev_assets)
-                .map_err(|error| format!("{}: {error}", dev_assets.display()))?;
-            copy_if_changed(&font.source, &destination)?;
-        }
-        remove_stale_generated(&dev_assets, &dev_marker, &dev_generated, false)?;
-        write_marker(&dev_marker, &dev_generated)?;
-    } else {
-        remove_stale_generated(&dev_assets, &dev_marker, &BTreeSet::new(), false)?;
-        write_marker(&dev_marker, &BTreeSet::new())?;
-    }
+    // Older DevRuntime hosts staged a second copy under assets/nexa/fonts.
+    // Retire only files listed in that generator-owned marker so upgrades
+    // stop packaging unused font assets without touching user files.
+    let legacy_dev_assets = output_root.join("android/app/src/main/assets/nexa/fonts");
+    let legacy_dev_marker = legacy_dev_assets.join(".nexa-project-fonts");
+    remove_stale_generated(
+        &legacy_dev_assets,
+        &legacy_dev_marker,
+        &BTreeSet::new(),
+        false,
+    )?;
+    write_marker(&legacy_dev_marker, &BTreeSet::new())?;
     Ok(())
+}
+
+pub(super) fn load_font_catalog(
+    root: &Path,
+    configured_families: &[nexa_syntax::ast::FontFamilyConfig],
+    configured_icon_fonts: &[nexa_syntax::ast::IconFontConfig],
+) -> Result<nexa_codegen::FontCatalog, String> {
+    let fonts = project_fonts(root)?;
+    let mut catalog = nexa_codegen::FontCatalog::default();
+    let mut metadata_by_path = std::collections::HashMap::new();
+
+    for font in &fonts {
+        let face = read_font_face(&font.source)?;
+        let resolved = nexa_codegen::FontFace {
+            family: face.family.clone(),
+            weight: face.weight,
+            postscript_name: face.postscript_name.clone(),
+            android_resource_name: font.resource_name.clone(),
+        };
+        if catalog
+            .resolve_exact(&resolved.family, resolved.weight)
+            .is_some()
+        {
+            return Err(format!(
+                "multiple font files declare family `{}` at weight {:?}; configure an explicit `assets.fonts` mapping",
+                resolved.family, resolved.weight
+            ));
+        }
+        catalog.insert(resolved);
+        metadata_by_path.insert(
+            font.source
+                .canonicalize()
+                .unwrap_or_else(|_| font.source.clone()),
+            face,
+        );
+    }
+
+    let font_directory = root.join("assets/fonts").canonicalize().ok();
+    for configured in configured_families {
+        for configured_face in &configured.faces {
+            let path = root.join(&configured_face.path);
+            let canonical = path
+                .canonicalize()
+                .map_err(|error| format!("configured font {}: {error}", path.display()))?;
+            let Some(font_directory) = &font_directory else {
+                return Err(format!(
+                    "configured font family `{}` refers to `{}`, but the project has no assets/fonts directory",
+                    configured.family, configured_face.path
+                ));
+            };
+            if canonical.parent() != Some(font_directory.as_path()) {
+                return Err(format!(
+                    "configured font `{}` must be a regular file directly inside assets/fonts",
+                    configured_face.path
+                ));
+            }
+            let Some(font) = fonts.iter().find(|font| {
+                font.source.canonicalize().ok().as_deref() == Some(canonical.as_path())
+            }) else {
+                return Err(format!(
+                    "configured font `{}` is not a supported file in assets/fonts",
+                    configured_face.path
+                ));
+            };
+            let metadata = metadata_by_path.get(&canonical).ok_or_else(|| {
+                format!(
+                    "configured font metadata was not loaded: {}",
+                    canonical.display()
+                )
+            })?;
+            let weight = match configured_face.weight {
+                nexa_syntax::ast::FontFaceWeight::Normal => nexa_ir::FontWeight::Normal,
+                nexa_syntax::ast::FontFaceWeight::Medium => nexa_ir::FontWeight::Medium,
+                nexa_syntax::ast::FontFaceWeight::Semibold => nexa_ir::FontWeight::Semibold,
+                nexa_syntax::ast::FontFaceWeight::Bold => nexa_ir::FontWeight::Bold,
+            };
+            catalog.insert(nexa_codegen::FontFace {
+                family: configured.family.clone(),
+                weight,
+                postscript_name: metadata.postscript_name.clone(),
+                android_resource_name: font.resource_name.clone(),
+            });
+        }
+    }
+
+    for configured in configured_icon_fonts {
+        let path = root.join(&configured.path);
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| format!("configured icon font {}: {error}", path.display()))?;
+        let Some(font_directory) = &font_directory else {
+            return Err(format!(
+                "icon font family `{}` refers to `{}`, but the project has no assets/fonts directory",
+                configured.family, configured.path
+            ));
+        };
+        if canonical.parent() != Some(font_directory.as_path()) {
+            return Err(format!(
+                "configured icon font `{}` must be a regular file directly inside assets/fonts",
+                configured.path
+            ));
+        }
+        let Some(font) = fonts
+            .iter()
+            .find(|font| font.source.canonicalize().ok().as_deref() == Some(canonical.as_path()))
+        else {
+            return Err(format!(
+                "configured icon font `{}` is not a supported file in assets/fonts",
+                configured.path
+            ));
+        };
+        let metadata = metadata_by_path.get(&canonical).ok_or_else(|| {
+            format!(
+                "configured icon font metadata was not loaded: {}",
+                canonical.display()
+            )
+        })?;
+        catalog.insert(nexa_codegen::FontFace {
+            family: configured.family.clone(),
+            weight: nexa_ir::FontWeight::Normal,
+            postscript_name: metadata.postscript_name.clone(),
+            android_resource_name: font.resource_name.clone(),
+        });
+    }
+
+    Ok(catalog)
+}
+
+struct ParsedFontFace {
+    family: String,
+    weight: nexa_ir::FontWeight,
+    postscript_name: String,
+}
+
+fn read_font_face(path: &Path) -> Result<ParsedFontFace, String> {
+    let bytes = fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let face = ttf_parser::Face::parse(&bytes, 0)
+        .map_err(|error| format!("invalid font file {}: {error:?}", path.display()))?;
+    let name = |id: u16| {
+        face.names()
+            .into_iter()
+            .filter(|record| record.name_id == id)
+            .max_by_key(|record| u8::from(record.language_id == 0x0409))
+            .and_then(|record| record.to_string())
+    };
+    let family = name(16)
+        .or_else(|| name(1))
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("font has no family name: {}", path.display()))?;
+    let postscript_name = name(6)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("font has no PostScript name: {}", path.display()))?;
+    let numeric_weight = face.weight().to_number();
+    let weight = match numeric_weight {
+        0..=450 => nexa_ir::FontWeight::Normal,
+        451..=550 => nexa_ir::FontWeight::Medium,
+        551..=650 => nexa_ir::FontWeight::Semibold,
+        _ => nexa_ir::FontWeight::Bold,
+    };
+    Ok(ParsedFontFace {
+        family,
+        weight,
+        postscript_name,
+    })
 }
 
 fn project_fonts(root: &Path) -> Result<Vec<ProjectFont>, String> {
@@ -874,10 +1030,72 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{
         copy_android_project_fonts, copy_ios_project_fonts, generate_android_icon_named,
-        generate_android_icon_set_named,
+        generate_android_icon_set_named, load_font_catalog,
     };
+
+    #[test]
+    fn project_font_catalog_discovers_family_weight_and_postscript_metadata() {
+        let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/component-parity");
+        let catalog = load_font_catalog(&project, &[], &[]).expect("read packaged font metadata");
+        let regular = catalog
+            .resolve("Gilroy", nexa_ir::FontWeight::Normal)
+            .expect("discover Gilroy regular face");
+        let semibold = catalog
+            .resolve("Gilroy", nexa_ir::FontWeight::Semibold)
+            .expect("discover Gilroy semibold face");
+        let mazicon = catalog
+            .resolve("Mazicon", nexa_ir::FontWeight::Normal)
+            .expect("discover single-face font");
+
+        assert_eq!(regular.postscript_name, "Gilroy-Regular");
+        assert_eq!(regular.android_resource_name, "gilroy_regular");
+        assert_eq!(semibold.postscript_name, "Gilroy-Semibold");
+        assert_eq!(semibold.android_resource_name, "gilroy_semibold");
+        assert_eq!(mazicon.postscript_name, "Mazicon");
+        assert_eq!(mazicon.android_resource_name, "mazicon");
+    }
+
+    #[test]
+    fn project_font_config_can_alias_a_face_with_an_explicit_weight() {
+        let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/component-parity");
+        let config = nexa_syntax::parse_config(
+            r#"config { assets { fonts { "Brand Display" {
+                semibold: "assets/fonts/gilroy_semibold.ttf"
+            } } } }"#,
+        )
+        .expect("font alias config parses");
+        let aliases = config.assets.expect("assets").fonts;
+        let catalog =
+            load_font_catalog(&project, &aliases, &[]).expect("load configured font alias");
+        let face = catalog
+            .resolve("Brand Display", nexa_ir::FontWeight::Semibold)
+            .expect("resolve alias");
+
+        assert_eq!(face.postscript_name, "Gilroy-Semibold");
+        assert_eq!(face.android_resource_name, "gilroy_semibold");
+    }
+
+    #[test]
+    fn project_icon_font_config_maps_family_alias_to_native_names() {
+        let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/component-parity");
+        let config = nexa_syntax::parse_config(
+            r#"config { assets { iconFonts { "Brand Icons": "assets/fonts/Mazicon.ttf" } } }"#,
+        )
+        .expect("icon font alias config parses");
+        let aliases = config.assets.expect("assets").icon_fonts;
+        let catalog =
+            load_font_catalog(&project, &[], &aliases).expect("load configured icon font alias");
+        let face = catalog
+            .resolve("Brand Icons", nexa_ir::FontWeight::Normal)
+            .expect("resolve icon family alias");
+
+        assert_eq!(face.postscript_name, "Mazicon");
+        assert_eq!(face.android_resource_name, "mazicon");
+    }
 
     #[test]
     fn project_fonts_register_in_ios_and_android_resources() {
@@ -891,10 +1109,22 @@ mod tests {
         std::fs::write(font_directory.join("gilroy_medium.ttf"), b"medium font")
             .expect("write medium font");
         std::fs::write(font_directory.join("Mazicon.ttf"), b"icon font").expect("write icon font");
+        let legacy_dev_fonts = output.join("android/app/src/main/assets/nexa/fonts");
+        std::fs::create_dir_all(&legacy_dev_fonts).expect("create previous DevRuntime fonts");
+        std::fs::write(
+            legacy_dev_fonts.join("gilroy_regular.ttf"),
+            b"old copied font",
+        )
+        .expect("write previous DevRuntime font");
+        std::fs::write(
+            legacy_dev_fonts.join(".nexa-project-fonts"),
+            "gilroy_regular.ttf\n",
+        )
+        .expect("write previous DevRuntime font marker");
 
         let ios_fonts =
             copy_ios_project_fonts(&source, &output, "Demo").expect("copy iOS font resources");
-        copy_android_project_fonts(&source, &output, true).expect("copy Android font resources");
+        copy_android_project_fonts(&source, &output).expect("copy Android font resources");
 
         assert_eq!(
             ios_fonts,
@@ -912,9 +1142,14 @@ mod tests {
         assert!(resources.join("gilroy_medium.ttf").is_file());
         assert!(resources.join("mazicon.ttf").is_file());
         assert!(
-            output
+            !output
                 .join("android/app/src/main/assets/nexa/fonts/gilroy_regular.ttf")
-                .is_file()
+                .exists()
+        );
+        assert!(
+            !output
+                .join("android/app/src/main/assets/nexa/fonts/.nexa-project-fonts")
+                .exists()
         );
     }
 

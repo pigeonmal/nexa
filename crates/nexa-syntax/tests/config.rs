@@ -48,6 +48,20 @@ fn parses_custom_icon_fonts_and_named_glyphs() {
 }
 
 #[test]
+fn parses_icon_font_family_aliases_with_spaces() {
+    let config = parse_config(
+        r#"config {
+            assets { iconFonts { "Brand Icons": "assets/fonts/custom-icons.ttf" } }
+        }"#,
+    )
+    .expect("quoted icon font family parses");
+
+    let assets = config.assets.expect("assets block");
+    assert_eq!(assets.icon_fonts[0].family, "Brand Icons");
+    assert_eq!(assets.icon_fonts[0].path, "assets/fonts/custom-icons.ttf");
+}
+
+#[test]
 fn parses_platform_architecture_options() {
     let config = parse_config(
         r#"config {

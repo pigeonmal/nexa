@@ -139,7 +139,17 @@ pub(super) fn generate_widget_units(
 pub(super) fn generate_units_with_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::KotlinProjectFeatures) {
-    let features = features::Features::analyze(module);
+    generate_units_with_font_catalog_and_project_features(
+        module,
+        nexa_codegen::FontCatalog::default(),
+    )
+}
+
+pub(super) fn generate_units_with_font_catalog_and_project_features(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+) -> (GeneratedSources, crate::KotlinProjectFeatures) {
+    let features = features::Features::analyze_with_font_catalog(module, font_catalog);
     let project_features = project_features_from_analysis(module, &features);
     let generated = generate_units(module, &features);
     (generated, project_features)
@@ -148,7 +158,17 @@ pub(super) fn generate_units_with_project_features(
 pub(super) fn generate_units_with_network_and_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::KotlinProjectFeatures) {
-    let mut features = features::Features::analyze(module);
+    generate_units_with_network_and_font_catalog_and_project_features(
+        module,
+        nexa_codegen::FontCatalog::default(),
+    )
+}
+
+pub(super) fn generate_units_with_network_and_font_catalog_and_project_features(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+) -> (GeneratedSources, crate::KotlinProjectFeatures) {
+    let mut features = features::Features::analyze_with_font_catalog(module, font_catalog);
     features.uses_network_api = true;
     features.uses_native_library = true;
     let project_features = project_features_from_analysis(module, &features);
@@ -159,7 +179,17 @@ pub(super) fn generate_units_with_network_and_project_features(
 pub(super) fn generate_for_dev_units_with_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::KotlinProjectFeatures) {
-    let mut features = features::Features::analyze(module);
+    generate_for_dev_units_with_font_catalog_and_project_features(
+        module,
+        nexa_codegen::FontCatalog::default(),
+    )
+}
+
+pub(super) fn generate_for_dev_units_with_font_catalog_and_project_features(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+) -> (GeneratedSources, crate::KotlinProjectFeatures) {
+    let mut features = features::Features::analyze_with_font_catalog(module, font_catalog);
     // DevRuntime accepts hot-reloaded trees with remote images even when the
     // initial source has none, so the development host always carries the same
     // Coil/Cronet support that release output uses for remote images.

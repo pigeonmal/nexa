@@ -335,6 +335,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         .unwrap_or_else(|| Path::new("."))
         .join("nexa.config.nx");
     let app_images_path = project_root.join("assets/images");
+    let app_fonts_path = project_root.join("assets/fonts");
     let translations_path = project_root.join("locales/translations.json");
     let existing_config = config_path.is_file();
     let project_cache_checked = !execute_tests && dev_session.is_none() && existing_config;
@@ -367,6 +368,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         &[
             config_path.as_path(),
             app_images_path.as_path(),
+            app_fonts_path.as_path(),
             translations_path.as_path(),
         ],
         &sorted_plugin_roots,
@@ -467,6 +469,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
             &[
                 config_path.as_path(),
                 app_images_path.as_path(),
+                app_fonts_path.as_path(),
                 translations_path.as_path(),
             ],
             &sorted_plugin_roots,
@@ -484,6 +487,18 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         };
         project_config.set_arch_override(arch, target)?;
     }
+    let font_catalog = assets::load_font_catalog(
+        project_root,
+        &project_config.font_families,
+        &project_config.icon_fonts,
+    )?;
+    for (_, module, _) in &compiled {
+        validate_font_family_references(module, &font_catalog)?;
+    }
+    let generation_context = ProjectGenerationContext {
+        config: &project_config,
+        font_catalog: &font_catalog,
+    };
 
     for (compile_target, module, packages) in &compiled {
         warnings.extend(validate_permission_configuration(
@@ -519,7 +534,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
                     &app_name,
                     &module,
                     &packages,
-                    &project_config,
+                    &generation_context,
                     dev_session.as_ref(),
                 )?;
                 generated_targets.push("ios");
@@ -531,7 +546,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
                     &app_name,
                     &module,
                     &packages,
-                    &project_config,
+                    &generation_context,
                     dev_session.as_ref(),
                 )?;
                 generated_targets.push("android");
@@ -808,6 +823,11 @@ fn collect_source_units(
     Ok(())
 }
 
+struct ProjectGenerationContext<'a> {
+    config: &'a ProjectConfig,
+    font_catalog: &'a nexa_codegen::FontCatalog,
+}
+
 /// Generates the iOS host project.
 ///
 /// The work is split in three. `prepare_ios` performs the filesystem copies
@@ -820,10 +840,10 @@ fn generate_ios(
     app_name: &str,
     module: &Module,
     plugins: &[plugin_package::PluginPackage],
-    config: &ProjectConfig,
+    generation: &ProjectGenerationContext<'_>,
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
-    validate_ios_background_task_minimum(module, plugins, config)?;
+    validate_ios_background_task_minimum(module, plugins, generation.config)?;
     let dev_runtime = dev_session.is_some();
     let prepared = prepare_ios(
         root,
@@ -831,10 +851,17 @@ fn generate_ios(
         app_name,
         module,
         plugins,
-        config,
+        generation,
         dev_runtime,
     )?;
-    let plan = ios_plan(app_name, module, plugins, config, dev_session, &prepared)?;
+    let plan = ios_plan(
+        app_name,
+        module,
+        plugins,
+        generation.config,
+        dev_session,
+        &prepared,
+    )?;
     writers::write_plan(root, &plan)?;
     writers::remove_stale_units(
         &root.join("ios").join(app_name),
@@ -940,11 +967,154 @@ const ANDROID_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
     ),
 ];
 
+fn validate_font_family_references(
+    module: &Module,
+    catalog: &nexa_codegen::FontCatalog,
+) -> Result<(), String> {
+    let mut unresolved = std::collections::BTreeSet::new();
+    let mut record_family = |family: &str| {
+        if catalog
+            .resolve(family, nexa_ir::FontWeight::Normal)
+            .is_none()
+        {
+            unresolved.insert(family.to_owned());
+        }
+    };
+    let mut inspect = |nodes: &[nexa_ir::Node]| {
+        nexa_ir::walk::walk_ir(
+            nodes,
+            &mut |node| {
+                let family = match node {
+                    nexa_ir::Node::Text { style, .. } => style.font_family.as_deref(),
+                    nexa_ir::Node::TextInput { font_family, .. } => font_family.as_deref(),
+                    nexa_ir::Node::FontIcon { font_family, .. } => Some(font_family.as_str()),
+                    _ => None,
+                };
+                if let Some(family) = family {
+                    record_family(family);
+                }
+            },
+            &mut |_| {},
+        );
+    };
+    inspect(&module.body);
+    for screen in &module.screens {
+        inspect(&screen.body);
+    }
+    for component in &module.components {
+        inspect(&component.body);
+    }
+    for widget in &module.widgets {
+        inspect(&widget.body);
+    }
+    drop(inspect);
+    for icon in nexa_ir::facts::ModuleFacts::analyze(module).ui.system_icons {
+        if let Some((family, _)) = icon.font_glyph_parts() {
+            record_family(family);
+        }
+    }
+    drop(record_family);
+    if unresolved.is_empty() {
+        return Ok(());
+    }
+    let families = unresolved
+        .iter()
+        .map(|family| format!("`{family}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "cannot resolve custom font family {families}; add matching TTF/OTF files to `assets/fonts/` or map faces under `assets.fonts` in `nexa.config.nx`"
+    ))
+}
+
+fn font_lookup_names(catalog: &nexa_codegen::FontCatalog) -> std::collections::BTreeSet<String> {
+    catalog
+        .faces()
+        .flat_map(|face| [face.family.clone(), face.postscript_name.clone()])
+        .collect()
+}
+
+fn dev_swift_font_face_cases(catalog: &nexa_codegen::FontCatalog) -> String {
+    let weights = [
+        ("Normal", nexa_ir::FontWeight::Normal),
+        ("Medium", nexa_ir::FontWeight::Medium),
+        ("Semibold", nexa_ir::FontWeight::Semibold),
+        ("Bold", nexa_ir::FontWeight::Bold),
+    ];
+    font_lookup_names(catalog)
+        .into_iter()
+        .flat_map(|name| {
+            let lower_name = name.to_ascii_lowercase();
+            weights.into_iter().filter_map(move |(label, weight)| {
+                catalog.resolve(&name, weight).map(|face| {
+                    format!(
+                        "        case (\"{}\", \"{label}\"): return \"{}\"",
+                        swift_escape(&lower_name),
+                        swift_escape(&face.postscript_name)
+                    )
+                })
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn dev_kotlin_font_family_cases(catalog: &nexa_codegen::FontCatalog) -> String {
+    let weights = [
+        ("Normal", nexa_ir::FontWeight::Normal),
+        ("Medium", nexa_ir::FontWeight::Medium),
+        ("SemiBold", nexa_ir::FontWeight::Semibold),
+        ("Bold", nexa_ir::FontWeight::Bold),
+    ];
+    font_lookup_names(catalog)
+        .into_iter()
+        .flat_map(|name| {
+            let lower_name = kotlin_escape(&name.to_ascii_lowercase());
+            weights.into_iter().filter_map(move |(label, weight)| {
+                catalog.resolve(&name, weight).map(|face| {
+                    let face_weight = match face.weight {
+                        nexa_ir::FontWeight::Normal => "Normal",
+                        nexa_ir::FontWeight::Medium => "Medium",
+                        nexa_ir::FontWeight::Semibold => "SemiBold",
+                        nexa_ir::FontWeight::Bold => "Bold",
+                    };
+                    format!(
+                        "            \"{lower_name}\" to FontWeight.{label} -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.{}, weight = FontWeight.{face_weight}))",
+                        face.android_resource_name
+                    )
+                })
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
 fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Module) -> String {
+    dev_runtime_source_with_fonts(
+        filename,
+        template,
+        package,
+        module,
+        &nexa_codegen::FontCatalog::default(),
+    )
+}
+
+fn dev_runtime_source_with_fonts(
+    filename: &str,
+    template: &str,
+    package: &str,
+    module: &Module,
+    font_catalog: &nexa_codegen::FontCatalog,
+) -> String {
     let mut source =
         nexa_dev_protocol::render_runtime_schema(template).replace("__NEXA_PACKAGE__", package);
     match filename {
         "NexaDevRenderer.swift" => {
+            source = source.replace(
+                "__NEXA_FONT_FACE_CASES__",
+                &dev_swift_font_face_cases(font_catalog),
+            );
             let cases = SHARED_ICONS
                 .iter()
                 .map(|icon| format!("    case \"{}\": return \"{}\"", icon.name, icon.sf_symbol))
@@ -966,6 +1136,10 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
             source = source.replace("__NEXA_SHARED_ICON_MATERIAL_SF_CASES__", &material_sf_cases);
         }
         "NexaDevRenderer.kt" => {
+            source = source.replace(
+                "__NEXA_ANDROID_FONT_FAMILY_CASES__",
+                &dev_kotlin_font_family_cases(font_catalog),
+            );
             let material_cases = SHARED_ICONS
                 .iter()
                 .map(|icon| {
@@ -1249,6 +1423,7 @@ fn generated_unit_names(plan: &ProjectPlan, dev_runtime: bool) -> Vec<String> {
 /// Facts gathered by the filesystem work, which the Xcode project references.
 struct PreparedIos {
     source_units: Vec<nexa_codegen::SourceUnit>,
+    font_catalog: nexa_codegen::FontCatalog,
     privacy_manifest: Option<String>,
     supports_screen_orientation: bool,
     /// Whether the app bundle carries images, icons, or a splash screen.
@@ -1290,13 +1465,19 @@ fn prepare_ios(
     app_name: &str,
     module: &Module,
     plugins: &[plugin_package::PluginPackage],
-    config: &ProjectConfig,
+    generation: &ProjectGenerationContext<'_>,
     dev_runtime: bool,
 ) -> Result<PreparedIos, String> {
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    let (source_units, project_features) = ios_source_units(module, plugins, config, dev_runtime)?;
-    let widget_sources = generated_ios_widget_sources(module, plugins, config)?;
+    let (source_units, project_features) = ios_source_units(
+        module,
+        plugins,
+        generation.config,
+        generation.font_catalog,
+        dev_runtime,
+    )?;
+    let widget_sources = generated_ios_widget_sources(module, plugins, generation.config)?;
     let mut previous_widget_sources =
         read_generated_marker(&directory.join(".nexa-widget-sources"))?;
     let widget_directory = directory.join("NexaWidgets");
@@ -1314,15 +1495,19 @@ fn prepare_ios(
     previous_widget_sources.dedup();
     let privacy_manifest = templates::ios_privacy_manifest(project_features);
     let supports_screen_orientation = project_features.uses_screen_orientation_api;
-    copy_config_icons(root, app_name, config)?;
-    let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
+    copy_config_icons(root, app_name, generation.config)?;
+    let ios_icon = generation
+        .config
+        .ios_icon
+        .as_ref()
+        .or(generation.config.icon_source.as_ref());
     let has_project_images = assets::copy_ios_project_images(source_root, root, app_name)?;
     let font_files = assets::copy_ios_project_fonts(source_root, root, app_name)?;
     let has_assets = plugins::copy_plugin_assets(root, app_name, module)?
         || has_project_images
         || ios_icon
             .is_some_and(|path| path.is_dir() || path.extension().is_some_and(|ext| ext != "icon"))
-        || config.splash_source.is_some();
+        || generation.config.splash_source.is_some();
     let plugin_sources = plugins::copy_ios_plugin_sources(root, app_name, plugins)?;
     let cpp_sources = plugins::copy_ios_plugin_cpp_sources(root, app_name, plugins)?;
     let (staged_artifacts, previous_artifacts) =
@@ -1340,6 +1525,7 @@ fn prepare_ios(
     };
     Ok(PreparedIos {
         source_units,
+        font_catalog: generation.font_catalog.clone(),
         privacy_manifest,
         supports_screen_orientation,
         has_assets,
@@ -1561,7 +1747,13 @@ fn ios_plan(
         for (filename, content) in IOS_DEV_RUNTIME_FILES {
             plan = plan.with_file(
                 format!("{directory}/{filename}"),
-                dev_runtime_source(filename, content, "", module),
+                dev_runtime_source_with_fonts(
+                    filename,
+                    content,
+                    "",
+                    module,
+                    &prepared.font_catalog,
+                ),
             );
         }
     } else {
@@ -1610,18 +1802,18 @@ fn generate_android(
     app_name: &str,
     module: &Module,
     plugins: &[plugin_package::PluginPackage],
-    config: &ProjectConfig,
+    generation: &ProjectGenerationContext<'_>,
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
     let project_features = nexa_backend_kotlin::KotlinBackend.analyze_project_features(module);
-    validate_android_feature_minimums(project_features, dev_session.is_some(), config)?;
+    validate_android_feature_minimums(project_features, dev_session.is_some(), generation.config)?;
     let widget_generated = KotlinBackend
         .generate_widget_units(module)
         .map_err(|error| error.to_string())?;
     let widget_units = widget_generated.sources;
     let widget_resources = widget_generated.resources;
     validate_android_widget_resources(&widget_resources, module)?;
-    let package = config.android_application_id.clone();
+    let package = generation.config.android_application_id.clone();
     let package_path = package.replace('.', "/");
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
     let stale_widget_sources = read_generated_marker(&source_dir.join(".nexa-widget-sources"))?;
@@ -1649,11 +1841,20 @@ fn generate_android(
         .iter()
         .any(|plugin| plugin.artifacts.requires_network);
     let (mut sources, mut project_features) = if dev_session.is_some() {
-        KotlinBackend.generate_for_dev_units_with_project_features(module)
+        KotlinBackend.generate_for_dev_units_with_font_catalog_and_project_features(
+            module,
+            generation.font_catalog.clone(),
+        )
     } else if plugin_requires_network {
-        KotlinBackend.generate_units_with_network_and_project_features(module)
+        KotlinBackend.generate_units_with_network_and_font_catalog_and_project_features(
+            module,
+            generation.font_catalog.clone(),
+        )
     } else {
-        KotlinBackend.generate_units_with_project_features(module)
+        KotlinBackend.generate_units_with_font_catalog_and_project_features(
+            module,
+            generation.font_catalog.clone(),
+        )
     };
     if !module.widgets.is_empty() {
         // The normal app generation already emits application types and
@@ -1690,7 +1891,7 @@ fn generate_android(
             name: "NexaCronetConfig.kt".to_owned(),
             contents: format!(
                 "internal object NexaCronetConfig {{\n    const val DISK_CACHE_SIZE_BYTES: Long = {}L * 1024L * 1024L\n}}\n",
-                config.android_cronet_disk_cache_size_mb
+                generation.config.android_cronet_disk_cache_size_mb
             ),
         });
     }
@@ -1705,15 +1906,15 @@ fn generate_android(
     // the app's own tree does not currently declare navigation.
     project_features.uses_navigation |= dev_session.is_some();
     let (plugin_packages, plugin_uses_coroutines) =
-        plugins::copy_android_plugin_sources(root, plugins, &package, config)?;
+        plugins::copy_android_plugin_sources(root, plugins, &package, generation.config)?;
     project_features.uses_coroutines |= plugin_uses_coroutines;
     plugins::copy_android_plugin_cpp_sources(root, plugins, &package)?;
     let local_aars = plugins::copy_android_plugin_artifacts(root, plugins)?;
     let resources = plugins::stage_android_plugin_resources(root, plugins)?;
-    copy_config_icons(root, app_name, config)?;
+    copy_config_icons(root, app_name, generation.config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
     assets::copy_android_project_images(source_root, root)?;
-    assets::copy_android_project_fonts(source_root, root, dev_session.is_some())?;
+    assets::copy_android_project_fonts(source_root, root)?;
     assets::copy_android_localizations(source_root, root, module)?;
     // Every generated file needs the package declaration, and plugin bindings
     // add an import between the package line and the generator's own imports.
@@ -1734,7 +1935,7 @@ fn generate_android(
     let header = header_lines.join("\n");
     let generated_units = sources.into_files_with_header(
         &header,
-        &plugins::render_kotlin_plugin_config(plugins, config),
+        &plugins::render_kotlin_plugin_config(plugins, generation.config),
     );
     let generated_names = generated_units
         .iter()
@@ -1779,7 +1980,8 @@ fn generate_android(
         &package,
         &package_path,
         &generated_units,
-        config,
+        generation.config,
+        generation.font_catalog,
         plugins,
         dev_session,
         project_features,
@@ -1962,6 +2164,7 @@ fn android_plan(
     package_path: &str,
     source_units: &[nexa_codegen::SourceUnit],
     config: &ProjectConfig,
+    font_catalog: &nexa_codegen::FontCatalog,
     plugins: &[plugin_package::PluginPackage],
     dev_session: Option<&DevSessionConfig>,
     project_features: nexa_backend_kotlin::KotlinProjectFeatures,
@@ -2256,16 +2459,17 @@ fn android_plan(
         for (filename, content) in ANDROID_DEV_RUNTIME_FILES {
             plan = plan.with_file(
                 format!("{source_directory}/{filename}"),
-                dev_runtime_source(filename, content, package, module),
+                dev_runtime_source_with_fonts(filename, content, package, module, font_catalog),
             );
         }
         plan = plan.with_file(
             format!("android/app/src/test/java/{package_path}/NexaDevPatchTest.kt"),
-            dev_runtime_source(
+            dev_runtime_source_with_fonts(
                 "NexaDevPatchTest.kt",
                 ANDROID_DEV_RUNTIME_TEST,
                 package,
                 module,
+                font_catalog,
             ),
         );
         plan = plan.with_file(
@@ -2425,6 +2629,7 @@ fn ios_source_units(
     module: &Module,
     plugins: &[plugin_package::PluginPackage],
     config: &ProjectConfig,
+    font_catalog: &nexa_codegen::FontCatalog,
     dev_runtime: bool,
 ) -> Result<
     (
@@ -2438,16 +2643,29 @@ fn ios_source_units(
         .iter()
         .any(|plugin| plugin.artifacts.requires_network);
     let (mut sources, project_features) = if dev_runtime {
-        SwiftBackend.generate_for_dev_units_with_project_features(module)
+        SwiftBackend.generate_for_dev_units_with_font_catalog_and_project_features(
+            module,
+            font_catalog.clone(),
+        )
     } else if plugin_requires_network && plugin_value_runtime {
         SwiftBackend
-            .generate_units_with_plugin_value_runtime_and_network_and_project_features(module)
+            .generate_units_with_plugin_value_runtime_and_network_and_font_catalog_and_project_features(
+                module,
+                font_catalog.clone(),
+            )
     } else if plugin_requires_network {
-        SwiftBackend.generate_units_with_network_and_project_features(module)
+        SwiftBackend.generate_units_with_network_and_font_catalog_and_project_features(
+            module,
+            font_catalog.clone(),
+        )
     } else if plugin_value_runtime {
-        SwiftBackend.generate_units_with_plugin_value_runtime_and_project_features(module)
+        SwiftBackend.generate_units_with_plugin_value_runtime_and_font_catalog_and_project_features(
+            module,
+            font_catalog.clone(),
+        )
     } else {
-        SwiftBackend.generate_units_with_project_features(module)
+        SwiftBackend
+            .generate_units_with_font_catalog_and_project_features(module, font_catalog.clone())
     };
     if dev_runtime {
         let contracts = dev_plugin_contracts(plugins)?;
@@ -2758,8 +2976,39 @@ mod tests {
 
     use super::{
         KotlinBackend, ProjectPlan, SHARED_ICONS, SwiftBackend, dev_runtime_source,
-        generate_splash, kotlin_network_plugin_bridge_source, plugin_package, plugins, writers,
+        dev_runtime_source_with_fonts, generate_splash, kotlin_network_plugin_bridge_source,
+        plugin_package, plugins, writers,
     };
+
+    #[test]
+    fn unresolved_custom_text_fonts_report_a_project_configuration_error() {
+        let module = nexa_compiler::compile(
+            r##"app MissingFont { body { Text("Assigned tasks", fontFamily: "Brand Display") } }"##,
+        )
+        .expect("compile missing font fixture");
+        let error =
+            super::validate_font_family_references(&module, &nexa_codegen::FontCatalog::default())
+                .expect_err("unresolved font family must be rejected");
+
+        assert!(error.contains("`Brand Display`"));
+        assert!(error.contains("assets/fonts/"));
+        assert!(error.contains("assets.fonts"));
+    }
+
+    #[test]
+    fn unresolved_custom_icon_fonts_report_a_project_configuration_error() {
+        let module = nexa_compiler::compile(
+            r##"app MissingIconFont { body { Icon(fontFamily: "Brand Icons", glyph: 57345, description: "Brand", size: 24, tint: "#000000") } }"##,
+        )
+        .expect("compile missing icon font fixture");
+        let error =
+            super::validate_font_family_references(&module, &nexa_codegen::FontCatalog::default())
+                .expect_err("unresolved icon font must be rejected");
+
+        assert!(error.contains("`Brand Icons`"));
+        assert!(error.contains("assets/fonts/"));
+        assert!(error.contains("assets.fonts"));
+    }
 
     #[test]
     fn android_plugin_network_bridge_reuses_the_configured_app_client() {
@@ -3152,17 +3401,68 @@ mod tests {
     }
 
     #[test]
-    fn android_dev_runtime_resolves_registered_fonts_from_native_resources() {
+    fn android_dev_runtime_uses_generated_static_font_mappings() {
         let runtime = include_str!("../../../runtime/android/NexaDevRenderer.kt");
 
-        assert!(runtime.contains("getIdentifier(resourceName, \"font\", context.packageName)"));
-        assert!(runtime.contains("Font(resourceId, weight = weight)"));
-        assert!(
-            runtime.contains("Font(path = path, assetManager = context.assets, weight = weight)")
-        );
+        assert!(runtime.contains("__NEXA_ANDROID_FONT_FAMILY_CASES__"));
+        assert!(!runtime.contains("getIdentifier("));
+        assert!(!runtime.contains("assets.open("));
         assert!(runtime.contains(
             "\"Text\", \"Spacer\", \"Divider\", \"SystemIcon\", \"FontIcon\", \"LinearGradient\""
         ));
+    }
+
+    #[test]
+    fn dev_runtime_font_mappings_match_the_shared_font_catalog() {
+        let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/component-parity");
+        let icon_aliases = nexa_syntax::parse_config(
+            r#"config { assets { iconFonts { "Brand Icons": "assets/fonts/gilroy_regular.ttf" } } }"#,
+        )
+        .expect("icon font alias config parses")
+        .assets
+        .expect("assets")
+        .icon_fonts;
+        let catalog = super::assets::load_font_catalog(&project, &[], &icon_aliases)
+            .expect("load actual fixture font metadata and icon alias");
+        let module = nexa_compiler::compile(
+            r##"app FontRuntimeProbe { body {
+                Text("Assigned", fontFamily: "Gilroy", fontWeight: Semibold)
+                Icon(fontFamily: "Brand Icons", glyph: 61696, description: "Brand", size: 24, tint: "#000000")
+            } }"##,
+        )
+        .expect("compile font runtime fixture");
+        let swift = dev_runtime_source_with_fonts(
+            "NexaDevRenderer.swift",
+            include_str!("../../../runtime/ios/NexaDevRenderer.swift"),
+            "",
+            &module,
+            &catalog,
+        );
+        let kotlin = dev_runtime_source_with_fonts(
+            "NexaDevRenderer.kt",
+            include_str!("../../../runtime/android/NexaDevRenderer.kt"),
+            "dev.nexa",
+            &module,
+            &catalog,
+        );
+
+        assert!(swift.contains("case (\"gilroy\", \"Semibold\"): return \"Gilroy-Semibold\""));
+        assert!(swift.contains("case (\"brand icons\", \"Normal\"): return \"Gilroy-Regular\""));
+        assert!(swift.contains("nexaDevFontFaceName(family, weight: \"Normal\")"));
+        assert!(kotlin.contains("\"gilroy\" to FontWeight.SemiBold ->"));
+        assert!(kotlin.contains("R.font.gilroy_semibold"));
+        assert!(kotlin.contains("\"brand icons\" to FontWeight.Normal ->"));
+        assert!(
+            kotlin.contains(
+                "nexaDevFontFamily(fields.optString(\"font_family\"), FontWeight.Normal)"
+            )
+        );
+        assert!(kotlin.contains(
+            "\"brand icons\" to FontWeight.Normal -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.gilroy_regular, weight = FontWeight.Normal))"
+        ));
+        assert!(!kotlin.contains("__NEXA_ANDROID_FONT_FAMILY_CASES__"));
+        assert!(!kotlin.contains("getIdentifier("));
+        assert!(!kotlin.contains("assets.open("));
     }
 
     /// Builds a plugin package that vendors one XCFramework.

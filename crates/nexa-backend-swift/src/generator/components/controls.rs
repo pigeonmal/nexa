@@ -51,11 +51,49 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn render_button(
     label: &nexa_ir::Expr,
     comment: Option<&str>,
     accessibility_label: Option<&nexa_ir::Expr>,
     icon: Option<&SystemIcon>,
+    loading: Option<&nexa_ir::Expr>,
+    disabled: Option<&nexa_ir::Expr>,
+    style: Option<nexa_ir::ButtonStyle>,
+    size: Option<nexa_ir::ButtonSize>,
+    shape: Option<nexa_ir::ButtonShape>,
+    tint: Option<&nexa_ir::ColorExpression>,
+    glass: bool,
+    actions: &[Action],
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    render_button_with_catalog(
+        label,
+        comment,
+        accessibility_label,
+        icon,
+        &nexa_codegen::FontCatalog::default(),
+        loading,
+        disabled,
+        style,
+        size,
+        shape,
+        tint,
+        glass,
+        actions,
+        depth,
+        out,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_button_with_catalog(
+    label: &nexa_ir::Expr,
+    comment: Option<&str>,
+    accessibility_label: Option<&nexa_ir::Expr>,
+    icon: Option<&SystemIcon>,
+    font_catalog: &nexa_codegen::FontCatalog,
     loading: Option<&nexa_ir::Expr>,
     disabled: Option<&nexa_ir::Expr>,
     style: Option<nexa_ir::ButtonStyle>,
@@ -116,13 +154,14 @@ pub(crate) fn render_button(
     render_actions(actions, depth + 2, out);
     out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth + 1, format_args!("label: {{"));
-    render_button_label(label, comment, icon, depth + 2, out);
+    render_button_label(label, comment, icon, font_catalog, depth + 2, out);
     out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth, format_args!(")"));
 }
 
 pub(crate) fn render_confirmation_action_button(
     button: &Node,
+    font_catalog: &nexa_codegen::FontCatalog,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -156,7 +195,7 @@ pub(crate) fn render_confirmation_action_button(
         out.push_str("ProgressView()\n");
         indent(out, depth + 1);
         out.push_str("} else {\n");
-        render_button_label(label, None, icon.as_ref(), depth + 2, out);
+        render_button_label(label, None, icon.as_ref(), font_catalog, depth + 2, out);
         indent(out, depth + 1);
         out.push('}');
         out.push('\n');
@@ -177,7 +216,7 @@ pub(crate) fn render_confirmation_action_button(
         }
         return;
     }
-    render_button_label(label, None, icon.as_ref(), depth + 1, out);
+    render_button_label(label, None, icon.as_ref(), font_catalog, depth + 1, out);
     indent(out, depth);
     out.push('}');
     if let Some(disabled) = disabled {
@@ -191,7 +230,12 @@ pub(crate) fn render_confirmation_action_button(
     }
 }
 
-pub(crate) fn render_swipe_action_button(button: &Node, depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_swipe_action_button(
+    button: &Node,
+    font_catalog: &nexa_codegen::FontCatalog,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     let Node::Button {
         label,
         icon,
@@ -213,10 +257,10 @@ pub(crate) fn render_swipe_action_button(button: &Node, depth: usize, out: &mut 
         out.line_at(depth + 1, format_args!("if {} {{", expression(loading)));
         out.line_at(depth + 2, format_args!("ProgressView()"));
         out.line_at(depth + 1, format_args!("}} else {{"));
-        render_button_label(label, None, icon.as_ref(), depth + 2, out);
+        render_button_label(label, None, icon.as_ref(), font_catalog, depth + 2, out);
         out.line_at(depth + 1, format_args!("}}"));
     } else {
-        render_button_label(label, None, icon.as_ref(), depth + 1, out);
+        render_button_label(label, None, icon.as_ref(), font_catalog, depth + 1, out);
     }
     indent(out, depth);
     out.push('}');
@@ -248,6 +292,7 @@ fn render_button_label(
     label: &nexa_ir::Expr,
     comment: Option<&str>,
     icon: Option<&SystemIcon>,
+    font_catalog: &nexa_codegen::FontCatalog,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -256,7 +301,7 @@ fn render_button_label(
         if icon.font_glyph_parts().is_some() {
             let font_icon = format!(
                 "NexaIconView(icon: {}, description: \"\", size: CGFloat({}))",
-                super::system_icons::spec(icon),
+                super::system_icons::spec_with_catalog(icon, font_catalog),
                 nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
             );
             if comment.is_none() && is_empty_button_label(label) {
@@ -576,10 +621,30 @@ pub(crate) struct PickerOptions<'a> {
     pub comment: Option<&'a str>,
 }
 
+#[cfg(test)]
 pub(crate) fn render_picker(
     items: &nexa_ir::Expr,
     state: &str,
     options: PickerOptions<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    render_picker_with_catalog(
+        items,
+        state,
+        options,
+        &nexa_codegen::FontCatalog::default(),
+        depth,
+        out,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_picker_with_catalog(
+    items: &nexa_ir::Expr,
+    state: &str,
+    options: PickerOptions<'_>,
+    font_catalog: &nexa_codegen::FontCatalog,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -591,10 +656,13 @@ pub(crate) fn render_picker(
         comment,
     } = options;
     let selected = state_name(state);
-    let icon = icon.map_or_else(|| "nil".to_owned(), super::system_icons::spec);
+    let icon = icon.map_or_else(
+        || "nil".to_owned(),
+        |icon| super::system_icons::spec_with_catalog(icon, font_catalog),
+    );
     let item_icons = item_icons
         .iter()
-        .map(super::system_icons::spec)
+        .map(|icon| super::system_icons::spec_with_catalog(icon, font_catalog))
         .collect::<Vec<_>>()
         .join(", ");
     let tint = tint.map_or_else(

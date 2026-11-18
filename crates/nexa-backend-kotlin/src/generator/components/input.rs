@@ -289,9 +289,8 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     };
     let style_overrides = [
         font_size.map(|size| format!("fontSize = {}.sp", number(size))),
-        font_family.map(|family| {
-            let face = nexa_codegen::names::font_face_name(family, nexa_ir::FontWeight::Normal);
-            let resource_name = nexa_codegen::names::font_resource_name(&face);
+        font_family.map(|face| {
+            let resource_name = nexa_codegen::names::font_resource_name(face);
             format!(
                 "fontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.{resource_name}, weight = androidx.compose.ui.text.font.FontWeight.Normal))"
             )

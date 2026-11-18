@@ -19,7 +19,7 @@ use nexa_syntax::ast::Program;
 //
 // Published as the newest row of `docs/architecture-audit.md`; the
 // `cache_audit_documents_current_version` test fails when the two disagree.
-pub(super) const CACHE_VERSION: &str = "build-v516";
+pub(super) const CACHE_VERSION: &str = "build-v517";
 
 pub(super) fn restore_warnings(entry: &Path, key: &str) -> Result<Option<Vec<String>>, String> {
     let path = cache_directory(entry).join(format!("{key}.warnings"));
@@ -437,9 +437,9 @@ impl Fnv64 {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{collections::BTreeMap, fs, path::Path};
 
-    use super::key;
+    use super::{key, key_with_extra_and_roots};
 
     /// A temporary project whose directory is owned for as long as it is bound.
     struct TempProject(nexa_testkit::TempDir);
@@ -452,6 +452,30 @@ mod tests {
         fn path(&self) -> &std::path::Path {
             &self.0
         }
+    }
+
+    #[test]
+    fn project_cache_key_tracks_custom_font_assets() {
+        let project = TempProject::new();
+        let entry = project.path().join("main.nx");
+        let fonts = project.path().join("assets/fonts");
+        fs::create_dir_all(&fonts).expect("font asset directory should be created");
+        fs::write(&entry, "app Demo { body { Text(\"ok\") } }\n")
+            .expect("entry source should be written");
+        let font = fonts.join("inter_regular.ttf");
+        fs::write(&font, b"regular face").expect("font face should be written");
+        let cache_key = |entry: &Path| {
+            key_with_extra_and_roots(entry, "project-all", &[fonts.as_path()], &BTreeMap::new())
+        };
+
+        let initial = cache_key(&entry).expect("initial font cache key should resolve");
+        fs::write(&font, b"updated face").expect("font face should change");
+        let updated = cache_key(&entry).expect("updated font cache key should resolve");
+
+        assert_ne!(
+            initial, updated,
+            "font changes must invalidate generated native faces"
+        );
     }
 
     #[test]

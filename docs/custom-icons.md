@@ -86,7 +86,7 @@ The font contains outlines for glyphs and a character map that associates each g
 
 At project compilation, Nexa checks that the configured font exists, is a TTF or OTF file directly inside `assets/fonts/`, and that every alias refers to a declared font and a valid Unicode scalar. It also rejects duplicate aliases and aliases that collide with a shared Nexa icon. Nexa cannot tell whether the font's character map actually contains the selected codepoint, so confirm that mapping in the icon font's documentation or font editor.
 
-The font filename stem must match the declared family name (for example `TrailIcons.ttf` and `TrailIcons`). On iOS, `fontFamily` is passed to SwiftUI as the custom font's name, so use the font's PostScript name as the family. On Android, Nexa resolves the packaged font resource from the family name.
+The filename stem does not have to match the family declared in `iconFonts`. Nexa reads the font metadata at project generation and maps the configured family to the iOS PostScript name and Android resource ID. When using an automatically discovered font without an `iconFonts` mapping, use its embedded family name in `.nx`.
 
 ### Finding codepoints
 
@@ -186,8 +186,8 @@ For a glyph supplied dynamically through `Icon(glyph:)`, keep the value within t
 ## Troubleshooting
 
 - **`unknown icon` during `nexa check`:** confirm the alias spelling in `assets.icons` and that the config is in the project root or a parent directory of the `.nx` entry file.
-- **Font path or family error:** keep the file directly under `assets/fonts/`, use `.ttf` or `.otf`, and match its filename stem to the configured family.
-- **A square, blank space, or wrong symbol appears:** verify the codepoint against the font's character map and confirm the font's PostScript name matches the configured family.
+- **Font path or family error:** keep the file directly under `assets/fonts/`, use `.ttf` or `.otf`, and confirm the `iconFonts` family points to the correct file.
+- **A square, blank space, or wrong symbol appears:** verify the codepoint against the font's character map and confirm the configured family is registered in `iconFonts`.
 - **It works on one target only:** make sure both builds use the same font file and codepoint, then rebuild so the native resource bundles are regenerated.
 - **A button or tab rejects the custom name:** use an alias declared under `assets.icons`; `Icon(sfsymbol:)` and `Icon(materialsymbol:)` are for platform-specific symbols, not registered font aliases.
 

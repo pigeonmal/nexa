@@ -153,9 +153,11 @@ impl Parser {
         let mut assets = AssetsConfig {
             icon: None,
             splash: None,
+            fonts: Vec::new(),
             icon_fonts: Vec::new(),
             icons: Vec::new(),
         };
+        let mut has_fonts = false;
         let mut has_icon_fonts = false;
         let mut has_icons = false;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
@@ -168,6 +170,16 @@ impl Parser {
                 "splash" => {
                     self.expect(Kind::Colon, "expected `:` after asset field")?;
                     assets.splash = Some(self.config_string("splash asset")?);
+                }
+                "fonts" => {
+                    if has_fonts {
+                        return Err(CompileError::new(
+                            span,
+                            "asset `fonts` is declared more than once",
+                        ));
+                    }
+                    has_fonts = true;
+                    assets.fonts = self.config_fonts_decl()?;
                 }
                 "iconFonts" => {
                     if has_icon_fonts {
@@ -203,13 +215,117 @@ impl Parser {
         Ok(assets)
     }
 
+    fn config_fonts_decl(&mut self) -> Result<Vec<FontFamilyConfig>, CompileError> {
+        self.expect(Kind::LBrace, "expected `{` after `fonts`")?;
+        let mut families = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (family, span) = self.config_name("font family")?;
+            if family.trim().is_empty() {
+                return Err(CompileError::new(span, "font family cannot be empty"));
+            }
+            if families
+                .iter()
+                .any(|existing: &FontFamilyConfig| existing.family.eq_ignore_ascii_case(&family))
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("font family `{family}` is configured more than once"),
+                ));
+            }
+            self.expect(Kind::LBrace, "expected `{` after font family")?;
+            let mut faces = Vec::new();
+            while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+                let (weight_name, face_span) = self.ident()?;
+                let weight = match weight_name.to_ascii_lowercase().as_str() {
+                    "normal" | "regular" => FontFaceWeight::Normal,
+                    "medium" => FontFaceWeight::Medium,
+                    "semibold" | "semi_bold" => FontFaceWeight::Semibold,
+                    "bold" => FontFaceWeight::Bold,
+                    _ => {
+                        return Err(CompileError::new(
+                            face_span,
+                            format!(
+                                "unknown font weight `{weight_name}`; use `normal`, `medium`, `semibold`, or `bold`"
+                            ),
+                        ));
+                    }
+                };
+                if faces
+                    .iter()
+                    .any(|existing: &FontFaceConfig| existing.weight == weight)
+                {
+                    return Err(CompileError::new(
+                        face_span,
+                        format!("font family `{family}` configures `{weight_name}` more than once"),
+                    ));
+                }
+                self.expect(Kind::Colon, "expected `:` after font weight")?;
+                let path = self.config_string("font face path")?;
+                if path.is_empty() {
+                    return Err(CompileError::new(
+                        face_span,
+                        "font face path cannot be empty",
+                    ));
+                }
+                faces.push(FontFaceConfig {
+                    weight,
+                    path,
+                    span: face_span,
+                });
+                self.config_field_separator("font family")?;
+            }
+            self.expect(Kind::RBrace, "expected `}` to close font family")?;
+            if faces.is_empty() {
+                return Err(CompileError::new(
+                    span,
+                    format!("font family `{family}` must configure at least one face"),
+                ));
+            }
+            families.push(FontFamilyConfig {
+                family,
+                faces,
+                span,
+            });
+            self.config_field_separator("fonts")?;
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config fonts")?;
+        self.optional_semicolon();
+        Ok(families)
+    }
+
+    fn config_name(&mut self, context: &str) -> Result<(String, Span), CompileError> {
+        let token = self.advance().clone();
+        match token.kind {
+            Kind::Ident(value) | Kind::String(value) => Ok((value, token.span)),
+            _ => Err(CompileError::new(
+                token.span,
+                format!("expected a {context} name"),
+            )),
+        }
+    }
+
     fn config_icon_fonts_decl(&mut self) -> Result<Vec<IconFontConfig>, CompileError> {
         self.expect(Kind::LBrace, "expected `{` after `iconFonts`")?;
         let mut fonts = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
-            let (family, span) = self.ident()?;
+            let (family, span) = self.config_name("icon font family")?;
+            if family.trim().is_empty() {
+                return Err(CompileError::new(span, "icon font family cannot be empty"));
+            }
+            if fonts
+                .iter()
+                .any(|existing: &IconFontConfig| existing.family.eq_ignore_ascii_case(&family))
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("icon font family `{family}` is configured more than once"),
+                ));
+            }
             self.expect(Kind::Colon, "expected `:` after icon font family")?;
             let path = self.config_string("icon font path")?;
+            if path.is_empty() {
+                return Err(CompileError::new(span, "icon font path cannot be empty"));
+            }
             fonts.push(IconFontConfig { family, path, span });
             self.config_field_separator("iconFonts")?;
         }
@@ -4562,6 +4678,36 @@ mod tests {
             },
             target: catalog::ViewModifierTarget::AnyView,
         }];
+
+    #[test]
+    fn parser_accepts_custom_font_family_paths_and_weights_in_config() {
+        let config = crate::parse_config(
+            r#"config {
+                assets {
+                    fonts {
+                        "Brand Display" {
+                            normal: "assets/fonts/brand-regular.otf",
+                            semibold: "assets/fonts/brand-semibold.otf"
+                        }
+                    }
+                }
+            }"#,
+        )
+        .expect("font configuration parses");
+        let assets = config.assets.expect("assets config");
+        assert_eq!(assets.fonts.len(), 1);
+        assert_eq!(assets.fonts[0].family, "Brand Display");
+        assert_eq!(assets.fonts[0].faces.len(), 2);
+        assert_eq!(assets.fonts[0].faces[0].weight, ast::FontFaceWeight::Normal);
+        assert_eq!(
+            assets.fonts[0].faces[1].weight,
+            ast::FontFaceWeight::Semibold
+        );
+        assert_eq!(
+            assets.fonts[0].faces[1].path,
+            "assets/fonts/brand-semibold.otf"
+        );
+    }
 
     #[test]
     fn parser_accepts_a_catalogued_shared_view_modifier() {

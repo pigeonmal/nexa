@@ -63,6 +63,27 @@ impl SwiftBackend {
         generator::generate_units(module)
     }
 
+    /// Generate release units using the project's build-time font catalog.
+    pub fn generate_units_with_font_catalog_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_units_with_font_catalog_and_project_features(module, font_catalog)
+    }
+
+    /// Generate development units using the project's build-time font catalog.
+    pub fn generate_for_dev_units_with_font_catalog_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_for_dev_units_with_font_catalog_and_project_features(
+            module,
+            font_catalog,
+        )
+    }
+
     /// Generate WidgetKit extension sources from typed Nexa widget declarations.
     /// These are separate from the application host units and are intended to
     /// be assigned to a widget extension target by project generation.
@@ -89,12 +110,33 @@ impl SwiftBackend {
         generator::generate_units_with_network_and_project_features(module)
     }
 
+    /// Generate release units with plugin networking and project fonts.
+    pub fn generate_units_with_network_and_font_catalog_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_units_with_network_and_font_catalog_and_project_features(
+            module,
+            font_catalog,
+        )
+    }
+
     /// Generate network and value codec runtimes for native plugins.
     pub fn generate_units_with_plugin_value_runtime_and_network_and_project_features(
         &self,
         module: &nexa_ir::Module,
     ) -> (GeneratedSources, SwiftProjectFeatures) {
         generator::generate_units_with_plugin_value_runtime_and_network_and_project_features(module)
+    }
+
+    /// Generate release units with plugin values, networking, and project fonts.
+    pub fn generate_units_with_plugin_value_runtime_and_network_and_font_catalog_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_units_with_plugin_value_runtime_and_network_and_font_catalog_and_project_features(module, font_catalog)
     }
 
     /// Generate release units with the value codec runtime required by a
@@ -112,6 +154,18 @@ impl SwiftBackend {
         module: &nexa_ir::Module,
     ) -> (GeneratedSources, SwiftProjectFeatures) {
         generator::generate_units_with_plugin_value_runtime_and_project_features(module)
+    }
+
+    /// Generate release units with plugin value support and project fonts.
+    pub fn generate_units_with_plugin_value_runtime_and_font_catalog_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_units_with_plugin_value_runtime_and_font_catalog_and_project_features(
+            module,
+            font_catalog,
+        )
     }
 }
 

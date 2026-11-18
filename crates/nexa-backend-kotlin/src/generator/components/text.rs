@@ -49,7 +49,24 @@ pub(crate) fn imports(
     );
 }
 
+#[cfg(test)]
 pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut SourceWriter) {
+    render_with_catalog(
+        value,
+        style,
+        &nexa_codegen::FontCatalog::default(),
+        depth,
+        out,
+    );
+}
+
+pub(crate) fn render_with_catalog(
+    value: &Expr,
+    style: &TextStyle,
+    font_catalog: &nexa_codegen::FontCatalog,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     if let Some(number_flow) = &style.number_flow {
         let format = match number_flow.format {
             nexa_ir::NumberFlowFormat::Number => "Number",
@@ -106,11 +123,17 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
         ));
     }
     if let Some(family) = style.font_family.as_deref() {
-        let face = nexa_codegen::names::font_face_name(family, font_weight);
-        let resource_name = nexa_codegen::names::font_resource_name(&face);
+        let selected = font_catalog.resolve(family, font_weight);
+        let resource_name = selected
+            .map(|face| face.android_resource_name.clone())
+            .unwrap_or_else(|| {
+                let face = nexa_codegen::names::font_face_name(family, font_weight);
+                nexa_codegen::names::font_resource_name(&face)
+            });
+        let face_weight = selected.map(|face| face.weight).unwrap_or(font_weight);
         out.push_str(&format!(
             ", fontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.{resource_name}, weight = {}))",
-            kotlin_font_weight(font_weight)
+            kotlin_font_weight(face_weight)
         ));
     } else if let Some(font_design) = style
         .font_design
@@ -266,7 +289,7 @@ fn kotlin_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::render;
+    use super::{render, render_with_catalog};
     use nexa_codegen::SourceWriter;
     use nexa_ir::{Color, ColorValue, Expr, TextStyle, ViewEffects, ViewShadow};
 
@@ -393,6 +416,34 @@ mod tests {
                 .finish()
                 .contains("fontFamily = androidx.compose.ui.text.font.FontFamily.Serif")
         );
+    }
+
+    #[test]
+    fn custom_text_family_resolves_its_static_font_resource_from_the_catalog() {
+        let mut catalog = nexa_codegen::FontCatalog::default();
+        catalog.insert(nexa_codegen::FontFace {
+            family: "Inter".to_owned(),
+            weight: nexa_ir::FontWeight::Semibold,
+            postscript_name: "Inter-SemiBold".to_owned(),
+            android_resource_name: "inter_semibold".to_owned(),
+        });
+        let mut output = SourceWriter::new();
+
+        render_with_catalog(
+            &Expr::String("Assigned tasks".to_owned()),
+            &TextStyle {
+                font_family: Some("Inter".to_owned()),
+                font_weight: Some(nexa_ir::FontWeight::Semibold),
+                ..TextStyle::default()
+            },
+            &catalog,
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(generated.contains("R.font.inter_semibold"));
+        assert!(generated.contains("weight = FontWeight.SemiBold"));
     }
 
     #[test]

@@ -381,7 +381,7 @@ pub(crate) fn render_app_bottom_bar(
                     content_depth + 3,
                     format_args!(
                         "NexaIconContent(icon = {}, description = \"\", size = 24.dp)",
-                        system_icons::spec(icon)
+                        system_icons::spec_with_catalog(icon, &features.font_catalog)
                     ),
                 );
             } else {
@@ -760,7 +760,7 @@ fn render_tab_toolbar_item(
             item_icons,
             label,
             tint,
-        } => controls::render_picker(
+        } => controls::render_picker_with_catalog(
             items,
             item_icons,
             state,
@@ -768,6 +768,7 @@ fn render_tab_toolbar_item(
             label.as_ref(),
             tint.as_ref(),
             false,
+            &features.font_catalog,
             depth,
             out,
         ),

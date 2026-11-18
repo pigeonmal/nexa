@@ -449,6 +449,13 @@ const CONFIG_OPTIONS: &[ConfigOptionDoc] = &[
     },
     ConfigOptionDoc {
         section: "assets",
+        key: "fonts",
+        ty: "font family to weight and path map",
+        summary: "Aliases a logical `fontFamily` name to TTF or OTF faces and explicit weights.",
+        default: |_| unset(),
+    },
+    ConfigOptionDoc {
+        section: "assets",
         key: "icons",
         ty: "icon name to `[font family, codepoint]`",
         summary: "Defines compile-time glyph aliases accepted by built-in component `icon:` parameters.",

@@ -132,18 +132,10 @@ __NEXA_SWIFT_TEXT_FONT_STYLE_SIZE_CASES__
 }
 
 private func nexaDevFontFaceName(_ familyName: String, weight: String) -> String {
-    guard let separatorIndex = familyName.lastIndex(where: { $0 == "-" || $0 == "_" }),
-          familyName.index(after: separatorIndex) < familyName.endIndex,
-          String(familyName[familyName.index(after: separatorIndex)...]).caseInsensitiveCompare("regular") == .orderedSame else {
-        return familyName
+    switch (familyName.lowercased(), weight) {
+__NEXA_FONT_FACE_CASES__
+    default: return familyName
     }
-    let face: String = switch weight {
-    case "Normal": "Regular"
-    case "Medium": "Medium"
-    case "Semibold", "Bold": "Semibold"
-    default: "Regular"
-    }
-    return String(familyName[...separatorIndex]) + face
 }
 
 private struct NexaDevContentSizePreferenceKey: PreferenceKey {
@@ -409,7 +401,10 @@ private func nexaDevIconSpec(_ rawIcon: Any?) -> NexaIconSpec? {
        let family = glyph["font_family"] as? String,
        let codepoint = glyph["glyph"] as? NSNumber,
        codepoint.int32Value >= 0 {
-        return NexaIconSpec(glyph: codepoint.int32Value, fontFamily: family)
+        return NexaIconSpec(
+            glyph: codepoint.int32Value,
+            fontFamily: nexaDevFontFaceName(family, weight: "Normal")
+        )
     }
     if let shared = icon["shared"] as? String,
        let symbol = nexaDevSharedIconSymbol(shared) {
@@ -3647,7 +3642,7 @@ struct NexaDevNodeList: View {
             }
             return AnyView(NexaFontIconPrimitive(
                 glyph: glyph,
-                fontFamily: family,
+                fontFamily: nexaDevFontFaceName(family, weight: "Normal"),
                 description: description,
                 size: size,
                 tint: tint

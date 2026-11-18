@@ -131,10 +131,11 @@ fn render_confirmation_actions(
             ..
         } = child
         {
-            controls::render_button(
+            controls::render_button_with_catalog(
                 label,
                 accessibility_label.as_deref(),
                 icon.as_ref(),
+                &scope.features.font_catalog,
                 loading.as_ref(),
                 disabled.as_ref(),
                 Some((*style).unwrap_or(nexa_ir::ButtonStyle::Borderless)),

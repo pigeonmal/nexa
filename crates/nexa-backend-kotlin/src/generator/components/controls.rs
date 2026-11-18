@@ -340,10 +340,48 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn render_button(
     label: &Expr,
     accessibility_label: Option<&Expr>,
     icon: Option<&SystemIcon>,
+    loading: Option<&Expr>,
+    disabled: Option<&Expr>,
+    style: Option<nexa_ir::ButtonStyle>,
+    size: Option<nexa_ir::ButtonSize>,
+    shape: Option<nexa_ir::ButtonShape>,
+    tint: Option<&nexa_ir::ColorExpression>,
+    actions: &[Action],
+    full_width: bool,
+    leading_content: bool,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    render_button_with_catalog(
+        label,
+        accessibility_label,
+        icon,
+        &nexa_codegen::FontCatalog::default(),
+        loading,
+        disabled,
+        style,
+        size,
+        shape,
+        tint,
+        actions,
+        full_width,
+        leading_content,
+        depth,
+        out,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_button_with_catalog(
+    label: &Expr,
+    accessibility_label: Option<&Expr>,
+    icon: Option<&SystemIcon>,
+    font_catalog: &nexa_codegen::FontCatalog,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
     style: Option<nexa_ir::ButtonStyle>,
@@ -389,7 +427,10 @@ pub(crate) fn render_button(
             ),
         },
     );
-    let icon = icon.map_or_else(|| "null".to_owned(), super::system_icons::spec);
+    let icon = icon.map_or_else(
+        || "null".to_owned(),
+        |icon| super::system_icons::spec_with_catalog(icon, font_catalog),
+    );
     let tint = tint.map_or_else(
         || "null".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -739,6 +780,7 @@ pub(crate) fn render_segmented_control(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn render_picker(
     items: &Expr,
     item_icons: &[SystemIcon],
@@ -750,8 +792,38 @@ pub(crate) fn render_picker(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    render_picker_with_catalog(
+        items,
+        item_icons,
+        state,
+        icon,
+        label,
+        tint,
+        fill_max_width,
+        &nexa_codegen::FontCatalog::default(),
+        depth,
+        out,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_picker_with_catalog(
+    items: &Expr,
+    item_icons: &[SystemIcon],
+    state: &str,
+    icon: Option<&SystemIcon>,
+    label: Option<&Expr>,
+    tint: Option<&nexa_ir::ColorExpression>,
+    fill_max_width: bool,
+    font_catalog: &nexa_codegen::FontCatalog,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     let selected = state_name(state);
-    let icon = icon.map_or_else(|| "null".to_owned(), super::system_icons::spec);
+    let icon = icon.map_or_else(
+        || "null".to_owned(),
+        |icon| super::system_icons::spec_with_catalog(icon, font_catalog),
+    );
     let item_icons = if item_icons.is_empty() {
         "emptyList()".to_owned()
     } else {
@@ -759,7 +831,7 @@ pub(crate) fn render_picker(
             "listOf({})",
             item_icons
                 .iter()
-                .map(super::system_icons::spec)
+                .map(|icon| super::system_icons::spec_with_catalog(icon, font_catalog))
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -1339,7 +1411,13 @@ pub(crate) fn render_pressable(
             .filter(|node| matches!(node, Node::Button { .. }))
             .count();
         if item_count > 0 {
-            render_context_menu(context_menu, item_count, depth + 2, out);
+            render_context_menu(
+                context_menu,
+                item_count,
+                &features.font_catalog,
+                depth + 2,
+                out,
+            );
         }
         out.push('\n');
         indent(out, depth + 1);
@@ -1358,7 +1436,13 @@ pub(crate) fn render_pressable(
     }
 }
 
-fn render_context_menu(nodes: &[Node], item_count: usize, depth: usize, out: &mut SourceWriter) {
+fn render_context_menu(
+    nodes: &[Node],
+    item_count: usize,
+    font_catalog: &nexa_codegen::FontCatalog,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     let mut item_index = 0;
     for node in nodes {
         let Node::Button {
@@ -1397,7 +1481,7 @@ fn render_context_menu(nodes: &[Node], item_count: usize, depth: usize, out: &mu
                 depth + 1,
                 format_args!(
                     "leadingIcon = {{ NexaIconContent(icon = {}, description = \"\", size = 24.dp) }},",
-                    super::system_icons::spec(icon)
+                    super::system_icons::spec_with_catalog(icon, font_catalog)
                 ),
             );
         }

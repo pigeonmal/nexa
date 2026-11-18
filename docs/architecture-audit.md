@@ -23,6 +23,7 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v517` | Resolves text font families from packaged font metadata and emits static iOS, Android, and DevRuntime face lookups. |
 | `build-v516` | Keeps iOS keyed FastList row identity lazy through a typed random-access collection instead of allocating an identity wrapper and `AnyHashable` for every source row during parent updates. |
 | `build-v515` | Removes Android Marquee's draw-time StateFlow invalidation; typed child values and measured geometry drive animation resets outside the drawing phase. |
 | `build-v514` | Reuses one Cronet transfer buffer, bounds response storage, avoids a final body copy when the accumulator is exact-sized, uses overflow-safe limits, and serializes Android download writes against cancellation and close. |

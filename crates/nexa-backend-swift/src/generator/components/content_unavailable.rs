@@ -16,6 +16,7 @@ pub(crate) fn render(
     icon: &SystemIcon,
     description: Option<&Expr>,
     overrides: ColorOverrides<'_>,
+    font_catalog: &nexa_codegen::FontCatalog,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -24,7 +25,7 @@ pub(crate) fn render(
         format_args!(
             "NexaContentUnavailablePrimitive(title: {}, icon: {}, description: {}, titleColor: {}, descriptionColor: {}, iconTint: {}, background: {})",
             localized_text_view(title, None),
-            super::system_icons::spec(icon),
+            super::system_icons::spec_with_catalog(icon, font_catalog),
             description
                 .map(|value| localized_text_view(value, None))
                 .unwrap_or_else(|| "nil".to_owned()),
@@ -51,6 +52,7 @@ mod tests {
             &SystemIcon::shared("inbox").expect("catalog icon"),
             Some(&Expr::String("Add an item to begin.".to_owned())),
             ColorOverrides::default(),
+            &nexa_codegen::FontCatalog::default(),
             0,
             &mut out,
         );
@@ -67,6 +69,7 @@ mod tests {
             &SystemIcon::shared("inbox").expect("catalog icon"),
             None,
             ColorOverrides::default(),
+            &nexa_codegen::FontCatalog::default(),
             0,
             &mut out,
         );
@@ -81,6 +84,7 @@ mod tests {
             &SystemIcon::font_glyph("Mazicon", 61696).expect("valid custom glyph"),
             None,
             ColorOverrides::default(),
+            &nexa_codegen::FontCatalog::default(),
             0,
             &mut out,
         );

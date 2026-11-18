@@ -1080,7 +1080,7 @@ app ComponentParity {
                         fontSize: 24,
                         fontStyle: Body,
                         fontDesign: Default,
-                        fontFamily: "Gilroy-Regular",
+                        fontFamily: "Gilroy",
                         fontWeight: Semibold,
                         padding: 4,
                         opacity: 0.95,
@@ -1113,7 +1113,7 @@ app ComponentParity {
                     Text("Underlined text", underline: true, fontDesign: Rounded)
                     Text("Combined emphasis", italic: true, underline: true, strikethrough: true, fontDesign: Monospaced)
                     Text("Default design", fontDesign: Default)
-                    Text("Gilroy custom face", fontFamily: "Gilroy-Regular")
+                    Text("Gilroy custom face", fontFamily: "Gilroy")
                     Text("Serif design", fontDesign: Serif)
                     Text("Serif 18", fontSize: 18, fontDesign: Serif, comment: "Serif typeface at a custom size")
                     Text("Rounded design", fontDesign: Rounded)
@@ -1139,7 +1139,7 @@ app ComponentParity {
                         fontSize: 16,
                         fontStyle: Body,
                         fontDesign: Default,
-                        fontFamily: "Gilroy-Regular",
+                        fontFamily: "Gilroy",
                         fontWeight: Semibold,
                         padding: 4,
                         opacity: 0.95,
@@ -1452,7 +1452,7 @@ app ComponentParity {
                     emailFocusCount = 0
                 }
                 ParityCard(title: "Default text, placeholder, comment, length, and onChange") {
-                    TextInput(value: shortText, placeholder: "Task name", comment: "Task name for the parity audit", keyboardType: Text, isSecure: false, autocorrect: true, capitalization: Sentences, maxLength: 12, font: Body, fontSize: 16, fontFamily: "Gilroy-Regular", textColor: "#FFFFFF", placeholderColor: "#888888", clearable: true, searchable: false, returnKeyType: Done) {
+                    TextInput(value: shortText, placeholder: "Task name", comment: "Task name for the parity audit", keyboardType: Text, isSecure: false, autocorrect: true, capitalization: Sentences, maxLength: 12, font: Body, fontSize: 16, fontFamily: "Gilroy", textColor: "#FFFFFF", placeholderColor: "#888888", clearable: true, searchable: false, returnKeyType: Done) {
                         lastSubmitted = "Text · Done"
                     }.onChange {
                         changed ->

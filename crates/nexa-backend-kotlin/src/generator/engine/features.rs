@@ -150,6 +150,7 @@ pub(crate) struct Features {
     /// Target-neutral facts from the single analysis pass. Renderers read
     /// UI and capability observations from here instead of re-walking subtrees.
     pub(crate) facts: nexa_ir::facts::ModuleFacts,
+    pub(crate) font_catalog: nexa_codegen::FontCatalog,
     component_theme: HashSet<String>,
     components_using_navigation: HashSet<String>,
     components_using_link: HashSet<String>,
@@ -162,8 +163,16 @@ impl Features {
     /// are computed once here and carried along for renderers that need
     /// per-scope data, so no walks happen anywhere else in the backend.
     pub(crate) fn analyze(module: &Module) -> Self {
+        Self::analyze_with_font_catalog(module, nexa_codegen::FontCatalog::default())
+    }
+
+    pub(crate) fn analyze_with_font_catalog(
+        module: &Module,
+        font_catalog: nexa_codegen::FontCatalog,
+    ) -> Self {
         let facts = nexa_ir::facts::ModuleFacts::analyze(module);
         let mut features = Self {
+            font_catalog,
             uses_status_bar: facts.ui.status_bar,
             uses_column: module.body.len() != 1
                 || module.screens.iter().any(|screen| screen.body.len() > 1)

@@ -205,7 +205,7 @@ pub(crate) fn render_node(
             out.line_at(depth, format_args!("}}"));
         }
         Node::Text { value, style } => {
-            render_text(value, style, depth, out);
+            render_text_with_catalog(value, style, &features.font_catalog, depth, out);
             layout::append_visual_effects(out, depth, style.opacity, &style.effects);
         }
         Node::ContentUnavailable {
@@ -226,6 +226,7 @@ pub(crate) fn render_node(
                 icon: icon_tint.as_ref(),
                 background: background.as_ref(),
             },
+            &features.font_catalog,
             depth,
             out,
         ),
@@ -387,11 +388,12 @@ pub(crate) fn render_node(
             actions,
             ..
         } => {
-            controls::render_button(
+            controls::render_button_with_catalog(
                 label,
                 None,
                 accessibility_label.as_deref(),
                 icon.as_ref(),
+                &features.font_catalog,
                 loading.as_ref(),
                 disabled.as_ref(),
                 *style,
@@ -448,7 +450,13 @@ pub(crate) fn render_node(
                 max_length: *max_length,
                 font: *font,
                 font_size: *font_size,
-                font_family: font_family.as_deref(),
+                font_family: font_family.as_deref().map(|family| {
+                    features
+                        .font_catalog
+                        .resolve(family, nexa_ir::FontWeight::Normal)
+                        .map(|face| face.postscript_name.as_str())
+                        .unwrap_or(family)
+                }),
                 text_color: *text_color,
                 placeholder_color: *placeholder_color,
                 clearable: *clearable,
@@ -546,7 +554,7 @@ pub(crate) fn render_node(
             item_icons,
             label,
             tint,
-        } => controls::render_picker(
+        } => controls::render_picker_with_catalog(
             items,
             state,
             controls::PickerOptions {
@@ -556,6 +564,7 @@ pub(crate) fn render_node(
                 tint: tint.as_ref(),
                 comment: None,
             },
+            &features.font_catalog,
             depth,
             out,
         ),
@@ -586,14 +595,31 @@ pub(crate) fn render_node(
             description,
             size,
             tint,
-        } => system_icons::render(icon, description, *size, tint, depth, out),
+        } => system_icons::render_with_catalog(
+            icon,
+            description,
+            *size,
+            tint,
+            &features.font_catalog,
+            depth,
+            out,
+        ),
         Node::FontIcon {
             font_family,
             glyph,
             description,
             size,
             tint,
-        } => system_icons::render_font(font_family, glyph, description, size, tint, depth, out),
+        } => system_icons::render_font_with_catalog(
+            font_family,
+            glyph,
+            description,
+            size,
+            tint,
+            &features.font_catalog,
+            depth,
+            out,
+        ),
         Node::LinearGradient {
             start_color,
             end_color,
@@ -1002,9 +1028,26 @@ fn render_form(
     out.line_at(depth, format_args!("}}"));
 }
 
+#[cfg(test)]
 fn render_text(
     value: &nexa_ir::Expr,
     style: &nexa_ir::TextStyle,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    render_text_with_catalog(
+        value,
+        style,
+        &nexa_codegen::FontCatalog::default(),
+        depth,
+        out,
+    );
+}
+
+fn render_text_with_catalog(
+    value: &nexa_ir::Expr,
+    style: &nexa_ir::TextStyle,
+    font_catalog: &nexa_codegen::FontCatalog,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -1019,7 +1062,10 @@ fn render_text(
         })
         .unwrap_or(nexa_ir::FontWeight::Normal);
     let font = if let Some(family) = style.font_family.as_deref() {
-        let face = nexa_codegen::names::font_face_name(family, custom_font_weight);
+        let face = font_catalog
+            .resolve(family, custom_font_weight)
+            .map(|face| face.postscript_name.clone())
+            .unwrap_or_else(|| nexa_codegen::names::font_face_name(family, custom_font_weight));
         let size = style
             .font_size
             .or_else(|| {
@@ -1213,10 +1259,14 @@ fn render_text(
             .font_family
             .as_deref()
             .map(|family| {
-                crate::generator::engine::utils::swift_string(&nexa_codegen::names::font_face_name(
-                    family,
-                    font_weight,
-                ))
+                crate::generator::engine::utils::swift_string(
+                    &font_catalog
+                        .resolve(family, font_weight)
+                        .map(|face| face.postscript_name.clone())
+                        .unwrap_or_else(|| {
+                            nexa_codegen::names::font_face_name(family, font_weight)
+                        }),
+                )
             })
             .unwrap_or_else(|| "nil".to_owned());
         let alignment = match style.alignment {
@@ -1563,6 +1613,32 @@ mod text_tests {
                 .finish()
                 .contains(".withFont(.system(.body, design: .monospaced))")
         );
+    }
+
+    #[test]
+    fn custom_text_family_resolves_its_postscript_face_from_the_catalog() {
+        let mut catalog = nexa_codegen::FontCatalog::default();
+        catalog.insert(nexa_codegen::FontFace {
+            family: "Inter".to_owned(),
+            weight: nexa_ir::FontWeight::Semibold,
+            postscript_name: "Inter-SemiBold".to_owned(),
+            android_resource_name: "inter_semibold".to_owned(),
+        });
+        let mut output = SourceWriter::new();
+
+        super::render_text_with_catalog(
+            &Expr::String("Assigned tasks".to_owned()),
+            &TextStyle {
+                font_family: Some("Inter".to_owned()),
+                font_weight: Some(nexa_ir::FontWeight::Semibold),
+                ..TextStyle::default()
+            },
+            &catalog,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(".custom(\"Inter-SemiBold\""));
     }
 
     #[test]
