@@ -163,7 +163,9 @@ fn collect_drawables(
                         ),
                     }
                 })?;
-                widget_icon_color(tint);
+                if let Some(tint) = tint {
+                    widget_icon_color(tint);
+                }
                 let resource_name = drawable.resource_name;
                 let unit_name = format!("drawable/{resource_name}.xml");
                 if !output.iter().any(|unit| unit.name == unit_name) {
@@ -1058,14 +1060,15 @@ fn render_node(
         },
         Node::SystemIcon { icon, description, size, tint } => {
             let drawable = icon.android_widget_drawable().ok_or_else(|| crate::WidgetGenerationError { widget: widget.name.clone(), message: format!("no Android Glance drawable mapping for system icon {icon:?}") })?;
-            let color = widget_icon_color(tint);
+            let color_filter = tint.as_ref().map(|tint| format!("ColorFilter.tint({})", widget_icon_color(tint))).unwrap_or_else(|| "null".to_owned());
             let resource_name = drawable.resource_name;
-            let content_description = if description.is_empty() {
-                "null".to_owned()
-            } else {
-                kotlin_string(description)
-            };
-            out.line_at(depth, format_args!("GlanceImage(provider = ImageProvider(R.drawable.{resource_name}), contentDescription = {content_description}, alpha = 1f, colorFilter = ColorFilter.tint({color}), modifier = GlanceModifier.width({size}.dp).height({size}.dp))"));
+            let content_description = description
+                .as_deref()
+                .filter(|description| !description.is_empty())
+                .map(kotlin_string)
+                .unwrap_or_else(|| "null".to_owned());
+            let size = size.unwrap_or(24.0);
+            out.line_at(depth, format_args!("GlanceImage(provider = ImageProvider(R.drawable.{resource_name}), contentDescription = {content_description}, alpha = 1f, colorFilter = {color_filter}, modifier = GlanceModifier.width({size}.dp).height({size}.dp))"));
         }
         _ => return Err(crate::WidgetGenerationError { widget: widget.name.clone(), message: "unsupported widget node reached backend renderer".to_owned() }),
     }
@@ -1442,15 +1445,15 @@ mod tests {
                     role: nexa_ir::AccessibilityRole::None,
                     children: vec![Node::SystemIcon {
                         icon: nexa_ir::SystemIcon::Shared("calendar".into()),
-                        description: String::new(),
-                        size: 16.0,
-                        tint: nexa_ir::ColorExpression::Static(nexa_ir::ColorValue::Static(
-                            nexa_ir::Color {
+                        description: Some(String::new()),
+                        size: Some(16.0),
+                        tint: Some(nexa_ir::ColorExpression::Static(
+                            nexa_ir::ColorValue::Static(nexa_ir::Color {
                                 red: 0,
                                 green: 0,
                                 blue: 0,
                                 alpha: 255,
-                            },
+                            }),
                         )),
                     }],
                 },

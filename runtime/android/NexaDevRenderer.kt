@@ -1,5 +1,6 @@
 package __NEXA_PACKAGE__
 
+import android.graphics.Typeface
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import android.content.Context
@@ -185,6 +186,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import kotlinx.coroutines.launch
 
 private data class NexaDevDimension(val kind: String, val value: Float = 0f)
@@ -205,6 +207,67 @@ private fun nexaDevDimension(raw: Any?): NexaDevDimension? = when (raw) {
     }
     else -> null
 }
+
+
+internal object NexaDevFontRegistry {
+    private val families = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.text.font.FontFamily>()
+    private val developmentFonts = java.util.concurrent.ConcurrentHashMap<String, File>()
+
+    fun install(context: Context, assets: JSONObject?) {
+        val directory = File(context.cacheDir, "nexa-dev-fonts")
+        if (assets == null || assets.length() == 0) {
+            families.clear()
+            developmentFonts.values.forEach { font -> font.delete() }
+            developmentFonts.clear()
+            return
+        }
+        if (!directory.exists() && !directory.mkdirs()) return
+
+        val activeFamilies = HashSet<String>(assets.length())
+        val iterator = assets.keys()
+        while (iterator.hasNext()) {
+            val familyName = iterator.next()
+            if (familyName.isEmpty() || familyName.any {
+                    !(it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' || it == '-')
+                }) {
+                continue
+            }
+            val encoded = assets.optJSONArray(familyName) ?: continue
+            if (encoded.length() == 0) continue
+            val bytes = ByteArray(encoded.length()) { index -> encoded.optInt(index).toByte() }
+            val fontFile = File(directory, "$familyName.ttf")
+            runCatching {
+                if (!fontFile.isFile || fontFile.length() != bytes.size.toLong() || !fontFile.readBytes().contentEquals(bytes)) {
+                    fontFile.writeBytes(bytes)
+                }
+                developmentFonts[familyName] = fontFile
+                activeFamilies += familyName
+            }.onFailure { error ->
+                android.util.Log.w("NexaDevRuntime", "Could not install custom icon font $familyName", error)
+            }
+        }
+        developmentFonts.keys.toList().forEach { familyName ->
+            if (familyName !in activeFamilies) {
+                developmentFonts.remove(familyName)?.delete()
+            }
+        }
+        families.clear()
+    }
+
+    fun resolve(familyName: String): androidx.compose.ui.text.font.FontFamily? {
+        val fontFile = developmentFonts[familyName] ?: return null
+        return families.computeIfAbsent(familyName) {
+            runCatching { Typeface.createFromFile(fontFile) }
+                .getOrNull()
+                ?.let { face -> androidx.compose.ui.text.font.FontFamily(face) }
+                ?: androidx.compose.ui.text.font.FontFamily.Default
+        }
+    }
+}
+
+@Composable
+private fun nexaDevIconFontFamily(name: String): androidx.compose.ui.text.font.FontFamily =
+    NexaDevFontRegistry.resolve(name) ?: nexaDevFontFamily(name, FontWeight.Normal)
 
 @Composable
 private fun nexaDevFontFamily(name: String, weight: FontWeight): androidx.compose.ui.text.font.FontFamily {
@@ -282,7 +345,21 @@ __NEXA_SPECIFIC_MATERIAL_ICON_CASES__
 }
 
 @Composable
-private fun nexaDevIconSpec(selection: JSONObject): NexaIconSpec? {
+private fun nexaDevIconSpec(
+    selection: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+): NexaIconSpec? {
+    val description = selection.optString("description").takeIf { selection.has("description") && it != "null" }
+    val size = if (selection.has("size")) selection.optDouble("size").dp else null
+    val colorValue = selection.optJSONObject("color")
+    val dynamicColor = colorValue?.opt("Dynamic")
+    val tint = if (dynamicColor != null && dynamicColor != JSONObject.NULL) {
+        nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicColor, locals, scope)))
+    } else {
+        nexaDevColor(colorValue, isSystemInDarkTheme())
+    }
     val fontGlyph = selection.optJSONObject("font_glyph")
     if (fontGlyph != null) {
         val family = fontGlyph.optString("font_family")
@@ -290,7 +367,12 @@ private fun nexaDevIconSpec(selection: JSONObject): NexaIconSpec? {
         if (family.isNotEmpty() && glyph >= 0) {
             return NexaIconSpec(
                 glyph = glyph,
-                fontFamily = nexaDevFontFamily(family, FontWeight.Normal),
+                fontFamily = nexaDevIconFontFamily(family),
+                description = description,
+                size = size,
+                tint = tint,
+                preservesColor = true,
+                layers = nexaDevIconLayers(fontGlyph.optJSONArray("layers")),
             )
         }
         return null
@@ -301,7 +383,29 @@ private fun nexaDevIconSpec(selection: JSONObject): NexaIconSpec? {
         selection.has("material_symbol") -> nexaDevSpecificMaterialIcon(selection.optString("material_symbol"))
         else -> null
     } ?: return null
-    return NexaIconSpec(vector = vector)
+    return NexaIconSpec(vector = vector, description = description, size = size, tint = tint)
+}
+
+private fun nexaDevIconLayers(values: JSONArray?): List<NexaIconLayer> {
+    values ?: return emptyList()
+    return buildList {
+        for (index in 0 until values.length()) {
+            val layer = values.optJSONObject(index) ?: continue
+            val rgba = layer.optJSONArray("rgba") ?: continue
+            if (rgba.length() != 4) continue
+            add(
+                NexaIconLayer(
+                    glyph = layer.optInt("glyph", -1),
+                    color = Color(
+                        red = rgba.optInt(0, 0) / 255f,
+                        green = rgba.optInt(1, 0) / 255f,
+                        blue = rgba.optInt(2, 0) / 255f,
+                        alpha = rgba.optInt(3, 255) / 255f,
+                    ),
+                ),
+            )
+        }
+    }.filter { it.glyph >= 0 }
 }
 
 internal data class NexaDevContentSlot(
@@ -1331,7 +1435,7 @@ internal fun NexaDevNode(
                 ?.let { store.stringify(store.evaluatePresented(it, locals, scope)) }
             val icon = fields.optJSONObject("icon") ?: JSONObject()
             val sharedIcon = icon.optString("shared")
-            val iconSpec = nexaDevIconSpec(icon)
+            val iconSpec = nexaDevIconSpec(icon, store, locals, scope)
                 ?: NexaIconSpec(vector = nexaDevSharedMaterialIcon("help"))
             val dark = isSystemInDarkTheme()
             @Composable
@@ -1677,7 +1781,7 @@ private fun NexaDevRenderTextNode(
         }
         "SystemIcon" -> {
             val selection = fields.optJSONObject("icon") ?: JSONObject()
-            val icon = nexaDevIconSpec(selection)
+            val icon = nexaDevIconSpec(selection, store, locals, scope)
                 ?: NexaIconSpec(vector = nexaDevSharedMaterialIcon("help"))
             val tintValue = fields.optJSONObject("tint") ?: JSONObject()
             val dynamicTint = tintValue.opt("Dynamic")
@@ -1689,8 +1793,10 @@ private fun NexaDevRenderTextNode(
             NexaIconContent(
                 icon = icon,
                 description = fields.optString("description"),
-                size = (fields.optDouble("size", 24.0) * nexaDevMaterialIconSizeScale).dp,
-                tint = tint ?: Color.White,
+                size = if (fields.has("size") && !fields.isNull("size")) {
+                    (fields.optDouble("size") * nexaDevMaterialIconSizeScale).dp
+                } else null,
+                tint = tint,
                 modifier = modifier,
             )
         }
@@ -1707,11 +1813,14 @@ private fun NexaDevRenderTextNode(
             NexaFontIconPrimitive(
                 glyph = glyph,
                 description = fields.optString("description"),
-                size = ((store.evaluatePresented(fields.opt("size"), locals, scope) as? Number)
-                    ?.toDouble() ?: 24.0).coerceIn(1.0, 512.0).toFloat().dp,
-                tint = tint ?: Color.White,
+                size = if (!fields.has("size") || fields.isNull("size")) null else {
+                    ((store.evaluatePresented(fields.opt("size"), locals, scope) as? Number)
+                        ?.toDouble() ?: 17.0).coerceIn(1.0, 512.0).toFloat().dp
+                },
+                tint = tint,
+                layers = nexaDevIconLayers(fields.optJSONArray("layers")),
                 modifier = modifier,
-                fontFamily = nexaDevFontFamily(fields.optString("font_family"), FontWeight.Normal),
+                fontFamily = nexaDevIconFontFamily(fields.optString("font_family")),
             )
         }
         "LinearGradient" -> {
@@ -1768,7 +1877,7 @@ private fun NexaDevRenderControlNode(
                 else -> null
             }
             val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
-            val icon = nexaDevIconSpec(iconSelection)
+            val icon = nexaDevIconSpec(iconSelection, store, locals, scope)
             NexaButtonPrimitive(
                 label = label,
                 icon = icon,
@@ -2022,12 +2131,12 @@ private fun NexaDevRenderControlNode(
                 nexaDevColor(tintValue, isSystemInDarkTheme())
             }
             val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
-            val pickerIcon = nexaDevIconSpec(iconSelection)
+            val pickerIcon = nexaDevIconSpec(iconSelection, store, locals, scope)
             val itemIconEntries = fields.optJSONArray("item_icons") ?: JSONArray()
             val pickerItemIcons = buildList<NexaIconSpec?> {
                 for (index in 0 until itemIconEntries.length()) {
                     val selection = itemIconEntries.optJSONObject(index) ?: JSONObject()
-                    add(nexaDevIconSpec(selection))
+                    add(nexaDevIconSpec(selection, store, locals, scope))
                 }
             }
             NexaPickerPrimitive(
@@ -2848,7 +2957,7 @@ private fun NexaDevRenderPressableNode(
                                         menuButton.opt("disabled"), locals, scope,
                                     ) as? Boolean ?: false
                                     val iconSelection = menuButton.optJSONObject("icon") ?: JSONObject()
-                                    val itemIcon = nexaDevIconSpec(iconSelection)
+                                    val itemIcon = nexaDevIconSpec(iconSelection, store, locals, scope)
                                     DropdownMenuItem(
                                         shape = androidx.compose.material3.MenuDefaults.itemShape(
                                             index = itemIndex,
@@ -3931,7 +4040,7 @@ private fun NexaDevRenderAppBottomBarNode(
                             selected = selected == tabIndex,
                             onClick = { store.setState(state, tabIndex, scope) },
                             icon = {
-                                val tabIcon = nexaDevIconSpec(iconSelection)
+                                val tabIcon = nexaDevIconSpec(iconSelection, store, locals, scope)
                                 if (tabIcon != null) NexaIconContent(icon = tabIcon, description = "", size = 24.dp)
                                 else Spacer(Modifier.size(24.dp))
                             },

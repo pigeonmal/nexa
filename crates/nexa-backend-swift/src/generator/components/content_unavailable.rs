@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{ColorExpression, Expr, SystemIcon};
+use nexa_ir::{ColorExpression, Expr, IconSpec};
 
 use crate::generator::{colors, engine::expressions::localized_text_view};
 
@@ -13,10 +13,9 @@ pub(crate) struct ColorOverrides<'a> {
 
 pub(crate) fn render(
     title: &Expr,
-    icon: &SystemIcon,
+    icon: &IconSpec,
     description: Option<&Expr>,
     overrides: ColorOverrides<'_>,
-    font_catalog: &nexa_codegen::FontCatalog,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -25,7 +24,7 @@ pub(crate) fn render(
         format_args!(
             "NexaContentUnavailablePrimitive(title: {}, icon: {}, description: {}, titleColor: {}, descriptionColor: {}, iconTint: {}, background: {})",
             localized_text_view(title, None),
-            super::system_icons::spec_with_catalog(icon, font_catalog),
+            super::system_icons::spec(icon),
             description
                 .map(|value| localized_text_view(value, None))
                 .unwrap_or_else(|| "nil".to_owned()),
@@ -40,7 +39,7 @@ pub(crate) fn render(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Expr, SystemIcon};
+    use nexa_ir::{Expr, IconSpec, SystemIcon};
 
     use super::{ColorOverrides, render};
 
@@ -49,16 +48,15 @@ mod tests {
         let mut out = SourceWriter::new();
         render(
             &Expr::String("Nothing here".to_owned()),
-            &SystemIcon::shared("inbox").expect("catalog icon"),
+            &IconSpec::system(SystemIcon::shared("inbox").expect("catalog icon")),
             Some(&Expr::String("Add an item to begin.".to_owned())),
             ColorOverrides::default(),
-            &nexa_codegen::FontCatalog::default(),
             0,
             &mut out,
         );
         let swift = out.finish();
         assert!(swift.contains("NexaContentUnavailablePrimitive("));
-        assert!(swift.contains("NexaIconSpec(symbol: \"tray.fill\")"));
+        assert!(swift.contains("NexaIconSpec(symbol: \"tray.fill\", preservesColor: false)"));
     }
 
     #[test]
@@ -66,10 +64,9 @@ mod tests {
         let mut out = SourceWriter::new();
         render(
             &Expr::String("Nothing here".to_owned()),
-            &SystemIcon::shared("inbox").expect("catalog icon"),
+            &IconSpec::system(SystemIcon::shared("inbox").expect("catalog icon")),
             None,
             ColorOverrides::default(),
-            &nexa_codegen::FontCatalog::default(),
             0,
             &mut out,
         );
@@ -81,15 +78,16 @@ mod tests {
         let mut out = SourceWriter::new();
         render(
             &Expr::String("No songs".to_owned()),
-            &SystemIcon::font_glyph("Mazicon", 61696).expect("valid custom glyph"),
+            &IconSpec::font_glyph("Mazicon", "Mazicon", 61696),
             None,
             ColorOverrides::default(),
-            &nexa_codegen::FontCatalog::default(),
             0,
             &mut out,
         );
 
         let swift = out.finish();
-        assert!(swift.contains("NexaIconSpec(glyph: Int32(61696), fontFamily: \"Mazicon\")"));
+        assert!(swift.contains(
+            "NexaIconSpec(glyph: Int32(61696), fontFamily: \"Mazicon\", preservesColor: true)"
+        ));
     }
 }

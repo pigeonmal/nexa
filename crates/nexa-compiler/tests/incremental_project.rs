@@ -4,34 +4,34 @@ use nexa_compiler::{IncrementalProjectCompiler, Target};
 use nexa_testkit::TestProject;
 
 #[test]
-fn config_icon_aliases_resolve_in_component_icon_parameters_on_both_targets() {
+fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_targets() {
     let project = TestProject::new("nexa-project-custom-icon-font");
-    project.write("assets/fonts/Mazicon.ttf", b"test fixture font bytes");
-    project.write_config(
-        r#"config {
-            assets {
-                iconFonts { Mazicon: "assets/fonts/Mazicon.ttf" },
-                icons { mazica_play: ["Mazicon", 61696] }
-            }
-        }"#,
+    project.write(
+        "assets/fonts/Mazicon.ttf",
+        include_bytes!("../../../examples/component-parity/assets/fonts/Mazicon.ttf"),
     );
+    project.write(
+        "assets/fonts/Mazicon.icons.json",
+        br#"{"mazica_play":"0xF100"}"#,
+    );
+    project.write_config("config { assets { icon: \"assets/icon.png\" } }");
     let entry = project.write_app(
         r##"component PlayButton() {
-            body { Button("Play", icon: "mazica_play") {} }
+            body { Button("Play", icon: Icon(Mazicon: "mazica_play")) {} }
         }
         app Demo {
             state selected: String = "First"
             state selectedTab: Int32 = 0
             body {
                 PlayButton()
-                Picker(items: ["First"], selected: selected, icon: "mazica_play", itemIcons: ["mazica_play"])
-                ContentUnavailable(title: "Empty", icon: "mazica_play")
-                Icon(system: "mazica_play", description: "Play", size: 24, tint: "#FFFFFF")
+                Picker(items: ["First"], selected: selected, icon: Icon(Mazicon: "mazica_play"), itemIcons: ["search", Icon(Mazicon: "mazica_play")])
+                ContentUnavailable(title: "Empty", icon: Icon(Mazicon: "mazica_play"))
+                Icon(Mazicon: "mazica_play", description: "Play", size: 24, color: "#FFFFFF")
                 Pressable() { Text("Row") }
                     .onTap { }
-                    .contextMenu { Button("Play", icon: "mazica_play") {} }
+                    .contextMenu { Button("Play", icon: Icon(Mazicon: "mazica_play")) {} }
                 AppBottomBar(selected: selectedTab) {
-                    Tab(index: 0, label: "Play", icon: "mazica_play") { Text("Main") }
+                    Tab(index: 0, label: "Play", icon: Icon(Mazicon: "mazica_play")) { Text("Main") }
                 }
             }
         }"##,
@@ -39,9 +39,8 @@ fn config_icon_aliases_resolve_in_component_icon_parameters_on_both_targets() {
 
     for target in [Target::Swift, Target::Kotlin] {
         let module = nexa_compiler::compile_file_for_target(&entry, target)
-            .expect("project icon aliases should resolve during semantic lowering");
-        let expected =
-            nexa_ir::SystemIcon::font_glyph("Mazicon", 61696).expect("valid fixture glyph");
+            .expect("project icon sets should resolve during semantic lowering");
+        let expected = nexa_ir::IconSpec::font_glyph("Mazicon", "Mazicon", 0xF100);
         let play_button = module
             .components
             .iter()
@@ -57,7 +56,10 @@ fn config_icon_aliases_resolve_in_component_icon_parameters_on_both_targets() {
                 icon: Some(icon),
                 item_icons,
                 ..
-            } if *icon == expected && item_icons.as_slice() == std::slice::from_ref(&expected)
+            } if *icon == expected && matches!(item_icons.as_slice(), [
+                nexa_ir::IconSpec { source: nexa_ir::IconSource::System(nexa_ir::SystemIcon::Shared(name)), .. },
+                custom,
+            ] if name == "search" && custom == &expected)
         )));
         assert!(module.body.iter().any(|node| matches!(
             node,
@@ -65,7 +67,7 @@ fn config_icon_aliases_resolve_in_component_icon_parameters_on_both_targets() {
         )));
         assert!(module.body.iter().any(|node| matches!(
             node,
-            nexa_ir::Node::SystemIcon { icon, .. } if *icon == expected
+            nexa_ir::Node::FontIcon { font_family, .. } if font_family == "Mazicon"
         )));
         assert!(module.body.iter().any(|node| matches!(
             node,
@@ -82,7 +84,7 @@ fn config_icon_aliases_resolve_in_component_icon_parameters_on_both_targets() {
                 let generated = nexa_backend_swift::SwiftBackend.generate_units(&module);
                 assert!(generated.units.iter().any(|unit| {
                     unit.contents
-                        .contains("NexaIconSpec(glyph: Int32(61696), fontFamily: \"Mazicon\")")
+                        .contains("NexaIconSpec(glyph: Int32(61696), fontFamily: \"Mazicon\", preservesColor: true)")
                 }));
             }
             Target::Kotlin => {
@@ -90,12 +92,41 @@ fn config_icon_aliases_resolve_in_component_icon_parameters_on_both_targets() {
                     nexa_codegen::Backend::generate(&nexa_backend_kotlin::KotlinBackend, &module);
                 assert!(
                     generated
-                        .contains("NexaIconSpec(glyph = 61696, fontResource = R.font.mazicon)")
+                        .contains("NexaIconSpec(glyph = 61696, fontResource = R.font.mazicon, preservesColor = true)")
                 );
             }
             Target::All => unreachable!("test compiles one target at a time"),
         }
     }
+}
+
+#[test]
+fn unknown_custom_icon_sets_and_names_report_available_choices_without_system_fallback() {
+    let project = TestProject::new("nexa-project-custom-icon-diagnostics");
+    project.write(
+        "assets/icons/Brand/heart.svg",
+        br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#e11d48" d="M12 21 3 12a5 5 0 0 1 9-5 5 5 0 0 1 9 5z"/></svg>"##,
+    );
+    let entry = project.write_app(r#"app Demo { body { Icon(Missing: "heart") } }"#);
+
+    let unknown_set = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
+        .expect_err("unknown custom sets fail during compilation")
+        .to_string();
+    assert!(unknown_set.contains("unknown custom icon set `Missing`"));
+    assert!(unknown_set.contains("available sets: Brand"));
+
+    project.write_app(r#"app Demo { body { Icon(Brand: "ghost") } }"#);
+    let unknown_icon = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
+        .expect_err("unknown custom icon names fail during compilation")
+        .to_string();
+    assert!(unknown_icon.contains("unknown custom icon `Brand:ghost`"));
+    assert!(unknown_icon.contains("available icons in `Brand`: heart"));
+
+    project.write_app(r#"app Demo { body { Icon(system: "brand_heart") } }"#);
+    let system_only = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
+        .expect_err("system selectors never resolve through project icon sets")
+        .to_string();
+    assert!(system_only.contains("custom names never resolve through `system:`"));
 }
 
 #[test]

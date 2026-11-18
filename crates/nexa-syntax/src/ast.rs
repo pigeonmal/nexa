@@ -246,10 +246,6 @@ pub struct AssetsConfig {
     pub splash: Option<String>,
     /// Optional logical-family aliases and explicit font face paths.
     pub fonts: Vec<FontFamilyConfig>,
-    /// Font families available to named `assets.icons` glyph definitions.
-    pub icon_fonts: Vec<IconFontConfig>,
-    /// Named glyphs resolved by every built-in component `icon:` parameter.
-    pub icons: Vec<IconGlyphConfig>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -272,21 +268,6 @@ pub struct FontFamilyConfig {
 pub struct FontFaceConfig {
     pub weight: FontFaceWeight,
     pub path: String,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug)]
-pub struct IconFontConfig {
-    pub family: String,
-    pub path: String,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug)]
-pub struct IconGlyphConfig {
-    pub name: String,
-    pub family: String,
-    pub glyph: u32,
     pub span: Span,
 }
 

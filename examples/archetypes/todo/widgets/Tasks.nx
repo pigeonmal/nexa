@@ -119,9 +119,9 @@ widget Tasks(
     Column(gap: 6, padding: 14, alignment: Start) {
         Row(gap: 6, alignment: Center, accessibilityLabel: entry.title + ", \(TodoWidgetData.visibleTaskCount(entry.tasks, family == WidgetFamily.Small ? 3 : (family == WidgetFamily.Medium ? 4 : (family == WidgetFamily.Large ? 8 : 12)))) " + "tasks") {
             if configuration.filter == TodoWidgetFilter.today {
-                Icon(system: "calendar_circle", size: 17, tint: entry.themeColor, description: "")
+                Icon(system: "calendar_circle", size: 17, color: entry.themeColor, description: "")
             } else {
-                Icon(system: "calendar_time", size: 17, tint: entry.themeColor, description: "")
+                Icon(system: "calendar_time", size: 17, color: entry.themeColor, description: "")
             }
             Text(entry.title, fontSize: 16, fontWeight: Bold)
             Spacer()
@@ -133,7 +133,7 @@ widget Tasks(
             Row(alignment: Center) {
                 Spacer()
                 Column(gap: 4, alignment: Center) {
-                    Icon(system: "check_circle", size: 22, tint: "#8E8E93", description: "")
+                    Icon(system: "check_circle", size: 22, color: "#8E8E93", description: "")
                     Text(entry.emptyText, fontSize: 12, color: "#8E8E93")
                 }
                 Spacer()
@@ -143,7 +143,7 @@ widget Tasks(
             FastList(TodoWidgetData.visibleTasks(entry.tasks, family == WidgetFamily.Small ? 3 : (family == WidgetFamily.Medium ? 4 : (family == WidgetFamily.Large ? 8 : 12)))) { task, index in
                 if family == WidgetFamily.Small || family == WidgetFamily.Medium {
                     Row(gap: 6, alignment: Center, accessibilityLabel: task.title + ", " + task.priorityName + " " + "priority", accessibilityValue: family == WidgetFamily.Medium ? task.dateString : "") {
-                        Icon(system: "circle_filled", size: 8, tint: task.priorityColor, description: "")
+                        Icon(system: "circle_filled", size: 8, color: task.priorityColor, description: "")
                         Text(task.title, fontSize: 12, lineLimit: 1)
                         Spacer()
                         if family == WidgetFamily.Medium && task.dateString != "" {
@@ -152,7 +152,7 @@ widget Tasks(
                     }
                 } else {
                     Row(gap: 6, alignment: Center, accessibilityLabel: task.title + ", " + task.priorityName + " " + "priority", accessibilityValue: task.taskDescription + (task.taskDescription != "" && task.dateString != "" ? ", " : "") + task.dateString) {
-                        Icon(system: "circle_filled", size: 8, tint: task.priorityColor, description: "")
+                        Icon(system: "circle_filled", size: 8, color: task.priorityColor, description: "")
                         Column(gap: 1, alignment: Start) {
                             Text(task.title, fontSize: 12, lineLimit: 1)
                             if task.taskDescription != "" {

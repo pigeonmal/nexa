@@ -200,15 +200,7 @@ pub(crate) fn render_app_bottom_bar(
         format_args!("TabView(selection: ${}) {{", state_name(state)),
     );
     for (i, tab) in tabs.iter().enumerate() {
-        render_modern_tab_ref(
-            tab,
-            &prefix,
-            i,
-            depth + 2,
-            custom_bar.is_some(),
-            &features.font_catalog,
-            out,
-        );
+        render_modern_tab_ref(tab, &prefix, i, depth + 2, custom_bar.is_some(), out);
     }
     indent(out, depth + 1);
     out.push_str(&format!(
@@ -235,15 +227,7 @@ pub(crate) fn render_app_bottom_bar(
         format_args!("TabView(selection: ${}) {{", state_name(state)),
     );
     for (i, tab) in tabs.iter().enumerate() {
-        render_legacy_tab_ref(
-            tab,
-            &prefix,
-            i,
-            depth + 2,
-            custom_bar.is_some(),
-            &features.font_catalog,
-            out,
-        );
+        render_legacy_tab_ref(tab, &prefix, i, depth + 2, custom_bar.is_some(), out);
     }
     indent(out, depth + 1);
     out.push('}');
@@ -434,7 +418,6 @@ fn render_modern_tab_ref(
     index: usize,
     depth: usize,
     has_custom_bar: bool,
-    font_catalog: &nexa_codegen::FontCatalog,
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
@@ -455,7 +438,7 @@ fn render_modern_tab_ref(
         "    ".repeat(depth + 1),
         "    ".repeat(depth),
         "    ".repeat(depth + 1),
-        swift_tab_label(tab, font_catalog),
+        swift_tab_label(tab),
         "    ".repeat(depth)
     ));
     if let Some(badge) = &tab.badge {
@@ -470,7 +453,6 @@ fn render_legacy_tab_ref(
     index: usize,
     depth: usize,
     has_custom_bar: bool,
-    font_catalog: &nexa_codegen::FontCatalog,
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
@@ -483,7 +465,7 @@ fn render_legacy_tab_ref(
     indent(out, depth + 1);
     out.push_str(".tabItem {\n");
     indent(out, depth + 2);
-    out.push_str(&format!("{}\n", swift_tab_label(tab, font_catalog)));
+    out.push_str(&format!("{}\n", swift_tab_label(tab)));
     indent(out, depth + 1);
     out.push('}');
     out.push_str(&format!(
@@ -501,7 +483,7 @@ fn render_legacy_tab_ref(
     out.push('\n');
 }
 
-fn swift_tab_label(tab: &BottomBarTab, font_catalog: &nexa_codegen::FontCatalog) -> String {
+fn swift_tab_label(tab: &BottomBarTab) -> String {
     let source = nexa_ir::Expr::String(tab.label.clone());
     let text = match tab.comment.as_deref() {
         Some(comment) => crate::generator::expressions::localized_text_view(&source, Some(comment)),
@@ -510,7 +492,7 @@ fn swift_tab_label(tab: &BottomBarTab, font_catalog: &nexa_codegen::FontCatalog)
     tab.icon.as_ref().map_or(text.clone(), |icon| {
         format!(
             "NexaTabLabelPrimitive(title: {text}, icon: {})",
-            system_icons::spec_with_catalog(icon, font_catalog)
+            system_icons::spec(icon)
         )
     })
 }

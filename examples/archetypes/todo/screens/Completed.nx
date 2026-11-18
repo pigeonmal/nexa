@@ -9,7 +9,7 @@ screen Completed {
                 Row(gap: 12) {
                     Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                         Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                            Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                            Icon(system: "check_circle", size: 28, color: themeTint(selectedTheme), description: "")
                         }.onTap {
                             tasks = toggleTodo(tasks, task.id)
                             Haptics.notification(kind: Success)

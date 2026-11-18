@@ -226,7 +226,6 @@ pub(crate) fn render_node(
                 icon: icon_tint.as_ref(),
                 background: background.as_ref(),
             },
-            &features.font_catalog,
             depth,
             out,
         ),
@@ -388,12 +387,11 @@ pub(crate) fn render_node(
             actions,
             ..
         } => {
-            controls::render_button_with_catalog(
+            controls::render_button_node(
                 label,
                 None,
                 accessibility_label.as_deref(),
                 icon.as_ref(),
-                &features.font_catalog,
                 loading.as_ref(),
                 disabled.as_ref(),
                 *style,
@@ -554,7 +552,7 @@ pub(crate) fn render_node(
             item_icons,
             label,
             tint,
-        } => controls::render_picker_with_catalog(
+        } => controls::render_picker_node(
             items,
             state,
             controls::PickerOptions {
@@ -564,7 +562,6 @@ pub(crate) fn render_node(
                 tint: tint.as_ref(),
                 comment: None,
             },
-            &features.font_catalog,
             depth,
             out,
         ),
@@ -595,28 +592,31 @@ pub(crate) fn render_node(
             description,
             size,
             tint,
-        } => system_icons::render_with_catalog(
+        } => system_icons::render(
             icon,
-            description,
+            description.as_deref(),
             *size,
-            tint,
-            &features.font_catalog,
+            tint.as_ref(),
             depth,
             out,
         ),
         Node::FontIcon {
+            font_resource: _,
             font_family,
             glyph,
+            layers,
             description,
             size,
             tint,
-        } => system_icons::render_font_with_catalog(
-            font_family,
-            glyph,
-            description,
-            size,
-            tint,
-            &features.font_catalog,
+        } => system_icons::render_font(
+            system_icons::FontIconRenderArgs {
+                font_family,
+                glyph,
+                layers,
+                description: description.as_deref(),
+                size: size.as_ref(),
+                tint: tint.as_ref(),
+            },
             depth,
             out,
         ),

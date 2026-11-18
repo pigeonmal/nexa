@@ -455,7 +455,7 @@ pub(super) fn lower_with_project_targets(
     app: ast::App,
     target: Target,
     dev_runtime: bool,
-    custom_icons: &HashMap<String, nexa_ir::SystemIcon>,
+    custom_icons: &nexa_icon_font::IconRegistry,
 ) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
     let (module, warnings, tests, _) = lower_with_warnings_in_mode(
         app,
@@ -474,7 +474,7 @@ pub(super) fn lower_with_project_targets(
 pub(crate) fn lower_with_project_targets_and_dev_cache(
     app: ast::App,
     target: Target,
-    custom_icons: &HashMap<String, nexa_ir::SystemIcon>,
+    custom_icons: &nexa_icon_font::IconRegistry,
     cache: &mut DevFunctionLoweringCache,
     function_sources: &HashMap<String, String>,
     screen_sources: &HashMap<String, String>,
@@ -498,7 +498,7 @@ pub(super) fn lower_with_project_targets_and_optimization_report(
     app: ast::App,
     target: Target,
     dev_runtime: bool,
-    custom_icons: &HashMap<String, nexa_ir::SystemIcon>,
+    custom_icons: &nexa_icon_font::IconRegistry,
 ) -> Result<
     (
         Module,
@@ -528,7 +528,7 @@ fn lower_with_warnings_in_mode(
     target: Target,
     dev_runtime: bool,
     include_optimization_report: bool,
-    custom_icons: Option<&HashMap<String, nexa_ir::SystemIcon>>,
+    custom_icons: Option<&nexa_icon_font::IconRegistry>,
     mut dev_function_cache: Option<&mut DevFunctionLoweringCache>,
     function_sources: Option<&HashMap<String, String>>,
     screen_sources: Option<&HashMap<String, String>>,
@@ -3464,7 +3464,7 @@ fn screen_lowering_environment_key(
     app: &ast::App,
     target: Target,
     allow_nullable_generic_plugin_reads: bool,
-    custom_icons: Option<&HashMap<String, nexa_ir::SystemIcon>>,
+    custom_icons: Option<&nexa_icon_font::IconRegistry>,
 ) -> String {
     let function_signatures = app
         .functions
@@ -3508,11 +3508,7 @@ fn screen_lowering_environment_key(
         })
         .collect::<Vec<_>>();
     let custom_icons = custom_icons
-        .map(|icons| {
-            let mut icons = icons.iter().collect::<Vec<_>>();
-            icons.sort_by(|left, right| left.0.cmp(right.0));
-            format!("{icons:?}")
-        })
+        .map(|icons| format!("{:?}", icons.sets))
         .unwrap_or_default();
     format!(
         "{:?}",

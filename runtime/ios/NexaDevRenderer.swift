@@ -395,29 +395,69 @@ __NEXA_SHARED_ICON_SF_CASES__
     }
 }
 
-private func nexaDevIconSpec(_ rawIcon: Any?) -> NexaIconSpec? {
+@MainActor
+private func nexaDevIconSpec(
+    _ rawIcon: Any?,
+    store: NexaDevStateStore,
+    locals: [String: Any],
+    scope: String,
+    isDark: Bool
+) -> NexaIconSpec? {
     guard let icon = rawIcon as? [String: Any] else { return nil }
+    let description = icon["description"] as? String
+    let size = (icon["size"] as? NSNumber).map { CGFloat($0.doubleValue) }
+    let tint: Color? = {
+        guard let value = icon["color"] as? [String: Any] else { return nil }
+        if let dynamic = value["Dynamic"] {
+            return devHexColor(store.stringify(store.evaluate(dynamic, locals: locals, scope: scope)))
+        }
+        return devColor(value, isDark: isDark)
+    }()
     if let glyph = icon["font_glyph"] as? [String: Any],
        let family = glyph["font_family"] as? String,
        let codepoint = glyph["glyph"] as? NSNumber,
        codepoint.int32Value >= 0 {
         return NexaIconSpec(
             glyph: codepoint.int32Value,
-            fontFamily: nexaDevFontFaceName(family, weight: "Normal")
+            fontFamily: family,
+            description: description,
+            size: size,
+            tint: tint,
+            layers: nexaDevIconLayers(glyph["layers"]),
+            preservesColor: true
         )
     }
     if let shared = icon["shared"] as? String,
        let symbol = nexaDevSharedIconSymbol(shared) {
-        return NexaIconSpec(symbol: symbol)
+        return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
     }
     if let symbol = icon["sf_symbol"] as? String {
-        return NexaIconSpec(symbol: symbol)
+        return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
     }
     if let material = icon["material_symbol"] as? String,
        let symbol = nexaDevMaterialIconSymbol(material) {
-        return NexaIconSpec(symbol: symbol)
+        return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
     }
     return nil
+}
+
+private func nexaDevIconLayers(_ raw: Any?) -> [NexaIconLayer] {
+    guard let layers = raw as? [[String: Any]] else { return [] }
+    return layers.compactMap { layer in
+        guard let glyph = layer["glyph"] as? NSNumber,
+              let rgba = layer["rgba"] as? [NSNumber],
+              rgba.count == 4 else { return nil }
+        return NexaIconLayer(
+            glyph: glyph.int32Value,
+            color: Color(
+                .sRGB,
+                red: Double(rgba[0].intValue) / 255,
+                green: Double(rgba[1].intValue) / 255,
+                blue: Double(rgba[2].intValue) / 255,
+                opacity: Double(rgba[3].intValue) / 255
+            )
+        )
+    }
 }
 
 private func nexaDevMaterialIconSymbol(_ name: String) -> String? {
@@ -645,7 +685,7 @@ private struct NexaDevFastListSwipeActionContent: View {
             let disabled = fields["disabled"].map {
                 store.truthy(store.evaluate($0, locals: locals, scope: scope))
             } ?? false
-            let icon = nexaDevIconSpec(fields["icon"])
+            let icon = nexaDevIconSpec(fields["icon"], store: store, locals: locals, scope: scope, isDark: isDark)
             let tint: Color? = {
                 guard let tintValue = fields["tint"] as? [String: Any] else { return nil }
                 if let dynamic = tintValue["Dynamic"] {
@@ -2486,7 +2526,7 @@ struct NexaDevNodeList: View {
             } else {
                 description = nil
             }
-            let icon = nexaDevIconSpec(fields["icon"])
+            let icon = nexaDevIconSpec(fields["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
                 ?? NexaIconSpec(symbol: "questionmark")
             func color(_ name: String) -> Color? {
                 guard let value = fields[name] as? [String: Any] else { return nil }
@@ -2952,7 +2992,7 @@ struct NexaDevNodeList: View {
             else if let radius = shapeFields["Rounded"] as? Double { shape = .rounded(CGFloat(radius)) }
             else if shapeFields["Capsule"] != nil || encodedShape == "Capsule" { shape = .capsule }
             else { shape = .capsule }
-            let icon = nexaDevIconSpec(fields["icon"])
+            let icon = nexaDevIconSpec(fields["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
             let iconOnlyCircle: Bool
             if icon != nil, label.isEmpty, case .circle = shape { iconOnlyCircle = true }
             else { iconOnlyCircle = false }
@@ -3515,8 +3555,8 @@ struct NexaDevNodeList: View {
         case "Picker":
             let name = fields["state"] as? String ?? ""
             let items = store.evaluate(fields["items"] ?? NSNull(), locals: locals, scope: scope) as? [String] ?? []
-            let itemIcons = (fields["item_icons"] as? [Any] ?? []).compactMap(nexaDevIconSpec)
-            let icon = nexaDevIconSpec(fields["icon"])
+            let itemIcons = (fields["item_icons"] as? [Any] ?? []).compactMap { nexaDevIconSpec($0, store: store, locals: locals, scope: scope, isDark: colorScheme == .dark) }
+            let icon = nexaDevIconSpec(fields["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
             let label = fields["label"].flatMap { value in
                 value is NSNull ? nil : store.stringify(store.evaluate(value, locals: locals, scope: scope))
             }
@@ -3614,38 +3654,41 @@ struct NexaDevNodeList: View {
                 accessibilityLabel: string("accessibility_label")
             ))
         case "SystemIcon":
-            let icon = nexaDevIconSpec(fields["icon"])
+            let icon = nexaDevIconSpec(fields["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
                 ?? NexaIconSpec(symbol: "questionmark")
-            let description = fields["description"] as? String ?? ""
-            let size = fields["size"] as? Double ?? 24
+            let description = fields["description"] as? String
+            let size = fields["size"] as? CGFloat
             let tintValue = fields["tint"] as? [String: Any] ?? [:]
-            let tint: Color
-            if let dynamic = tintValue["Dynamic"] {
-                tint = devHexColor(store.stringify(store.evaluate(dynamic, locals: locals, scope: scope))) ?? .white
+            let tint: Color? = if let dynamic = tintValue["Dynamic"] {
+                devHexColor(store.stringify(store.evaluate(dynamic, locals: locals, scope: scope)))
             } else {
-                tint = devColor(fields["tint"], isDark: colorScheme == .dark) ?? .white
+                devColor(fields["tint"], isDark: colorScheme == .dark)
             }
             return AnyView(NexaIconView(icon: icon, description: description, size: size, tint: tint))
         case "FontIcon":
             let glyphValue = store.evaluate(fields["glyph"] ?? 0, locals: locals, scope: scope)
             let glyph = (glyphValue as? NSNumber)?.int32Value ?? -1
             let family = fields["font_family"] as? String ?? ""
-            let description = fields["description"] as? String ?? ""
-            let sizeValue = store.evaluate(fields["size"] ?? 24, locals: locals, scope: scope)
-            let size = min(512.0, max(1.0, (sizeValue as? NSNumber)?.doubleValue ?? 24))
+            let description = fields["description"] as? String
+            let size: CGFloat? = {
+                guard let rawSize = fields["size"], !(rawSize is NSNull) else { return nil }
+                let value = store.evaluate(rawSize, locals: locals, scope: scope)
+                guard let number = value as? NSNumber else { return nil }
+                return CGFloat(min(512.0, max(1.0, number.doubleValue)))
+            }()
             let tintValue = fields["tint"] as? [String: Any] ?? [:]
-            let tint: Color
-            if let dynamic = tintValue["Dynamic"] {
-                tint = devHexColor(store.stringify(store.evaluate(dynamic, locals: locals, scope: scope))) ?? .white
+            let tint: Color? = if let dynamic = tintValue["Dynamic"] {
+                devHexColor(store.stringify(store.evaluate(dynamic, locals: locals, scope: scope)))
             } else {
-                tint = devColor(fields["tint"], isDark: colorScheme == .dark) ?? .white
+                devColor(fields["tint"], isDark: colorScheme == .dark)
             }
             return AnyView(NexaFontIconPrimitive(
                 glyph: glyph,
-                fontFamily: nexaDevFontFaceName(family, weight: "Normal"),
+                fontFamily: family,
                 description: description,
                 size: size,
-                tint: tint
+                tint: tint,
+                layers: nexaDevIconLayers(fields["layers"])
             ))
         case "LinearGradient":
             let start = devColor(fields["start_color"], isDark: colorScheme == .dark) ?? .clear
@@ -3943,7 +3986,7 @@ struct NexaDevNodeList: View {
                 tabView = AnyView(TabView(selection: selection) {
                     ForEach(0..<tabs.count, id: \.self) { index in
                         let tab = tabs[index]
-                        let icon = nexaDevIconSpec(tab["icon"])
+                        let icon = nexaDevIconSpec(tab["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
                         let title = tab["label"] as? String ?? ""
                         let tag = tab["index"] as? Int ?? index
                         let badge = tab["badge"] as? String ?? ""
@@ -3991,7 +4034,7 @@ struct NexaDevNodeList: View {
                         let tab = tabs[index]
                         let tabItem = tabContent(index)
                             .tabItem {
-                                let icon = nexaDevIconSpec(tab["icon"])
+                                let icon = nexaDevIconSpec(tab["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
                                 if let icon {
                                     NexaIconView(icon: icon, description: "", size: 20)
                                 }

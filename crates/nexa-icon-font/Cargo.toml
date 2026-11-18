@@ -1,0 +1,16 @@
+[package]
+name = "nexa-icon-font"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+roxmltree = "0.21.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+usvg = { version = "0.49", default-features = false }
+ttf-parser = "0.25.1"
+webfont-generator = { version = "0.11", default-features = false, features = ["fs"] }
+
+[dev-dependencies]
+nexa-testkit = { path = "../nexa-testkit" }

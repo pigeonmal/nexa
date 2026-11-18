@@ -69,7 +69,7 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
     assert!(swift.contains("NexaPickerPrimitive(selection: $nexa_startPage"));
     assert!(swift.contains("hasLabel: true) {"));
     assert!(swift.contains("Text(\"Start Page\")"));
-    assert!(swift.contains("icon: NexaIconSpec(symbol: \"star.fill\")"));
+    assert!(swift.contains("icon: NexaIconSpec(symbol: \"star.fill\", preservesColor: false)"));
     assert!(swift.contains("Text(nexa_switchLabel)"));
     assert!(swift.contains(".scrollContentBackground(.hidden)"));
     assert!(swift.contains(".listRowBackground(background ?? Color.clear)"));

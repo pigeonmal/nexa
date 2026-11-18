@@ -336,6 +336,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         .join("nexa.config.nx");
     let app_images_path = project_root.join("assets/images");
     let app_fonts_path = project_root.join("assets/fonts");
+    let app_icons_path = project_root.join("assets/icons");
     let translations_path = project_root.join("locales/translations.json");
     let existing_config = config_path.is_file();
     let project_cache_checked = !execute_tests && dev_session.is_none() && existing_config;
@@ -369,6 +370,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
             config_path.as_path(),
             app_images_path.as_path(),
             app_fonts_path.as_path(),
+            app_icons_path.as_path(),
             translations_path.as_path(),
         ],
         &sorted_plugin_roots,
@@ -470,6 +472,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
                 config_path.as_path(),
                 app_images_path.as_path(),
                 app_fonts_path.as_path(),
+                app_icons_path.as_path(),
                 translations_path.as_path(),
             ],
             &sorted_plugin_roots,
@@ -487,11 +490,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         };
         project_config.set_arch_override(arch, target)?;
     }
-    let font_catalog = assets::load_font_catalog(
-        project_root,
-        &project_config.font_families,
-        &project_config.icon_fonts,
-    )?;
+    let font_catalog = assets::load_font_catalog(project_root, &project_config.font_families)?;
     for (_, module, _) in &compiled {
         validate_font_family_references(module, &font_catalog)?;
     }
@@ -728,7 +727,26 @@ pub(crate) fn compile_dev_modules_with_compiler(
         localization_elapsed.as_millis(),
         dev_ir_elapsed.as_millis(),
     );
-    result
+    let mut modules = result?;
+    let icon_fonts = dev_icon_font_assets(project_root)?;
+    for (_, module) in &mut modules {
+        module.font_assets = icon_fonts.clone();
+    }
+    Ok(modules)
+}
+
+fn dev_icon_font_assets(project_root: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    let mut fonts = BTreeMap::new();
+    let generated_root = project_root.join(".nexa/build/icon-fonts");
+    let registry = nexa_icon_font::IconRegistry::load(project_root, &generated_root)?;
+    for icon_set in registry.sets.values() {
+        fonts.insert(
+            icon_set.font_family.clone(),
+            fs::read(&icon_set.font_path)
+                .map_err(|error| format!("{}: {error}", icon_set.font_path.display()))?,
+        );
+    }
+    Ok(fonts)
 }
 
 fn lower_dev_compilation(
@@ -1008,11 +1026,6 @@ fn validate_font_family_references(
         inspect(&widget.body);
     }
     drop(inspect);
-    for icon in nexa_ir::facts::ModuleFacts::analyze(module).ui.system_icons {
-        if let Some((family, _)) = icon.font_glyph_parts() {
-            record_family(family);
-        }
-    }
     drop(record_family);
     if unresolved.is_empty() {
         return Ok(());
@@ -2973,11 +2986,12 @@ mod tests {
 
     use nexa_codegen::Backend;
     use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
+    use nexa_testkit::TestProject;
 
     use super::{
-        KotlinBackend, ProjectPlan, SHARED_ICONS, SwiftBackend, dev_runtime_source,
-        dev_runtime_source_with_fonts, generate_splash, kotlin_network_plugin_bridge_source,
-        plugin_package, plugins, writers,
+        KotlinBackend, ProjectPlan, SHARED_ICONS, SwiftBackend, dev_icon_font_assets,
+        dev_runtime_source, dev_runtime_source_with_fonts, generate_splash,
+        kotlin_network_plugin_bridge_source, plugin_package, plugins, writers,
     };
 
     #[test]
@@ -2991,21 +3005,6 @@ mod tests {
                 .expect_err("unresolved font family must be rejected");
 
         assert!(error.contains("`Brand Display`"));
-        assert!(error.contains("assets/fonts/"));
-        assert!(error.contains("assets.fonts"));
-    }
-
-    #[test]
-    fn unresolved_custom_icon_fonts_report_a_project_configuration_error() {
-        let module = nexa_compiler::compile(
-            r##"app MissingIconFont { body { Icon(fontFamily: "Brand Icons", glyph: 57345, description: "Brand", size: 24, tint: "#000000") } }"##,
-        )
-        .expect("compile missing icon font fixture");
-        let error =
-            super::validate_font_family_references(&module, &nexa_codegen::FontCatalog::default())
-                .expect_err("unresolved icon font must be rejected");
-
-        assert!(error.contains("`Brand Icons`"));
         assert!(error.contains("assets/fonts/"));
         assert!(error.contains("assets.fonts"));
     }
@@ -3289,9 +3288,7 @@ mod tests {
         assert!(kotlin.contains("private const val nexaDevDefaultMaterialIconSize = 24"));
         assert!(kotlin.contains("NexaIconContent("));
         assert!(kotlin.contains("private const val nexaDevMaterialIconSizeScale = 1.2"));
-        assert!(
-            kotlin.contains("(fields.optDouble(\"size\", 24.0) * nexaDevMaterialIconSizeScale).dp")
-        );
+        assert!(kotlin.contains("fields.has(\"size\") && !fields.isNull(\"size\")"));
         assert!(kotlin.contains("private const val nexaDevDefaultLineHeightMultiplier = 1.2f"));
         assert!(kotlin.contains("NexaButtonPrimitive("));
         assert!(kotlin.contains("NexaNavigationChrome("));
@@ -3339,7 +3336,7 @@ mod tests {
     #[test]
     fn generated_dev_icon_mappings_cover_the_shared_catalog() {
         let module = nexa_compiler::compile(
-            r##"app IconMap { body { Icon(materialsymbol: "rounded:account_circle", description: "Profile", size: 24, tint: "#FFFFFF") } }"##,
+            r##"app IconMap { body { Icon(materialsymbol: "rounded:account_circle", description: "Profile", size: 24, color: "#FFFFFF") } }"##,
         )
         .expect("compile icon mapping fixture");
         let swift = dev_runtime_source(
@@ -3415,22 +3412,24 @@ mod tests {
     #[test]
     fn dev_runtime_font_mappings_match_the_shared_font_catalog() {
         let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/component-parity");
-        let icon_aliases = nexa_syntax::parse_config(
-            r#"config { assets { iconFonts { "Brand Icons": "assets/fonts/gilroy_regular.ttf" } } }"#,
-        )
-        .expect("icon font alias config parses")
-        .assets
-        .expect("assets")
-        .icon_fonts;
-        let catalog = super::assets::load_font_catalog(&project, &[], &icon_aliases)
-            .expect("load actual fixture font metadata and icon alias");
-        let module = nexa_compiler::compile(
+        let catalog = super::assets::load_font_catalog(&project, &[])
+            .expect("load actual fixture font metadata");
+        let icon_project = TestProject::new("nexa-dev-runtime-custom-icons");
+        let entry = icon_project.write_app(
             r##"app FontRuntimeProbe { body {
                 Text("Assigned", fontFamily: "Gilroy", fontWeight: Semibold)
-                Icon(fontFamily: "Brand Icons", glyph: 61696, description: "Brand", size: 24, tint: "#000000")
+                Icon(Brand: "heart", description: "Brand", size: 24, color: "#000000")
             } }"##,
+        );
+        let icon_path = icon_project.join("assets/icons/Brand/heart.svg");
+        std::fs::create_dir_all(icon_path.parent().expect("icon directory"))
+            .expect("create icon directory");
+        std::fs::write(
+            &icon_path,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 21 3 12a5 5 0 0 1 9-5 5 5 0 0 1 9 5z"/></svg>"##,
         )
-        .expect("compile font runtime fixture");
+        .expect("write SVG icon");
+        let module = nexa_compiler::compile_file(&entry).expect("compile custom icon fixture");
         let swift = dev_runtime_source_with_fonts(
             "NexaDevRenderer.swift",
             include_str!("../../../runtime/ios/NexaDevRenderer.swift"),
@@ -3447,22 +3446,43 @@ mod tests {
         );
 
         assert!(swift.contains("case (\"gilroy\", \"Semibold\"): return \"Gilroy-Semibold\""));
-        assert!(swift.contains("case (\"brand icons\", \"Normal\"): return \"Gilroy-Regular\""));
-        assert!(swift.contains("nexaDevFontFaceName(family, weight: \"Normal\")"));
+        assert!(swift.contains("fontFamily: family"));
         assert!(kotlin.contains("\"gilroy\" to FontWeight.SemiBold ->"));
         assert!(kotlin.contains("R.font.gilroy_semibold"));
-        assert!(kotlin.contains("\"brand icons\" to FontWeight.Normal ->"));
-        assert!(
-            kotlin.contains(
-                "nexaDevFontFamily(fields.optString(\"font_family\"), FontWeight.Normal)"
-            )
-        );
-        assert!(kotlin.contains(
-            "\"brand icons\" to FontWeight.Normal -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.gilroy_regular, weight = FontWeight.Normal))"
-        ));
+        assert!(kotlin.contains("nexaDevIconFontFamily(family)"));
         assert!(!kotlin.contains("__NEXA_ANDROID_FONT_FAMILY_CASES__"));
         assert!(!kotlin.contains("getIdentifier("));
         assert!(!kotlin.contains("assets.open("));
+    }
+
+    #[test]
+    fn dev_runtime_transfers_both_generated_and_prebuilt_custom_icon_fonts() {
+        let project = TestProject::new("nexa-dev-icon-font-assets");
+        let svg = project.join("assets/icons/Brand/heart.svg");
+        std::fs::create_dir_all(svg.parent().expect("SVG parent")).expect("create custom icon set");
+        std::fs::write(
+            &svg,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>"#,
+        )
+        .expect("write SVG icon");
+
+        let fonts = project.join("assets/fonts");
+        std::fs::create_dir_all(&fonts).expect("create font assets");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/component-parity/assets/fonts/Mazicon.ttf");
+        std::fs::copy(&fixture, fonts.join("Mazicon.ttf")).expect("copy prebuilt icon font");
+        std::fs::write(fonts.join("Mazicon.icons.json"), r#"{"play":61696}"#)
+            .expect("write font icon map");
+
+        let assets = dev_icon_font_assets(project.path()).expect("load DevRuntime icon fonts");
+
+        assert!(
+            assets.keys().any(|family| family.starts_with("Brand_")),
+            "generated SVG icon font should be transferred"
+        );
+        let prebuilt_bytes =
+            std::fs::read(fonts.join("Mazicon.ttf")).expect("read prebuilt icon font");
+        assert_eq!(assets.get("Mazicon"), Some(&prebuilt_bytes));
     }
 
     /// Builds a plugin package that vendors one XCFramework.

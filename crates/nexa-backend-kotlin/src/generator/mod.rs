@@ -2746,15 +2746,15 @@ internal fun NexaSegmentedControlPrimitive(
 @androidx.compose.runtime.Composable
 internal fun NexaSystemIconPrimitive(
     image: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    size: androidx.compose.ui.unit.Dp,
+    description: String?,
+    size: androidx.compose.ui.unit.Dp?,
     tint: androidx.compose.ui.graphics.Color,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
 ) {
     androidx.compose.material3.Icon(
         imageVector = image,
-        contentDescription = description.takeIf(String::isNotEmpty),
-        modifier = modifier.size(size),
+        contentDescription = description?.takeIf(String::isNotEmpty),
+        modifier = if (size == null) modifier else modifier.size(size),
         tint = tint,
     )
 }
@@ -2763,9 +2763,10 @@ internal fun NexaSystemIconPrimitive(
 @androidx.compose.runtime.Composable
 internal fun NexaFontIconPrimitive(
     glyph: Int,
-    description: String,
-    size: androidx.compose.ui.unit.Dp,
-    tint: androidx.compose.ui.graphics.Color,
+    description: String?,
+    size: androidx.compose.ui.unit.Dp?,
+    tint: androidx.compose.ui.graphics.Color? = null,
+    layers: List<NexaIconLayer> = emptyList(),
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
     fontResource: Int? = null,
     fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
@@ -2777,10 +2778,10 @@ internal fun NexaFontIconPrimitive(
             )
         } ?: androidx.compose.ui.text.font.FontFamily.Default
     }
-    val accessibilityModifier = if (description.isEmpty()) {
-        androidx.compose.ui.Modifier.clearAndSetSemantics { }
-    } else {
-        androidx.compose.ui.Modifier.semantics { contentDescription = description }
+    val accessibilityModifier = when (description) {
+        null -> androidx.compose.ui.Modifier
+        "" -> androidx.compose.ui.Modifier.clearAndSetSemantics { }
+        else -> androidx.compose.ui.Modifier.semantics { contentDescription = description }
     }
     val glyphText = androidx.compose.runtime.remember(glyph) {
         if (java.lang.Character.isValidCodePoint(glyph)) {
@@ -2789,17 +2790,48 @@ internal fun NexaFontIconPrimitive(
             "�"
         }
     }
-    androidx.compose.material3.Text(
-        text = glyphText,
+    val fontSize = size?.let { (it.value / androidx.compose.ui.platform.LocalDensity.current.fontScale).sp }
+        ?: androidx.compose.ui.unit.TextUnit.Unspecified
+    androidx.compose.foundation.layout.Box(
         modifier = modifier.then(accessibilityModifier),
-        color = tint,
-        // Match fixed-size SwiftUI icon glyphs without applying text scaling.
-        fontSize = (size.value / androidx.compose.ui.platform.LocalDensity.current.fontScale).sp,
-        fontFamily = resolvedFontFamily,
-        maxLines = 1,
-        softWrap = false,
-    )
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        if (layers.isEmpty()) {
+            androidx.compose.material3.Text(
+                text = glyphText,
+                color = tint ?: androidx.compose.ui.graphics.Color.Unspecified,
+                fontSize = fontSize,
+                fontFamily = resolvedFontFamily,
+                maxLines = 1,
+                softWrap = false,
+            )
+        } else {
+            layers.forEach { layer ->
+                val layerText = androidx.compose.runtime.remember(layer.glyph) {
+                    if (java.lang.Character.isValidCodePoint(layer.glyph)) {
+                        String(java.lang.Character.toChars(layer.glyph))
+                    } else {
+                        "�"
+                    }
+                }
+                androidx.compose.material3.Text(
+                    text = layerText,
+                    color = tint ?: layer.color,
+                    fontSize = fontSize,
+                    fontFamily = resolvedFontFamily,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+    }
 }
+
+// nexa-codegen: NexaIconLayer
+internal data class NexaIconLayer(
+    val glyph: Int,
+    val color: androidx.compose.ui.graphics.Color,
+)
 
 // nexa-codegen: NexaIconSpec
 internal data class NexaIconSpec(
@@ -2807,18 +2839,25 @@ internal data class NexaIconSpec(
     val glyph: Int? = null,
     val fontResource: Int? = null,
     val fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
+    val description: String? = null,
+    val size: androidx.compose.ui.unit.Dp? = null,
+    val tint: androidx.compose.ui.graphics.Color? = null,
+    val preservesColor: Boolean = false,
+    val layers: List<NexaIconLayer> = emptyList(),
 )
 
 // nexa-codegen: NexaIconContent
 @androidx.compose.runtime.Composable
 internal fun NexaIconContent(
     icon: NexaIconSpec,
-    description: String,
-    size: androidx.compose.ui.unit.Dp,
+    description: String?,
+    size: androidx.compose.ui.unit.Dp?,
     tint: androidx.compose.ui.graphics.Color? = null,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
 ) {
-    val resolvedTint = tint ?: androidx.compose.material3.LocalContentColor.current
+    val resolvedDescription = icon.description ?: description
+    val resolvedSize = icon.size ?: size
+    val resolvedTint = icon.tint ?: if (icon.preservesColor) null else tint
     val glyph = icon.glyph
     val fontResource = icon.fontResource
     val fontFamily = icon.fontFamily
@@ -2827,18 +2866,19 @@ internal fun NexaIconContent(
             glyph = glyph,
             fontResource = fontResource,
             fontFamily = fontFamily,
-            description = description,
-            size = size,
+            description = resolvedDescription,
+            size = resolvedSize,
             tint = resolvedTint,
+            layers = icon.layers,
             modifier = modifier,
         )
     } else {
         icon.vector?.let { vector ->
             NexaSystemIconPrimitive(
                 image = vector,
-                description = description,
-                size = size,
-                tint = resolvedTint,
+                description = resolvedDescription,
+                size = resolvedSize,
+                tint = resolvedTint ?: androidx.compose.material3.LocalContentColor.current,
                 modifier = modifier,
             )
         }
@@ -4914,10 +4954,10 @@ mod tests {
         shared_component_primitives, shared_component_primitives_with_wave,
     };
     use nexa_ir::{
-        Action, AnimationSpec, CollectionTransform, Component, Expr, Function, ImageScale,
-        ImageSource, LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen,
-        ScreenId, SectionedListCommon, State, SystemIcon, TaskExecutor, TextStyle, Type, ViewStyle,
-        ViewTransition, WhenCase,
+        Action, AnimationSpec, CollectionTransform, Component, Expr, Function, IconSpec,
+        ImageScale, ImageSource, LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node,
+        NumericType, Screen, ScreenId, SectionedListCommon, State, SystemIcon, TaskExecutor,
+        TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
 
     #[test]
@@ -6369,7 +6409,7 @@ mod tests {
                 long_press_actions: Vec::new(),
                 context_menu: vec![Node::Button {
                     label: Expr::String("Edit".to_owned()),
-                    icon: Some(SystemIcon::Shared("edit".to_owned())),
+                    icon: Some(IconSpec::system(SystemIcon::Shared("edit".to_owned()))),
                     loading: None,
                     disabled: None,
                     style: None,
@@ -6505,7 +6545,9 @@ mod tests {
                     children: vec![
                         Node::ContentUnavailable {
                             title: Expr::String("Inbox is empty".to_owned()),
-                            icon: SystemIcon::shared("inbox").expect("shared inbox icon"),
+                            icon: IconSpec::system(
+                                SystemIcon::shared("inbox").expect("shared inbox icon"),
+                            ),
                             description: Some(Expr::String(
                                 "Tasks you add will appear here.".to_owned(),
                             )),
@@ -6516,7 +6558,9 @@ mod tests {
                         },
                         Node::ContentUnavailable {
                             title: Expr::String("No search results".to_owned()),
-                            icon: SystemIcon::shared("search").expect("shared search icon"),
+                            icon: IconSpec::system(
+                                SystemIcon::shared("search").expect("shared search icon"),
+                            ),
                             description: Some(Expr::String("Try a different keyword.".to_owned())),
                             title_color: None,
                             description_color: None,
@@ -6525,8 +6569,7 @@ mod tests {
                         },
                         Node::ContentUnavailable {
                             title: Expr::String("No reminders".to_owned()),
-                            icon: SystemIcon::font_glyph("Mazicon", 61696)
-                                .expect("custom font glyph"),
+                            icon: IconSpec::font_glyph("Mazicon", "Mazicon", 61696),
                             description: None,
                             title_color: None,
                             description_color: None,
@@ -6564,7 +6607,7 @@ mod tests {
         assert!(kotlin.contains("internal fun NexaIconContent("));
         assert!(kotlin.contains("androidx.compose.runtime.remember(glyph)"));
         assert!(kotlin.contains("LocalDensity.current.fontScale).sp"));
-        assert!(kotlin.contains("contentDescription = description.takeIf(String::isNotEmpty)"));
+        assert!(kotlin.contains("contentDescription = description?.takeIf(String::isNotEmpty)"));
         let empty_state_primitive = kotlin
             .split("internal fun NexaContentUnavailablePrimitive(")
             .nth(1)
@@ -6581,8 +6624,12 @@ mod tests {
             "each ContentUnavailable child should receive a share of its parent Column"
         );
         assert!(kotlin.contains("size = androidx.compose.ui.unit.Dp(58f)"));
-        assert!(kotlin.contains("NexaIconSpec(vector = Icons.Filled.Inbox)"));
-        assert!(kotlin.contains("NexaIconSpec(glyph = 61696, fontResource = R.font.mazicon)"));
+        assert!(
+            kotlin.contains("NexaIconSpec(vector = Icons.Filled.Inbox, preservesColor = false)")
+        );
+        assert!(kotlin.contains(
+            "NexaIconSpec(glyph = 61696, fontResource = R.font.mazicon, preservesColor = true)"
+        ));
         assert!(kotlin.contains(
             "NexaProgressBarPrimitive(progress = 0.45.toFloat(), tint = null, trackColor = null, thickness = null, cornerRadius = null)"
         ));

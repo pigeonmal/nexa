@@ -19,6 +19,7 @@ nexa-dev-ir = { path = "../nexa-dev-ir" }
 nexa-dev-protocol = { path = "../nexa-dev-protocol" }
 nexa-dev-server = { path = "../nexa-dev-server" }
 nexa-ir = { path = "../nexa-ir" }
+nexa-icon-font = { path = "../nexa-icon-font" }
 nexa-plugin-idl = { path = "../nexa-plugin-idl" }
 nexa-syntax = { path = "../nexa-syntax" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }

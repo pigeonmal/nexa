@@ -1,4 +1,5 @@
 import Combine
+import CoreText
 import Foundation
 import QuartzCore
 import SwiftUI
@@ -220,6 +221,7 @@ final class NexaDevRuntime: ObservableObject {
             guard let devModule = payload[NexaDevKeys.module] as? [String: Any],
                   let nextModule = devModule[NexaDevKeys.module] as? [String: Any]
             else { return }
+            installDevFontAssets(devModule[NexaDevKeys.fontAssets])
             store.installTranslations(devModule["translations"])
             store.install(module: nextModule)
             currentRevision = devModule[NexaDevKeys.revision] as? String
@@ -249,6 +251,9 @@ final class NexaDevRuntime: ObservableObject {
             }
             if let translations = patch["translations"] {
                 store.installTranslations(translations)
+            }
+            if let fonts = patch[NexaDevKeys.fontAssets] {
+                installDevFontAssets(fonts)
             }
             let installResult = store.installPatchedModule(nextModule, operations: operations)
             if installResult == .fullInstallRequired {
@@ -416,4 +421,56 @@ final class NexaDevRuntime: ObservableObject {
         }
         return value
     }
+}
+
+@MainActor
+private enum NexaDevFontRegistry {
+    private static var installed: [String: (url: URL, data: Data)] = [:]
+
+    static func install(_ raw: Any?) {
+        let encodedAssets = raw as? [String: [NSNumber]] ?? [:]
+        let assets = encodedAssets.reduce(into: [String: Data]()) { result, entry in
+            let (family, values) = entry
+            guard !values.isEmpty,
+                  family.unicodeScalars.allSatisfy({ scalar in
+                      scalar.isASCII && (CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).contains(scalar))
+                  })
+            else {
+                return
+            }
+            result[family] = Data(values.map { UInt8(truncatingIfNeeded: $0.intValue) })
+        }
+
+        let staleFamilies = installed.compactMap { family, previous in
+            assets[family] == previous.data ? nil : family
+        }
+        for family in staleFamilies {
+            guard let previous = installed.removeValue(forKey: family) else { continue }
+            _ = CTFontManagerUnregisterFontsForURL(previous.url as CFURL, .process, nil)
+            try? FileManager.default.removeItem(at: previous.url)
+        }
+        guard !assets.isEmpty else { return }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NexaDevFonts", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            for (family, data) in assets where installed[family] == nil {
+                let fontURL = directory.appendingPathComponent("\(family).ttf")
+                try data.write(to: fontURL, options: .atomic)
+                let registered = CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)
+                if !registered {
+                    NSLog("Nexa DevRuntime could not register custom icon font %@", family)
+                }
+                installed[family] = (fontURL, data)
+            }
+        } catch {
+            NSLog("Nexa DevRuntime could not install custom icon fonts: %@", String(describing: error))
+        }
+    }
+}
+
+@MainActor
+private func installDevFontAssets(_ raw: Any?) {
+    NexaDevFontRegistry.install(raw)
 }

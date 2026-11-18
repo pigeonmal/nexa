@@ -194,8 +194,8 @@ pub(super) struct SemanticContext<'a> {
     pub(super) target: Target,
     pub(super) nullable_generic_plugin_reads: bool,
     pub(super) source_file: Option<&'a str>,
-    /// Project-configured icon aliases resolved to typed font glyphs.
-    pub(super) custom_icons: Option<&'a HashMap<String, nexa_ir::SystemIcon>>,
+    /// Project-discovered custom icon sets, keyed by their folder/font stem.
+    pub(super) custom_icons: Option<&'a nexa_icon_font::IconRegistry>,
 }
 
 impl<'a> SemanticContext<'a> {
@@ -257,16 +257,25 @@ impl<'a> SemanticContext<'a> {
 
     pub(super) fn with_optional_custom_icons(
         mut self,
-        icons: Option<&'a HashMap<String, nexa_ir::SystemIcon>>,
+        icons: Option<&'a nexa_icon_font::IconRegistry>,
     ) -> Self {
         self.custom_icons = icons;
         self
     }
 
-    pub(super) fn resolve_icon(&self, name: &str) -> Option<nexa_ir::SystemIcon> {
-        self.custom_icons
-            .and_then(|icons| icons.get(name).cloned())
-            .or_else(|| nexa_ir::SystemIcon::shared(name))
+    pub(super) fn resolve_custom_icon(
+        &self,
+        set: &str,
+        name: &str,
+    ) -> Option<(String, String, u32, Vec<nexa_icon_font::IconGlyphLayer>)> {
+        let icon_set = self.custom_icons?.sets.get(set)?;
+        let glyph = *icon_set.icons.get(name)?;
+        Some((
+            icon_set.font_family.clone(),
+            icon_set.font_resource.clone(),
+            glyph,
+            icon_set.layers.get(name).cloned().unwrap_or_default(),
+        ))
     }
 
     pub(super) fn with_navigation(&self, allow_stack: bool, allow_back: bool) -> Self {

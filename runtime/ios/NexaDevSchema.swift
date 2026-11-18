@@ -83,6 +83,7 @@ public enum NexaDevKeys {
     public static let onInactive = "on_inactive"
     public static let onBackground = "on_background"
     public static let transition = "transition"
+    public static let fontAssets = "font_assets"
     public static let sourceFile = "source_file"
     public static let refMethods = "ref_methods"
     public static let componentRef = "component_ref"

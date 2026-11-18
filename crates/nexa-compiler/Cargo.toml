@@ -10,6 +10,7 @@ nexa-ir = { path = "../nexa-ir" }
 nexa-syntax = { path = "../nexa-syntax" }
 nexa-plugin-idl = { path = "../nexa-plugin-idl" }
 nexa-plugin-compiler-api = { path = "../nexa-plugin-compiler-api" }
+nexa-icon-font = { path = "../nexa-icon-font" }
 
 [dev-dependencies]
 nexa-codegen = { path = "../nexa-codegen" }

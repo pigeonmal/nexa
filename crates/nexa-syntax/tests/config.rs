@@ -24,41 +24,27 @@ fn parses_shared_assets_and_platform_icon_overrides() {
 }
 
 #[test]
-fn parses_custom_icon_fonts_and_named_glyphs() {
-    let config = parse_config(
-        r#"config {
-            assets {
-                iconFonts { Mazicon: "assets/fonts/Mazicon.ttf" },
-                icons {
-                    mazica_play: ["Mazicon", 61696],
-                    mazica_search: ["Mazicon", 61697]
-                }
-            }
-        }"#,
-    )
-    .expect("custom icon fonts and aliases parse");
-    let assets = config.assets.expect("assets block");
-    assert_eq!(assets.icon_fonts.len(), 1);
-    assert_eq!(assets.icon_fonts[0].family, "Mazicon");
-    assert_eq!(assets.icon_fonts[0].path, "assets/fonts/Mazicon.ttf");
-    assert_eq!(assets.icons.len(), 2);
-    assert_eq!(assets.icons[0].name, "mazica_play");
-    assert_eq!(assets.icons[0].family, "Mazicon");
-    assert_eq!(assets.icons[0].glyph, 61696);
+fn reports_migration_for_removed_custom_icon_config_tables() {
+    let error =
+        parse_config(r#"config { assets { iconFonts { Mazicon: "assets/fonts/Mazicon.ttf" } } }"#)
+            .expect_err("the old icon font table should be rejected");
+    let message = error.to_string();
+    assert!(message.contains("`assets.iconFonts` was removed"));
+    assert!(message.contains("assets/icons/<Set>/*.svg"));
 }
 
 #[test]
-fn parses_icon_font_family_aliases_with_spaces() {
-    let config = parse_config(
-        r#"config {
-            assets { iconFonts { "Brand Icons": "assets/fonts/custom-icons.ttf" } }
-        }"#,
-    )
-    .expect("quoted icon font family parses");
-
-    let assets = config.assets.expect("assets block");
-    assert_eq!(assets.icon_fonts[0].family, "Brand Icons");
-    assert_eq!(assets.icon_fonts[0].path, "assets/fonts/custom-icons.ttf");
+fn rejects_removed_custom_icon_config_tables() {
+    for (field, message) in [
+        ("iconFonts", "`assets.iconFonts` was removed"),
+        ("icons", "`assets.icons` was removed"),
+    ] {
+        let source =
+            format!(r#"config {{ assets {{ {field} {{ Brand: "assets/fonts/Brand.ttf" }} }} }}"#);
+        let error = parse_config(&source).expect_err("removed custom icon table is rejected");
+        assert!(error.to_string().contains(message));
+        assert!(error.to_string().contains("assets/icons/<Set>/*.svg"));
+    }
 }
 
 #[test]

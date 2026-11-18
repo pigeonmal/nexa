@@ -58,18 +58,10 @@ pub(super) fn lower_app_bottom_bar_component(
         let label = require_string_literal(&tab.label, "Tab label")?;
         let comment = tab.comment;
         let icon = tab
-                    .icon
-                    .as_ref()
-                    .map(|icon| {
-                        let name = require_string_literal(icon, "Tab icon")?;
-                        cx.resolve_icon(&name).ok_or_else(|| {
-                            CompileError::new(
-                                icon.span(),
-                                format!("unknown tab icon `{name}`; use a Nexa shared icon or an alias from `assets.icons`"),
-                            )
-                        })
-                    })
-                    .transpose()?;
+            .icon
+            .as_ref()
+            .map(|icon| lower_icon_spec(icon, "Tab icon", cx))
+            .transpose()?;
         let badge = tab
             .badge
             .as_ref()

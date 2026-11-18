@@ -23,7 +23,7 @@ component CreateScreen() {
             TopInset()
             Row(alignment: Center) {
                 Pressable(accessibilityLabel: "Discard draft", accessibilityRole: Button) {
-                    Icon(system: "close", description: "Close", size: 21, tint: "#FFFFFF")
+                    Icon(system: "close", description: "Close", size: 21, color: "#FFFFFF")
                 }.onTap {
                     selectedUri = ""
                     caption = ""
@@ -42,7 +42,7 @@ component CreateScreen() {
                     Image(asset: "poster_city_pexels_20131950", description: "Video upload preview", scale: Fill, fillMaxSize: true)
                     LinearGradient(startColor: "#00000020", endColor: "#000000D9", direction: TopToBottom, height: 380)
                     Column(gap: 10, alignment: Center, padding: 22) {
-                        Icon(system: "movie", description: "Video upload", size: 38, tint: "#FFFFFF")
+                        Icon(system: "movie", description: "Video upload", size: 38, color: "#FFFFFF")
                         Text("Create your next video", color: "#FFFFFF", fontSize: 19, fontWeight: Bold, alignment: Center)
                         Text("Choose a clip from your library to start.", color: "#EEEEF0", fontSize: 12, alignment: Center)
                     }
@@ -61,7 +61,7 @@ component CreateScreen() {
             Row(gap: 9, alignment: Center) {
                 MediaPicker.MediaPickerControl(isVideo: true) {
                     Row(gap: 8, alignment: Center, padding: 12, background: "#FE2C55", cornerRadius: 6) {
-                        Icon(system: "upload", description: "Choose video", size: 17, tint: "#FFFFFF")
+                        Icon(system: "upload", description: "Choose video", size: 17, color: "#FFFFFF")
                         Text(if selectedUri == "" { "Select video" } else { "Change video" }, color: "#FFFFFF", fontSize: 13, fontWeight: Bold)
                     }
                 }.onPicked { uris ->
@@ -92,7 +92,7 @@ component CreateScreen() {
                 }
                 Pressable(accessibilityLabel: "Add a sound", accessibilityRole: Button) {
                     Row(gap: 7, alignment: Center, padding: 12, background: "#26262A", cornerRadius: 6) {
-                        Icon(system: "music", description: "Add sound", size: 16, tint: "#FFFFFF")
+                        Icon(system: "music", description: "Add sound", size: 16, color: "#FFFFFF")
                         Text("Add sound", color: "#FFFFFF", fontSize: 12, fontWeight: Semibold)
                     }
                 }.onTap { message = "Choose a sound after selecting a video" }
@@ -100,7 +100,7 @@ component CreateScreen() {
 
             TextInput(value: caption, placeholder: "Write a caption…", multiline: true, minLines: 2, maxLines: 4, maxLength: 2200)
             Row(alignment: Center, padding: 12, background: "#202024", cornerRadius: 7) {
-                Icon(system: "person", description: "Who can watch", size: 18, tint: "#FFFFFF")
+                Icon(system: "person", description: "Who can watch", size: 18, color: "#FFFFFF")
                 Text("Who can watch this video", color: "#FFFFFF", fontSize: 12)
                 Spacer()
                 Pressable(accessibilityLabel: "Change audience", accessibilityRole: Button) {

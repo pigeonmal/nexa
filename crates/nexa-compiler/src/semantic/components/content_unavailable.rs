@@ -14,18 +14,11 @@ pub(super) fn lower_content_unavailable_component(
         Some(&Type::String),
         &cx.exprs(false),
     )?;
-    let icon_name = require_string_literal(
+    let icon = lower_icon_spec(
         &take_required_arg(&mut args, &inv.name, "icon", span)?,
         "ContentUnavailable icon",
+        cx,
     )?;
-    let icon = cx.resolve_icon(&icon_name).ok_or_else(|| {
-        CompileError::new(
-            span,
-            format!(
-                "unknown icon `{icon_name}`; use a Nexa shared icon or an alias from `assets.icons`"
-            ),
-        )
-    })?;
     let description = args
         .remove("description")
         .map(|description| {

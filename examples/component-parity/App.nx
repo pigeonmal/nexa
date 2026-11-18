@@ -927,7 +927,7 @@ app ComponentParity {
                     titleActions = titleActions + 1
                 }
                 Pressable() {
-                    Icon(system: "more", description: "More actions", size: 20, tint: "#111111")
+                    Icon(system: "more", description: "More actions", size: 20, color: "#111111")
                 }.onTap {
                     titleActions = titleActions + 1
                 }.contextMenu {
@@ -1526,6 +1526,7 @@ app ComponentParity {
             ParityCard(title: "Minimum, middle, maximum, and stepped values") {
                 Text("Min: $sliderLow")
                 Slider(value: sliderLow, min: 0, max: 1, step: 0.1, tint: "#2563EB", trackColor: "#DBEAFE", thumbColor: "#FFFFFF", trackHeight: 3.5, thumbSize: 14, hitSlop: 18)
+
                 Text("Middle: $sliderMiddle")
                 Slider(value: sliderMiddle, min: 0, max: 1)
                 Text("Max: $sliderHigh")
@@ -1950,7 +1951,7 @@ app ComponentParity {
                     FastList(count: 12, rowHeight: 56, gap: 8, showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, ref: listRef, accessibilityLabel: "Component parity rows") {
                         index in
                         Row(gap: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
-                            Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                            Icon(system: "check_circle", size: 20, color: "#E11D48", description: "Task")
                             Text("Parity row \(index)")
                         }
                     }
@@ -2243,7 +2244,7 @@ app ComponentParity {
             Text("Horizontal media title")
             Row(width: Fill, height: 40, gap: 12, background: "#E8F0FF", animation: Marquee(speed: 32, gap: 24, delay: 1, edgeFade: 16, playing: marqueePlaying)) {
                 Text(headline, lineLimit: 1)
-                Icon(system: "music", description: "Music", size: 20, tint: "#047DF6")
+                Icon(system: "music", description: "Music", size: 20, color: "#047DF6")
             }
             Text("Vertical announcements")
             Column(width: Fill, height: 64, gap: 12, background: "#E8F0FF", animation: Marquee(speed: 24, edgeFade: 12, playing: marqueePlaying)) {
@@ -2344,13 +2345,13 @@ app ComponentParity {
             Text("Icon", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Size and tint") {
                 Row(gap: 24, alignment: Center) {
-                    Icon(system: "search", size: 20, tint: "#8E8E93", description: "Small search")
-                    Icon(system: "search", size: 32, tint: "#007AFF", description: "Medium search")
-                    Icon(system: "search", size: 48, tint: "#E11D48", description: "Large search")
+                    Icon(system: "search", size: 20, color: "#8E8E93", description: "Small search")
+                    Icon(system: "search", size: 32, color: "#007AFF", description: "Medium search")
+                    Icon(system: "search", size: 48, color: "#E11D48", description: "Large search")
                 }
-                Icon(sfsymbol: "star.fill", size: 24, tint: "#E11D48", description: "Native iOS symbol")
-                Icon(materialsymbol: "star", size: 24, tint: "#E11D48", description: "Native Android symbol")
-                Icon(fontFamily: "Mazicon", glyph: 61696, size: 24, tint: "#E11D48", description: "Mazicon glyph")
+                Icon(sfsymbol: "star.fill", size: 24, color: "#E11D48", description: "Native iOS symbol")
+                Icon(materialsymbol: "star", size: 24, color: "#E11D48", description: "Native Android symbol")
+                Icon(Mazicon: "play", size: 24, color: "#E11D48", description: "Mazicon glyph")
             }
         }
     }
@@ -2814,7 +2815,7 @@ app ComponentParity {
                             FastList(count: 12, rowHeight: 56, gap: 8, showDividers: false, accessibilityLabel: "Component parity rows") {
                                 index in
                                 Row(gap: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
-                                    Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                                    Icon(system: "check_circle", size: 20, color: "#E11D48", description: "Task")
                                     Text("Parity row \(index)")
                                 }
                             }
@@ -3077,7 +3078,7 @@ app ComponentParity {
                 Button("Toggle selection", accessibilityLabel: "Selection", accessibilityValue: "Selected: $selected") {
                     selected =!selected
                 }
-                Icon(system: "check_circle", size: 24, tint: "#E11D48", description: "Selected state", accessibilityLabel: "Selected state", accessibilityRole: Image)
+                Icon(system: "check_circle", size: 24, color: "#E11D48", description: "Selected state", accessibilityLabel: "Selected state", accessibilityRole: Image)
             }
         }
     }

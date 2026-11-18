@@ -13,7 +13,7 @@ app ProfileCard {
     body {
         Column(gap: 12, padding: 16, background: "#F1F5F9", cornerRadius: 12) {
             Row(gap: 10, alignment: Center) {
-                Icon(system: "account_circle", description: "Profile", size: 40, tint: "#2563EB")
+                Icon(system: "account_circle", description: "Profile", size: 40, color: "#2563EB")
                 Column(gap: 3) {
                     Text("Alex Morgan", fontSize: 20, fontWeight: Semibold)
                     Text("Product designer", fontSize: 14, color: "#475569")
@@ -72,18 +72,12 @@ Column(gap: 8) {
 
 Grouping, decimal separators, and currency placement follow the current device locale. Formatter data can vary slightly between OS versions. NumberFlow does not bundle locale data or animate time/countdown strings.
 
-## Custom icon fonts
+## Custom icons
 
-Register a TTF or OTF font in `nexa.config.nx` and map codepoints to readable aliases. Nexa packages the font for both native targets and resolves aliases at compile time. See the [custom icons guide](custom-icons.md) for setup, supported usage, codepoint lookup, direct glyphs, and troubleshooting.
-
-```nexa
-config {
-    assets {
-        iconFonts { TrailIcons: "assets/fonts/TrailIcons.ttf" },
-        icons { trail_map: ["TrailIcons", 61696] }
-    }
-}
-```
+Add SVGs under `assets/icons/<Set>/` and use `Icon(Set: "name")` wherever an
+icon is accepted. Existing TTF and OTF fonts can use a JSON sidecar. See the
+[custom icons guide](custom-icons.md) for supported artwork, component slots,
+styling, accessibility, live development, and migration.
 
 ## Layout and styling
 
@@ -460,7 +454,7 @@ A passive touch observer is shared by buttons in each window. It never recognize
 |---|---|---|---|
 | `label` | `String` expression | Required positional value | Visible button text. |
 | `comment` | `String` | None | Translator context for the visible label. |
-| `icon` | Nexa shared icon or `assets.icons` alias (`String`) | None | Adds a shared or registered custom glyph; unknown names are compile errors. |
+| `icon` | system name `String` or `Icon(...)` value | None | Adds a system or set-named custom icon; unknown set and icon names are compile errors. |
 | `loading` | `Bool` expression | `false` | Replaces the label with a native progress indicator and disables activation. |
 | `disabled` | `Bool` expression | `false` | Disables activation while retaining the label. |
 | `style` | `BorderedProminent`, `Bordered`, `Borderless`, or `Plain` | `BorderedProminent` | Selects the shared button treatment. |
@@ -1553,7 +1547,7 @@ The component measures line wrapping with the selected font and width, then cach
 | Parameter | Type | Required/default | Behavior |
 |---|---|---|---|
 | `title` | `String` expression | Required | Main empty-state heading. |
-| `icon` | Nexa shared icon or `assets.icons` alias (`String`) | Required | Icon name from Nexa's shared catalog or a registered custom glyph alias; unknown names are compile errors. |
+| `icon` | system name `String` or `Icon(...)` value | Required | Icon displayed with the empty-state title; custom names are resolved in the selected set. |
 | `description` | `String` expression | Omitted | Optional supporting copy below the title. |
 | `titleColor` | Color expression (`String`) | Native default | Optional title color. Accepts a hex color, theme color, or dynamic string expression. |
 | `descriptionColor` | Color expression (`String`) | Native default | Optional supporting description color. |
@@ -1674,12 +1668,10 @@ When a text label is present, it stays visible while the menu is open and uses
 the platform's primary text color. `tint` colors the selected value and picker
 control independently.
 
-`itemIcons` optionally supplies Nexa shared icons or registered `assets.icons`
-aliases for menu rows. Its string
-literal entries map by index to `items`; an option without a matching entry has
-no leading icon. The compiler resolves built-in icons to native SF Symbols and
-Material icons and custom aliases to registered font glyphs, so an unknown
-icon name is a compile error.
+`itemIcons` optionally supplies system names, custom `Icon(...)` values, or a
+mix of both. Entries map by index to `items`; an option without a matching
+entry has no leading icon. The compiler resolves the set and glyph before code
+generation, so custom names never fall back to a system icon.
 
 Picker labels and choices, along with SegmentedControl choices, use Nexa's
 generated localization catalogs. Literal strings are extracted automatically.

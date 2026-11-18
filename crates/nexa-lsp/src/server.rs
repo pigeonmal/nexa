@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use serde_json::json;
 
 use crate::code_actions::code_actions_with_documents;
-use crate::completions::get_document_completions;
+use crate::completions::{get_document_completions, get_project_document_completions};
 use nexa_compiler::IncrementalProjectCompiler;
 
 use crate::diagnostics::{check_document, check_project_document};
@@ -20,6 +20,7 @@ use crate::symbols::get_document_symbols;
 pub struct LspServer {
     documents: HashMap<String, String>,
     project_compiler: IncrementalProjectCompiler,
+    project_root: Option<PathBuf>,
     shutdown: bool,
 }
 
@@ -34,6 +35,7 @@ impl LspServer {
         Self {
             documents: HashMap::new(),
             project_compiler: IncrementalProjectCompiler::default(),
+            project_root: None,
             shutdown: false,
         }
     }
@@ -66,6 +68,27 @@ impl LspServer {
 
         match request.method.as_str() {
             "initialize" => {
+                self.project_root = request.params.as_ref().and_then(|params| {
+                    params
+                        .get("workspaceFolders")
+                        .and_then(serde_json::Value::as_array)
+                        .and_then(|folders| folders.first())
+                        .and_then(|folder| folder.get("uri"))
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(file_uri_path)
+                        .or_else(|| {
+                            params
+                                .get("rootUri")
+                                .and_then(serde_json::Value::as_str)
+                                .and_then(file_uri_path)
+                        })
+                        .or_else(|| {
+                            params
+                                .get("rootPath")
+                                .and_then(serde_json::Value::as_str)
+                                .map(PathBuf::from)
+                        })
+                });
                 let result = json!({
                     "capabilities": {
                         "textDocumentSync": 1, // Full sync
@@ -186,8 +209,21 @@ impl LspServer {
                         .and_then(|p| serde_json::from_value(p.clone()).ok())
                         .unwrap_or_default();
 
+                    let project_root = self
+                        .project_root
+                        .clone()
+                        .or_else(|| project_root_for_document(uri));
                     if let Some(text) = self.get_document(uri) {
-                        get_document_completions(text, pos, uri.ends_with("/nexa.config.nx"))
+                        if let Some(project_root) = project_root {
+                            get_project_document_completions(
+                                text,
+                                pos,
+                                uri.ends_with("/nexa.config.nx"),
+                                &project_root,
+                            )
+                        } else {
+                            get_document_completions(text, pos, uri.ends_with("/nexa.config.nx"))
+                        }
                     } else {
                         get_document_completions("", pos, uri.ends_with("/nexa.config.nx"))
                     }
@@ -458,5 +494,46 @@ impl LspServer {
             ),
             _ => (None, notifications),
         }
+    }
+}
+
+fn project_root_for_document(uri: &str) -> Option<PathBuf> {
+    let document = file_uri_path(uri)?;
+    document
+        .parent()?
+        .ancestors()
+        .find(|path| {
+            path.join("nexa.config.nx").is_file()
+                || path.join("assets/icons").is_dir()
+                || path.join("assets/fonts").is_dir()
+        })
+        .map(PathBuf::from)
+}
+
+fn file_uri_path(uri: &str) -> Option<PathBuf> {
+    let encoded = uri.strip_prefix("file://")?;
+    let bytes = encoded.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = *bytes.get(index + 1)?;
+            let low = *bytes.get(index + 2)?;
+            decoded.push((hex_digit(high)? << 4) | hex_digit(low)?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).ok().map(PathBuf::from)
+}
+
+fn hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
     }
 }

@@ -123,7 +123,6 @@ pub struct IncrementalProjectCompiler {
     last_dev_change_hints: Mutex<HashMap<Target, crate::DevChangeHint>>,
     last_stats: ProjectCompileStats,
     canonical_paths: HashMap<PathBuf, PathBuf>,
-    custom_icons: Option<HashMap<String, nexa_ir::SystemIcon>>,
     cached_plugin_analysis: Option<PluginAnalysis>,
     modified_paths: HashSet<PathBuf>,
 }
@@ -279,13 +278,7 @@ impl IncrementalProjectCompiler {
             .clear();
         let entry_path = path.as_ref();
         let project_load_started = Instant::now();
-        let custom_icons = if let Some(cached) = &self.custom_icons {
-            cached.clone()
-        } else {
-            let icons = project_icon_registry(entry_path)?;
-            self.custom_icons = Some(icons.clone());
-            icons
-        };
+        let custom_icons = project_icon_registry(entry_path)?;
         let mut context = ProjectLoadContext {
             active: HashSet::new(),
             loaded_paths: HashSet::new(),
@@ -822,164 +815,20 @@ fn project_target_minimums(entry_path: &Path) -> Result<(String, u32), CompileEr
 /// Loads and validates project icon aliases once before target-specific
 /// semantic lowering. Font files remain ordinary project assets; this table
 /// only turns names into statically typed glyphs in the IR.
-fn project_icon_registry(
-    entry_path: &Path,
-) -> Result<HashMap<String, nexa_ir::SystemIcon>, CompileError> {
+fn project_icon_registry(entry_path: &Path) -> Result<nexa_icon_font::IconRegistry, CompileError> {
     let config_path = entry_path
         .ancestors()
         .map(|directory| directory.join("nexa.config.nx"))
         .find(|candidate| candidate.is_file());
-    let Some(config_path) = config_path else {
-        return Ok(HashMap::new());
-    };
-    let source = fs::read_to_string(&config_path).map_err(|error| {
-        CompileError::new(
-            file_level_span(),
-            format!("cannot read project config: {error}"),
-        )
-        .with_file(config_path.display().to_string())
-    })?;
-    let config = nexa_syntax::parse_config(&source)
-        .map_err(|error| error.with_file(config_path.display().to_string()))?;
-    let Some(assets) = config.assets else {
-        return Ok(HashMap::new());
-    };
-    let config_root = config_path.parent().unwrap_or_else(|| Path::new("."));
-    let mut families = HashSet::with_capacity(assets.icon_fonts.len());
-    let mut native_font_names = HashMap::with_capacity(assets.icon_fonts.len());
-    for font in &assets.icon_fonts {
-        let path = Path::new(&font.path);
-        let valid_relative_path = !path.is_absolute()
-            && path
-                .components()
-                .all(|component| matches!(component, std::path::Component::Normal(_)))
-            && path.parent() == Some(Path::new("assets/fonts"));
-        if !valid_relative_path {
-            return Err(CompileError::new(
-                font.span,
-                "icon font path must name a font directly inside `assets/fonts`",
-            )
-            .with_file(config_path.display().to_string()));
-        }
-        let source_path = config_root.join(path);
-        let metadata = fs::symlink_metadata(&source_path).map_err(|error| {
-            CompileError::new(
-                font.span,
-                format!("cannot read icon font `{}`: {error}", font.path),
-            )
-            .with_file(config_path.display().to_string())
-        })?;
-        if !metadata.file_type().is_file() {
-            return Err(CompileError::new(
-                font.span,
-                format!("icon font `{}` must be a regular file", font.path),
-            )
-            .with_file(config_path.display().to_string()));
-        }
-        let extension = source_path
-            .extension()
-            .and_then(|value| value.to_str())
-            .map(str::to_ascii_lowercase);
-        if !matches!(extension.as_deref(), Some("ttf" | "otf")) {
-            return Err(
-                CompileError::new(font.span, "icon fonts must use `.ttf` or `.otf` files")
-                    .with_file(config_path.display().to_string()),
-            );
-        }
-        let stem = source_path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default();
-        let resource_name = font_resource_key(stem);
-        if !families.insert(font.family.to_ascii_lowercase()) {
-            return Err(CompileError::new(
-                font.span,
-                format!(
-                    "icon font family `{}` is declared more than once",
-                    font.family
-                ),
-            )
-            .with_file(config_path.display().to_string()));
-        }
-        if native_font_names
-            .insert(resource_name, path.to_path_buf())
-            .is_some_and(|existing| existing.as_path() != path)
-        {
-            return Err(CompileError::new(
-                font.span,
-                format!(
-                    "icon font `{}` conflicts with another native font resource",
-                    font.family
-                ),
-            )
-            .with_file(config_path.display().to_string()));
-        }
-    }
-
-    let mut icons = HashMap::with_capacity(assets.icons.len());
-    for icon in assets.icons {
-        if nexa_ir::SystemIcon::shared(&icon.name).is_some() {
-            return Err(CompileError::new(
-                icon.span,
-                format!(
-                    "custom icon `{}` conflicts with a shared Nexa icon",
-                    icon.name
-                ),
-            )
-            .with_file(config_path.display().to_string()));
-        }
-        if !families.contains(&icon.family.to_ascii_lowercase()) {
-            return Err(CompileError::new(
-                icon.span,
-                format!(
-                    "custom icon `{}` references undeclared icon font family `{}`",
-                    icon.name, icon.family
-                ),
-            )
-            .with_file(config_path.display().to_string()));
-        }
-        let glyph =
-            nexa_ir::SystemIcon::font_glyph(icon.family.clone(), icon.glyph).ok_or_else(|| {
-                CompileError::new(
-                    icon.span,
-                    format!("icon `{}` has an invalid Unicode codepoint", icon.name),
-                )
-                .with_file(config_path.display().to_string())
-            })?;
-        if icons.insert(icon.name.clone(), glyph).is_some() {
-            return Err(CompileError::new(
-                icon.span,
-                format!("custom icon `{}` is declared more than once", icon.name),
-            )
-            .with_file(config_path.display().to_string()));
-        }
-    }
-    Ok(icons)
-}
-
-fn font_resource_key(name: &str) -> String {
-    let mut key = String::new();
-    let mut separator = false;
-    for character in name.chars() {
-        if character.is_ascii_alphanumeric() {
-            if separator && !key.is_empty() {
-                key.push('_');
-            }
-            key.push(character.to_ascii_lowercase());
-            separator = false;
-        } else {
-            separator = true;
-        }
-    }
-    while key.ends_with('_') {
-        key.pop();
-    }
-    if key.is_empty() {
-        key.push_str("font");
-    } else if key.as_bytes()[0].is_ascii_digit() {
-        key.insert_str(0, "font_");
-    }
-    key
+    let project_root = config_path
+        .as_deref()
+        .and_then(Path::parent)
+        .or_else(|| entry_path.parent())
+        .unwrap_or_else(|| Path::new("."));
+    let generated_root = project_root.join(".nexa/build/icon-fonts");
+    nexa_icon_font::IconRegistry::load(project_root, &generated_root).map_err(|error| {
+        CompileError::new(file_level_span(), error).with_file(project_root.display().to_string())
+    })
 }
 
 #[cfg(test)]
@@ -988,25 +837,23 @@ mod icon_registry_tests {
     use nexa_testkit::TestProject;
 
     #[test]
-    fn configured_icon_font_family_can_alias_a_differently_named_file() {
-        let project = TestProject::new("nexa-icon-font-family-alias");
-        let entry = project.write_app(
-            r##"app BrandIcons { body { Icon(system: "brand_marker", description: "Brand marker", size: 24, tint: "#000000") } }"##,
-        );
-        let font_directory = project.join("assets/fonts");
-        std::fs::create_dir_all(&font_directory).expect("create font directory");
-        std::fs::write(font_directory.join("custom-icons.ttf"), b"font fixture")
-            .expect("write font fixture");
-        project.write_config(
-            r#"config {
-                assets {
-                    iconFonts { "Brand Icons": "assets/fonts/custom-icons.ttf" },
-                    icons { brand_marker: ["Brand Icons", 57345] }
-                }
-            }"#,
-        );
+    fn project_icon_registry_compiles_svg_sets_for_icon_values() {
+        let project = TestProject::new("nexa-project-svg-icons");
+        let entry = project.write_app(r#"app BrandIcons { body { Icon(Brand: "marker") } }"#);
+        let icon_path = project.join("assets/icons/Brand/marker.svg");
+        std::fs::create_dir_all(icon_path.parent().expect("icon directory"))
+            .expect("create icon directory");
+        std::fs::write(
+            icon_path,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>"#,
+        )
+        .expect("write SVG icon");
 
-        compile_file(&entry).expect("configured icon font alias compiles");
+        let compilation = compile_file(&entry).expect("compile project icon");
+        assert!(matches!(
+            compilation.body.first(),
+            Some(nexa_ir::Node::FontIcon { .. })
+        ));
     }
 }
 

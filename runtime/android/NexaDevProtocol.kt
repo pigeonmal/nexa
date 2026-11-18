@@ -179,6 +179,7 @@ internal class NexaDevSocketClient(
                 val module = devModule.optJSONObject(NexaDevKeys.MODULE) ?: return
                 currentRevision = devModule.optString(NexaDevKeys.REVISION).takeIf(String::isNotEmpty)
                 val revision = currentRevision ?: return
+                NexaDevFontRegistry.install(store.context, devModule.optJSONObject(NexaDevKeys.FONT_ASSETS))
                 val translations = devModule.optJSONObject("translations")
                 var committedGeneration = 0
                 onMainAndWait {
@@ -215,6 +216,7 @@ internal class NexaDevSocketClient(
                     return
                 }
                 val translations = patch.optJSONObject("translations")
+                patch.optJSONObject(NexaDevKeys.FONT_ASSETS)?.let { NexaDevFontRegistry.install(store.context, it) }
                 val committed = AtomicBoolean(false)
                 var committedGeneration = 0
                 onMainAndWait {

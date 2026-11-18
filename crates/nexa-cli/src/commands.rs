@@ -2520,6 +2520,7 @@ fn is_relevant_dev_path(path: &Path, project_root: &Path, plugin_roots: &[PathBu
     path.file_name()
         .is_some_and(|name| name == "nexa.lock" || name == "nexa.config.nx")
         || path.extension().is_some_and(|extension| extension == "nx")
+        || is_dev_icon_input(path)
         || (path
             .file_name()
             .is_some_and(|name| name == "translations.json")
@@ -2576,12 +2577,55 @@ fn has_excluded_dev_component(path: &Path, base: &Path) -> bool {
 }
 
 fn requires_native_rebuild(path: &Path, plugin_roots: &HashMap<String, PathBuf>) -> bool {
-    path.file_name()
-        .is_some_and(|name| name == "nexa.lock" || name == "nexa.config.nx")
-        || is_native_asset(path)
-        || plugin_roots
-            .values()
-            .any(|plugin_root| path.starts_with(plugin_root))
+    !is_dev_icon_input(path)
+        && (path
+            .file_name()
+            .is_some_and(|name| name == "nexa.lock" || name == "nexa.config.nx")
+            || is_native_asset(path)
+            || plugin_roots
+                .values()
+                .any(|plugin_root| path.starts_with(plugin_root)))
+}
+
+fn is_dev_icon_input(path: &Path) -> bool {
+    let components = path
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    let in_svg_set = components
+        .windows(2)
+        .any(|parts| parts == ["assets", "icons"])
+        && path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("svg"));
+    let in_font_assets = components
+        .windows(2)
+        .any(|parts| parts == ["assets", "fonts"]);
+    if !in_font_assets {
+        return in_svg_set;
+    }
+    let Some(filename) = path.file_name().and_then(|value| value.to_str()) else {
+        return in_svg_set;
+    };
+    if let Some(stem) = filename.strip_suffix(".icons.json") {
+        return ["ttf", "otf"].iter().any(|extension| {
+            path.parent()
+                .is_some_and(|parent| parent.join(format!("{stem}.{extension}")).is_file())
+        });
+    }
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("ttf") || extension.eq_ignore_ascii_case("otf")
+        })
+        && path.parent().is_some_and(|parent| {
+            parent
+                .join(format!(
+                    "{}.icons.json",
+                    path.file_stem().unwrap_or_default().to_string_lossy()
+                ))
+                .is_file()
+        })
 }
 
 #[cfg(test)]
@@ -4507,6 +4551,31 @@ mod tests {
         assert!(changed.contains(&entry));
         assert!(changed.contains(&screen));
         assert!(changed.contains(&tab));
+    }
+
+    #[test]
+    fn custom_icon_inputs_hot_reload_without_rebuilding_the_native_host() {
+        let project = TestProject::new("nexa-dev-icon-watcher");
+        let svg = project.join("assets/icons/Brand/heart.svg");
+        let sidecar = project.join("assets/fonts/Brand.icons.json");
+        let font = project.join("assets/fonts/Brand.ttf");
+        let unrelated_svg = project.join("assets/illustrations/hero.svg");
+        fs::create_dir_all(svg.parent().expect("SVG parent")).expect("create icon set");
+        fs::create_dir_all(font.parent().expect("font parent")).expect("create fonts directory");
+        fs::create_dir_all(unrelated_svg.parent().expect("illustration parent"))
+            .expect("create illustrations directory");
+        fs::write(&svg, "<svg/>").expect("write custom icon");
+        fs::write(&sidecar, "{}").expect("write icon map");
+        fs::write(&font, b"font").expect("write prebuilt font");
+        fs::write(&unrelated_svg, "<svg/>").expect("write unrelated SVG");
+
+        assert!(is_relevant_dev_path(&svg, project.path(), &[]));
+        assert!(is_relevant_dev_path(&sidecar, project.path(), &[]));
+        assert!(is_relevant_dev_path(&font, project.path(), &[]));
+        assert!(!requires_native_rebuild(&svg, &HashMap::new()));
+        assert!(!requires_native_rebuild(&sidecar, &HashMap::new()));
+        assert!(!requires_native_rebuild(&font, &HashMap::new()));
+        assert!(requires_native_rebuild(&unrelated_svg, &HashMap::new()));
     }
 
     #[test]

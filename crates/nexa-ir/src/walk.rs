@@ -235,6 +235,9 @@ pub fn walk_ir(
                     walk_expression(color, visit_expression);
                 }
                 for tab in tabs {
+                    if let Some(icon) = &tab.icon {
+                        walk_icon_spec(icon, visit_expression);
+                    }
                     walk_ir(&tab.children, visit_node, visit_expression);
                 }
                 if let Some(custom_bar) = custom_bar {
@@ -330,6 +333,7 @@ pub fn walk_ir(
             }
             Node::ContentUnavailable {
                 title,
+                icon,
                 description,
                 title_color,
                 description_color,
@@ -338,6 +342,7 @@ pub fn walk_ir(
                 ..
             } => {
                 walk_expression(title, visit_expression);
+                walk_icon_spec(icon, visit_expression);
                 if let Some(description) = description {
                     walk_expression(description, visit_expression);
                 }
@@ -423,9 +428,20 @@ pub fn walk_ir(
                 }
             }
             Node::Picker {
-                items, label, tint, ..
+                items,
+                icon,
+                item_icons,
+                label,
+                tint,
+                ..
             } => {
                 walk_expression(items, visit_expression);
+                if let Some(icon) = icon {
+                    walk_icon_spec(icon, visit_expression);
+                }
+                for icon in item_icons {
+                    walk_icon_spec(icon, visit_expression);
+                }
                 if let Some(label) = label {
                     walk_expression(label, visit_expression);
                 }
@@ -480,6 +496,7 @@ pub fn walk_ir(
             }
             Node::Button {
                 label,
+                icon,
                 loading,
                 disabled,
                 tint,
@@ -488,6 +505,9 @@ pub fn walk_ir(
                 ..
             } => {
                 walk_expression(label, visit_expression);
+                if let Some(icon) = icon {
+                    walk_icon_spec(icon, visit_expression);
+                }
                 if let Some(accessibility_label) = accessibility_label {
                     walk_expression(accessibility_label, visit_expression);
                 }
@@ -615,7 +635,7 @@ pub fn walk_ir(
             | Node::StatusBar { .. }
             | Node::Direction { .. } => {}
             Node::SystemIcon { tint, .. } => {
-                if let crate::ColorExpression::Dynamic(color) = tint {
+                if let Some(crate::ColorExpression::Dynamic(color)) = tint {
                     walk_expression(color, visit_expression);
                 }
             }
@@ -623,8 +643,10 @@ pub fn walk_ir(
                 glyph, size, tint, ..
             } => {
                 walk_expression(glyph, visit_expression);
-                walk_expression(size, visit_expression);
-                if let crate::ColorExpression::Dynamic(color) = tint {
+                if let Some(size) = size {
+                    walk_expression(size, visit_expression);
+                }
+                if let Some(crate::ColorExpression::Dynamic(color)) = tint {
                     walk_expression(color, visit_expression);
                 }
             }
@@ -649,6 +671,12 @@ pub fn walk_ir(
                 }
             }
         }
+    }
+}
+
+fn walk_icon_spec(icon: &crate::IconSpec, visit_expression: &mut impl FnMut(&Expr)) {
+    if let Some(crate::ColorExpression::Dynamic(color)) = &icon.color {
+        walk_expression(color, visit_expression);
     }
 }
 
@@ -1577,6 +1605,9 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 visitor.visit_expr(color);
             }
             for tab in tabs {
+                if let Some(icon) = &tab.icon {
+                    walk_icon_spec(icon, &mut |expression| visitor.visit_expr(expression));
+                }
                 visitor.visit_nodes(&tab.children);
             }
             if let Some(custom_bar) = custom_bar {
@@ -1672,6 +1703,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         }
         Node::ContentUnavailable {
             title,
+            icon,
             description,
             title_color,
             description_color,
@@ -1680,6 +1712,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             ..
         } => {
             visitor.visit_expr(title);
+            walk_icon_spec(icon, &mut |expression| visitor.visit_expr(expression));
             if let Some(description) = description {
                 visitor.visit_expr(description);
             }
@@ -1763,9 +1796,20 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             }
         }
         Node::Picker {
-            items, label, tint, ..
+            items,
+            icon,
+            item_icons,
+            label,
+            tint,
+            ..
         } => {
             visitor.visit_expr(items);
+            if let Some(icon) = icon {
+                walk_icon_spec(icon, &mut |expression| visitor.visit_expr(expression));
+            }
+            for icon in item_icons {
+                walk_icon_spec(icon, &mut |expression| visitor.visit_expr(expression));
+            }
             if let Some(label) = label {
                 visitor.visit_expr(label);
             }
@@ -1820,6 +1864,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         }
         Node::Button {
             label,
+            icon,
             loading,
             disabled,
             tint,
@@ -1828,6 +1873,9 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             ..
         } => {
             visitor.visit_expr(label);
+            if let Some(icon) = icon {
+                walk_icon_spec(icon, &mut |expression| visitor.visit_expr(expression));
+            }
             if let Some(accessibility_label) = accessibility_label {
                 visitor.visit_expr(accessibility_label);
             }
@@ -1843,7 +1891,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             visitor.visit_actions(actions);
         }
         Node::SystemIcon { tint, .. } => {
-            if let crate::ColorExpression::Dynamic(color) = tint {
+            if let Some(crate::ColorExpression::Dynamic(color)) = tint {
                 visitor.visit_expr(color);
             }
         }
@@ -1851,8 +1899,10 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             glyph, size, tint, ..
         } => {
             visitor.visit_expr(glyph);
-            visitor.visit_expr(size);
-            if let crate::ColorExpression::Dynamic(color) = tint {
+            if let Some(size) = size {
+                visitor.visit_expr(size);
+            }
+            if let Some(crate::ColorExpression::Dynamic(color)) = tint {
                 visitor.visit_expr(color);
             }
         }
@@ -2651,7 +2701,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                     index: tab.index,
                     label: tab.label,
                     comment: tab.comment,
-                    icon: tab.icon,
+                    icon: tab.icon.map(|icon| fold_icon_spec(icon, folder)),
                     badge: tab.badge,
                     role: tab.role,
                     navigation_title: tab.navigation_title,
@@ -2746,7 +2796,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             background,
         } => Some(Node::ContentUnavailable {
             title: folder.fold_expr(title),
-            icon,
+            icon: fold_icon_spec(icon, folder),
             description: description.map(|description| folder.fold_expr(description)),
             title_color: title_color.map(|color| fold_color_expression(color, folder)),
             description_color: description_color.map(|color| fold_color_expression(color, folder)),
@@ -2825,8 +2875,11 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         } => Some(Node::Picker {
             items: folder.fold_expr(items),
             state,
-            icon,
-            item_icons,
+            icon: icon.map(|icon| fold_icon_spec(icon, folder)),
+            item_icons: item_icons
+                .into_iter()
+                .map(|icon| fold_icon_spec(icon, folder))
+                .collect(),
             label: label.map(|label| folder.fold_expr(label)),
             tint: tint.map(|tint| match tint {
                 crate::ColorExpression::Dynamic(color) => {
@@ -2899,7 +2952,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             actions,
         } => Some(Node::Button {
             label: folder.fold_expr(label),
-            icon,
+            icon: icon.map(|icon| fold_icon_spec(icon, folder)),
             loading: loading.map(|l| folder.fold_expr(l)),
             disabled: disabled.map(|d| folder.fold_expr(d)),
             style,
@@ -3093,30 +3146,34 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             icon,
             description,
             size,
-            tint: match tint {
+            tint: tint.map(|tint| match tint {
                 crate::ColorExpression::Dynamic(color) => {
                     crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
                 }
                 other => other,
-            },
+            }),
         }),
         Node::FontIcon {
             font_family,
+            font_resource,
             glyph,
+            layers,
             description,
             size,
             tint,
         } => Some(Node::FontIcon {
             font_family,
+            font_resource,
             glyph: folder.fold_expr(glyph),
+            layers,
             description,
-            size: folder.fold_expr(size),
-            tint: match tint {
+            size: size.map(|size| folder.fold_expr(size)),
+            tint: tint.map(|tint| match tint {
                 crate::ColorExpression::Dynamic(color) => {
                     crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
                 }
                 other => other,
-            },
+            }),
         }),
     }
 }
@@ -3131,6 +3188,11 @@ fn fold_color_expression<F: IrFolder>(
         }
         other => other,
     }
+}
+
+fn fold_icon_spec<F: IrFolder>(mut icon: crate::IconSpec, folder: &mut F) -> crate::IconSpec {
+    icon.color = icon.color.map(|color| fold_color_expression(color, folder));
+    icon
 }
 
 pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {

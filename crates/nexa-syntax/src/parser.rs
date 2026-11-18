@@ -154,12 +154,8 @@ impl Parser {
             icon: None,
             splash: None,
             fonts: Vec::new(),
-            icon_fonts: Vec::new(),
-            icons: Vec::new(),
         };
         let mut has_fonts = false;
-        let mut has_icon_fonts = false;
-        let mut has_icons = false;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (field, span) = self.ident()?;
             match field.as_str() {
@@ -181,25 +177,13 @@ impl Parser {
                     has_fonts = true;
                     assets.fonts = self.config_fonts_decl()?;
                 }
-                "iconFonts" => {
-                    if has_icon_fonts {
-                        return Err(CompileError::new(
-                            span,
-                            "asset `iconFonts` is declared more than once",
-                        ));
-                    }
-                    has_icon_fonts = true;
-                    assets.icon_fonts = self.config_icon_fonts_decl()?;
-                }
-                "icons" => {
-                    if has_icons {
-                        return Err(CompileError::new(
-                            span,
-                            "asset `icons` is declared more than once",
-                        ));
-                    }
-                    has_icons = true;
-                    assets.icons = self.config_icon_glyphs_decl()?;
+                "iconFonts" | "icons" => {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "`assets.{field}` was removed; put SVG icons in `assets/icons/<Set>/*.svg`, or pair `assets/fonts/<Set>.ttf` with `<Set>.icons.json`"
+                        ),
+                    ));
                 }
                 _ => {
                     return Err(CompileError::new(
@@ -302,66 +286,6 @@ impl Parser {
                 format!("expected a {context} name"),
             )),
         }
-    }
-
-    fn config_icon_fonts_decl(&mut self) -> Result<Vec<IconFontConfig>, CompileError> {
-        self.expect(Kind::LBrace, "expected `{` after `iconFonts`")?;
-        let mut fonts = Vec::new();
-        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
-            let (family, span) = self.config_name("icon font family")?;
-            if family.trim().is_empty() {
-                return Err(CompileError::new(span, "icon font family cannot be empty"));
-            }
-            if fonts
-                .iter()
-                .any(|existing: &IconFontConfig| existing.family.eq_ignore_ascii_case(&family))
-            {
-                return Err(CompileError::new(
-                    span,
-                    format!("icon font family `{family}` is configured more than once"),
-                ));
-            }
-            self.expect(Kind::Colon, "expected `:` after icon font family")?;
-            let path = self.config_string("icon font path")?;
-            if path.is_empty() {
-                return Err(CompileError::new(span, "icon font path cannot be empty"));
-            }
-            fonts.push(IconFontConfig { family, path, span });
-            self.config_field_separator("iconFonts")?;
-        }
-        self.expect(Kind::RBrace, "expected `}` to close config iconFonts")?;
-        self.optional_semicolon();
-        Ok(fonts)
-    }
-
-    fn config_icon_glyphs_decl(&mut self) -> Result<Vec<IconGlyphConfig>, CompileError> {
-        self.expect(Kind::LBrace, "expected `{` after `icons`")?;
-        let mut icons = Vec::new();
-        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
-            let (name, span) = self.ident()?;
-            self.expect(Kind::Colon, "expected `:` after icon name")?;
-            self.expect(
-                Kind::LBracket,
-                "icon glyph must be `[fontFamily, codepoint]`",
-            )?;
-            let family = self.config_string("icon glyph font family")?;
-            self.expect(
-                Kind::Comma,
-                "expected `,` between icon font family and codepoint",
-            )?;
-            let glyph = self.config_u32("icon glyph codepoint")?;
-            self.expect(Kind::RBracket, "expected `]` after icon glyph")?;
-            icons.push(IconGlyphConfig {
-                name,
-                family,
-                glyph,
-                span,
-            });
-            self.config_field_separator("icons")?;
-        }
-        self.expect(Kind::RBrace, "expected `}` to close config icons")?;
-        self.optional_semicolon();
-        Ok(icons)
     }
 
     fn config_app_decl(&mut self) -> Result<AppConfig, CompileError> {
@@ -2387,11 +2311,19 @@ impl Parser {
                 ParensModel::None => {}
                 ParensModel::Optional => {
                     if self.check(&Kind::LParen) {
-                        arguments = self.named_args(&catalog::schema_option_names(schema))?;
+                        arguments = if schema.name == "Icon" {
+                            self.named_args_any()?
+                        } else {
+                            self.named_args(&catalog::schema_option_names(schema))?
+                        };
                     }
                 }
                 ParensModel::Required => {
-                    arguments = self.named_args(&catalog::schema_option_names(schema))?;
+                    arguments = if schema.name == "Icon" {
+                        self.named_args_any()?
+                    } else {
+                        self.named_args(&catalog::schema_option_names(schema))?
+                    };
                 }
                 ParensModel::Empty => {
                     self.expect(Kind::LParen, &format!("expected `(` after {}", schema.name))?;

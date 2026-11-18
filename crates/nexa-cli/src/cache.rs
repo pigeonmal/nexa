@@ -479,6 +479,42 @@ mod tests {
     }
 
     #[test]
+    fn project_cache_key_tracks_custom_icon_assets() {
+        let project = TempProject::new();
+        let entry = project.path().join("main.nx");
+        let icons = project.path().join("assets/icons");
+        fs::create_dir_all(icons.join("Brand"))
+            .expect("custom icon asset directory should be created");
+        fs::write(
+            &entry,
+            "app Demo { body { Icon(set: \"Brand\", name: \"heart\") } }\n",
+        )
+        .expect("entry source should be written");
+        let icon = icons.join("Brand/heart.svg");
+        fs::write(
+            &icon,
+            b"<svg viewBox=\"0 0 24 24\"><path d=\"M1 1\"/></svg>",
+        )
+        .expect("custom icon should be written");
+        let cache_key = |entry: &Path| {
+            key_with_extra_and_roots(entry, "project-all", &[icons.as_path()], &BTreeMap::new())
+        };
+
+        let initial = cache_key(&entry).expect("initial icon cache key should resolve");
+        fs::write(
+            &icon,
+            b"<svg viewBox=\"0 0 24 24\"><path d=\"M2 2\"/></svg>",
+        )
+        .expect("custom icon should change");
+        let updated = cache_key(&entry).expect("updated icon cache key should resolve");
+
+        assert_ne!(
+            initial, updated,
+            "custom icon changes must invalidate generated native icon fonts"
+        );
+    }
+
+    #[test]
     fn project_cache_key_tracks_native_plugin_contract_and_implementation_sources() {
         let project = TempProject::new();
         let plugin = project.path().join("video");

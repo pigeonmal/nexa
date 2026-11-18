@@ -57,12 +57,7 @@ pub(crate) fn render_confirmation_dialog(
     );
     for (index, child) in children.iter().enumerate() {
         if matches!(child, Node::Button { .. }) {
-            controls::render_confirmation_action_button(
-                child,
-                &scope.features.font_catalog,
-                depth + 1,
-                out,
-            );
+            controls::render_confirmation_action_button(child, depth + 1, out);
         } else {
             render_node(child, scope.module, scope.features, depth + 1, out);
         }

@@ -1035,8 +1035,8 @@ fn easing_name(easing: AnimationEasing) -> String {
 mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{
-        Alignment, Color, ColorValue, Dimension, Expr, GlassShape, KeyboardType, LayoutKind,
-        Module, Node, SystemIcon, TextStyle, ToolbarPlacement, ViewGlass, ViewStyle,
+        Alignment, Color, ColorValue, Dimension, Expr, GlassShape, IconSpec, KeyboardType,
+        LayoutKind, Module, Node, SystemIcon, TextStyle, ToolbarPlacement, ViewGlass, ViewStyle,
     };
 
     use crate::generator::features::Features;
@@ -1834,7 +1834,9 @@ mod tests {
             Node::Picker {
                 items: Expr::Array(vec![Expr::String("10 minutes before".to_owned())]),
                 state: "reminderChoice".to_owned(),
-                icon: Some(SystemIcon::Shared("notifications".to_owned())),
+                icon: Some(IconSpec::system(SystemIcon::Shared(
+                    "notifications".to_owned(),
+                ))),
                 item_icons: Vec::new(),
                 label: Some(Expr::String("Automatic\nReminders".to_owned())),
                 tint: None,

@@ -1055,7 +1055,7 @@ fn observe_node(
             ..
         } => {
             ui.content_unavailable = true;
-            ui.system_icons.insert(icon.clone());
+            observe_icon_spec(icon, ui);
             let foreground_colors = [
                 title_color.as_ref(),
                 description_color.as_ref(),
@@ -1065,6 +1065,10 @@ fn observe_node(
                 .iter()
                 .flatten()
                 .any(|color| matches!(color, crate::ColorExpression::Dynamic(_)))
+                || icon
+                    .color
+                    .as_ref()
+                    .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_)))
                 || background
                     .as_ref()
                     .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_)));
@@ -1114,7 +1118,7 @@ fn observe_node(
             ui.button.glass |= *glass;
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
             if let Some(icon) = icon {
-                ui.system_icons.insert(icon.clone());
+                observe_icon_spec(icon, ui);
             }
         }
         Node::Form { children, .. } => {
@@ -1228,9 +1232,11 @@ fn observe_node(
             ui.picker_present = true;
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
             if let Some(icon) = icon {
-                ui.system_icons.insert(icon.clone());
+                observe_icon_spec(icon, ui);
             }
-            ui.system_icons.extend(item_icons.iter().cloned());
+            for icon in item_icons {
+                observe_icon_spec(icon, ui);
+            }
         }
         Node::PickerDate { props } => {
             ui.date_picker_present = true;
@@ -1268,12 +1274,12 @@ fn observe_node(
         }
         Node::SystemIcon { icon, tint, .. } => {
             ui.system_icons.insert(icon.clone());
-            ui.style.dynamic_color |= matches!(tint, crate::ColorExpression::Dynamic(_));
+            ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
         }
         Node::FontIcon { glyph, tint, .. } => {
             let _ = glyph;
             ui.font_icons = true;
-            ui.style.dynamic_color |= matches!(tint, crate::ColorExpression::Dynamic(_));
+            ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
         }
         Node::LinearGradient { .. } => ui.linear_gradient = true,
         Node::Pressable {
@@ -1392,7 +1398,7 @@ fn observe_node(
                         .insert(SystemIcon::Shared("search".to_owned()));
                 }
                 if let Some(icon) = &tab.icon {
-                    ui.system_icons.insert(icon.clone());
+                    observe_icon_spec(icon, ui);
                 }
                 ui.bottom_bar.tab_badge |= tab.badge.is_some();
                 record_child_layout(&tab.children, ui);
@@ -1481,6 +1487,19 @@ fn observe_node(
             }
         }
     }
+}
+
+fn observe_icon_spec(icon: &crate::IconSpec, ui: &mut UiFacts) {
+    match &icon.source {
+        crate::IconSource::System(system) => {
+            ui.system_icons.insert(system.clone());
+        }
+        crate::IconSource::FontGlyph { .. } => ui.font_icons = true,
+    }
+    ui.style.dynamic_color |= icon
+        .color
+        .as_ref()
+        .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_)));
 }
 
 fn actions_use_navigation(actions: &[crate::Action]) -> bool {
@@ -2127,7 +2146,9 @@ mod tests {
                 index: 0,
                 label: "Primary".to_owned(),
                 comment: None,
-                icon: Some(SystemIcon::Shared("inbox".to_owned())),
+                icon: Some(crate::IconSpec::system(SystemIcon::Shared(
+                    "inbox".to_owned(),
+                ))),
                 badge: None,
                 role: None,
                 navigation_title: None,

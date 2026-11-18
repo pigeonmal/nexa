@@ -31,11 +31,11 @@ component DiscoverScreen() {
                 Text("Discover", color: "#FFFFFF", fontSize: 25, fontWeight: Bold)
                 Spacer()
                 Pressable(accessibilityLabel: "Scan a code", accessibilityRole: Button) {
-                    Icon(system: "camera", description: "Scan", size: 22, tint: "#FFFFFF")
+                    Icon(system: "camera", description: "Scan", size: 22, color: "#FFFFFF")
                 }.onTap { selectedCategory = "For you" }
             }
             Row(gap: 9, alignment: Center, padding: 11, background: "#222226", cornerRadius: 9) {
-                Icon(system: "search", description: "Search videos", size: 19, tint: "#A6A6AA")
+                Icon(system: "search", description: "Search videos", size: 19, color: "#A6A6AA")
                 TextInput(value: searchText, placeholder: "Search videos and creators", searchable: true, autocorrect: false, capitalization: None)
             }
             FastList(categories, key: .self, axis: Horizontal, gap: 8, accessibilityLabel: "Video topics") { topic, index in
@@ -58,7 +58,7 @@ component DiscoverScreen() {
             }
             if results.isEmpty {
                 Column(gap: 8, alignment: Center, padding: 28) {
-                    Icon(system: "search", description: "No results", size: 34, tint: "#85858A")
+                    Icon(system: "search", description: "No results", size: 34, color: "#85858A")
                     Text("Nothing found", color: "#FFFFFF", fontSize: 17, fontWeight: Bold)
                     Text("Try a different topic or creator.", color: "#A7A7AA", fontSize: 12, alignment: Center)
                 }

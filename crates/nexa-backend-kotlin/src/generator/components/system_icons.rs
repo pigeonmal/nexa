@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::SystemIcon;
+use nexa_ir::{IconSource, IconSpec, SystemIcon};
 
 use crate::generator::{
     colors,
@@ -9,16 +9,12 @@ use crate::generator::{
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let icons = &features.facts.ui.system_icons;
-    let font_icons =
-        features.facts.ui.font_icons || icons.iter().any(|icon| icon.font_glyph_parts().is_some());
+    let font_icons = features.facts.ui.font_icons;
     if icons.is_empty() && !font_icons {
         return;
     }
 
-    let material_icons = icons
-        .iter()
-        .filter(|icon| icon.font_glyph_parts().is_none())
-        .collect::<Vec<_>>();
+    let material_icons = icons.iter().collect::<Vec<_>>();
     imports.add(
         !material_icons.is_empty(),
         "androidx.compose.material.icons.Icons",
@@ -47,116 +43,131 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     }
 }
 
-pub(crate) fn spec(icon: &SystemIcon) -> String {
-    if let Some((family, glyph)) = icon.font_glyph_parts() {
-        let resource_name = nexa_codegen::names::font_resource_name(family);
-        format!("NexaIconSpec(glyph = {glyph}, fontResource = R.font.{resource_name})")
+pub(crate) fn spec(icon: &IconSpec) -> String {
+    let (source, preserves_color, icon_layers) = match &icon.source {
+        IconSource::System(icon) => (
+            format!("vector = {}", icon.material_reference()),
+            false,
+            &[][..],
+        ),
+        IconSource::FontGlyph {
+            font_resource,
+            glyph,
+            layers,
+            ..
+        } => {
+            let resource_name = nexa_codegen::names::font_resource_name(font_resource);
+            (
+                format!("glyph = {glyph}, fontResource = R.font.{resource_name}"),
+                true,
+                layers.as_slice(),
+            )
+        }
+    };
+    let description = icon
+        .description
+        .as_deref()
+        .map(|value| format!(", description = {}", kotlin_string(value)))
+        .unwrap_or_default();
+    let size = icon
+        .size
+        .map(|value| {
+            format!(
+                ", size = {}.dp",
+                crate::generator::engine::utils::number(value)
+            )
+        })
+        .unwrap_or_default();
+    let tint = icon
+        .color
+        .as_ref()
+        .map(|value| format!(", tint = {}", colors::expression_for_color(value)))
+        .unwrap_or_default();
+    let layers = if icon_layers.is_empty() {
+        String::new()
     } else {
-        format!("NexaIconSpec(vector = {})", icon.material_reference())
-    }
+        format!(", layers = listOf({})", kotlin_layers(icon_layers))
+    };
+    format!(
+        "NexaIconSpec({source}{description}{size}{tint}, preservesColor = {preserves_color}{layers})"
+    )
 }
 
-pub(crate) fn spec_with_catalog(
-    icon: &SystemIcon,
-    font_catalog: &nexa_codegen::FontCatalog,
-) -> String {
-    if let Some((family, glyph)) = icon.font_glyph_parts() {
-        let Some(face) = font_catalog.resolve(family, nexa_ir::FontWeight::Normal) else {
-            return spec(icon);
-        };
-        let resource_name = &face.android_resource_name;
-        format!("NexaIconSpec(glyph = {glyph}, fontResource = R.font.{resource_name})")
-    } else {
-        spec(icon)
-    }
+fn kotlin_layers(layers: &[nexa_ir::IconGlyphLayer]) -> String {
+    layers
+        .iter()
+        .map(|layer| {
+            let [red, green, blue, alpha] = layer.rgba;
+            format!(
+                "NexaIconLayer(glyph = {}, color = androidx.compose.ui.graphics.Color(red = {:.6}f, green = {:.6}f, blue = {:.6}f, alpha = {:.6}f))",
+                layer.glyph,
+                f32::from(red) / 255.0,
+                f32::from(green) / 255.0,
+                f32::from(blue) / 255.0,
+                f32::from(alpha) / 255.0,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
-#[cfg(test)]
 pub(crate) fn render(
     icon: &SystemIcon,
-    description: &str,
-    size: f32,
-    tint: &nexa_ir::ColorExpression,
+    description: Option<&str>,
+    size: Option<f32>,
+    tint: Option<&nexa_ir::ColorExpression>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let render_size = if icon.font_glyph_parts().is_some() {
-        size
-    } else {
-        size * nexa_codegen::design_system::MATERIAL_ICON_SIZE_SCALE
-    };
+    let render_size = size.map(|size| size * nexa_codegen::design_system::MATERIAL_ICON_SIZE_SCALE);
     out.line_at(
         depth,
         format_args!(
-            "NexaIconContent(icon = {}, description = {}, size = {}.dp, tint = {})",
-            spec(icon),
-            kotlin_string(description),
-            crate::generator::engine::utils::number(render_size),
-            colors::expression_for_color(tint),
+            "NexaIconContent(icon = {}, description = {}, size = {}, tint = {})",
+            spec(&IconSpec::system(icon.clone())),
+            description
+                .map(kotlin_string)
+                .unwrap_or_else(|| "null".to_owned()),
+            render_size
+                .map(|value| format!("{}.dp", crate::generator::engine::utils::number(value)))
+                .unwrap_or_else(|| "null".to_owned()),
+            tint.map(colors::expression_for_color).unwrap_or_else(|| {
+                "androidx.compose.material3.MaterialTheme.colorScheme.onSurface".to_owned()
+            }),
         ),
     );
 }
 
-pub(crate) fn render_with_catalog(
-    icon: &SystemIcon,
-    description: &str,
-    size: f32,
-    tint: &nexa_ir::ColorExpression,
-    font_catalog: &nexa_codegen::FontCatalog,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    let render_size = if icon.font_glyph_parts().is_some() {
-        size
-    } else {
-        size * nexa_codegen::design_system::MATERIAL_ICON_SIZE_SCALE
-    };
-    out.line_at(
-        depth,
-        format_args!(
-            "NexaIconContent(icon = {}, description = {}, size = {}.dp, tint = {})",
-            spec_with_catalog(icon, font_catalog),
-            kotlin_string(description),
-            crate::generator::engine::utils::number(render_size),
-            colors::expression_for_color(tint),
-        ),
-    );
+pub(crate) struct FontIconRenderArgs<'a> {
+    pub(crate) font_resource: &'a str,
+    pub(crate) glyph: &'a nexa_ir::Expr,
+    pub(crate) layers: &'a [nexa_ir::IconGlyphLayer],
+    pub(crate) description: Option<&'a str>,
+    pub(crate) size: Option<&'a nexa_ir::Expr>,
+    pub(crate) tint: Option<&'a nexa_ir::ColorExpression>,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn render_font_with_catalog(
-    font_family: &str,
-    glyph: &nexa_ir::Expr,
-    description: &str,
-    size: &nexa_ir::Expr,
-    tint: &nexa_ir::ColorExpression,
-    font_catalog: &nexa_codegen::FontCatalog,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    let resource_name = font_catalog
-        .resolve(font_family, nexa_ir::FontWeight::Normal)
-        .map(|face| face.android_resource_name.as_str())
-        .map(str::to_owned)
-        .unwrap_or_else(|| nexa_codegen::names::font_resource_name(font_family));
+pub(crate) fn render_font(icon: FontIconRenderArgs<'_>, depth: usize, out: &mut SourceWriter) {
+    let resource_name = nexa_codegen::names::font_resource_name(icon.font_resource);
     out.line_at(
         depth,
         format_args!(
-            "NexaFontIconPrimitive(glyph = {}, fontResource = R.font.{resource_name}, description = {}, size = ({}).toFloat().coerceIn(1f, 512f).dp, tint = {})",
-            crate::generator::engine::expressions::expression(glyph),
-            kotlin_string(description),
-            crate::generator::engine::expressions::expression(size),
-            colors::expression_for_color(tint),
+            "NexaFontIconPrimitive(glyph = {}, fontResource = R.font.{resource_name}, description = {}, size = {}, tint = {}, layers = listOf({}))",
+            crate::generator::engine::expressions::expression(icon.glyph),
+            icon.description.map(kotlin_string).unwrap_or_else(|| "null".to_owned()),
+            icon.size.map(|value| format!("({}).toFloat().coerceIn(1f, 512f).dp", crate::generator::engine::expressions::expression(value))).unwrap_or_else(|| "null".to_owned()),
+            icon.tint.map(colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
+            kotlin_layers(icon.layers),
         ),
     );
 }
 
 #[cfg(test)]
 mod tests {
-    use nexa_codegen::{FontCatalog, FontFace, SourceWriter};
+    use nexa_codegen::SourceWriter;
     use nexa_ir::{Color, ColorExpression, ColorValue, SystemIcon};
 
-    use super::{render, spec_with_catalog};
+    use super::render;
 
     #[test]
     fn system_icon_size_scales_to_match_swiftui_symbol_metrics() {
@@ -169,25 +180,8 @@ mod tests {
         }));
         let mut output = SourceWriter::new();
 
-        render(&icon, "", 20.0, &tint, 0, &mut output);
+        render(&icon, Some(""), Some(20.0), Some(&tint), 0, &mut output);
 
         assert!(output.finish().contains("size = 24.dp"));
-    }
-
-    #[test]
-    fn configured_icon_family_uses_registered_android_resource() {
-        let mut catalog = FontCatalog::default();
-        catalog.insert(FontFace {
-            family: "Brand Icons".to_owned(),
-            weight: nexa_ir::FontWeight::Normal,
-            postscript_name: "Mazicon-Regular".to_owned(),
-            android_resource_name: "mazicon_file".to_owned(),
-        });
-        let icon = SystemIcon::font_glyph("Brand Icons", 0xE001).expect("valid glyph");
-
-        assert_eq!(
-            spec_with_catalog(&icon, &catalog),
-            "NexaIconSpec(glyph = 57345, fontResource = R.font.mazicon_file)"
-        );
     }
 }

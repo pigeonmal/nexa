@@ -76,7 +76,6 @@ pub(super) struct ProjectConfig {
     pub(super) icon_source: Option<PathBuf>,
     pub(super) splash_source: Option<PathBuf>,
     pub(super) font_families: Vec<nexa_syntax::ast::FontFamilyConfig>,
-    pub(super) icon_fonts: Vec<nexa_syntax::ast::IconFontConfig>,
 }
 
 impl ProjectConfig {
@@ -192,10 +191,6 @@ impl ProjectConfig {
         let font_families = assets
             .as_ref()
             .map(|assets| assets.fonts.clone())
-            .unwrap_or_default();
-        let icon_fonts = assets
-            .as_ref()
-            .map(|assets| assets.icon_fonts.clone())
             .unwrap_or_default();
         let display_name = app
             .as_ref()
@@ -369,7 +364,6 @@ impl ProjectConfig {
             icon_source,
             splash_source: resolve_config_path(path, assets.and_then(|assets| assets.splash))?,
             font_families,
-            icon_fonts,
             dependencies: config.dependencies,
         })
     }
@@ -408,7 +402,6 @@ impl ProjectConfig {
             icon_source: None,
             splash_source: None,
             font_families: Vec::new(),
-            icon_fonts: Vec::new(),
         })
     }
 

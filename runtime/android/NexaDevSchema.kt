@@ -82,6 +82,7 @@ internal object NexaDevKeys {
     const val ON_INACTIVE = "on_inactive"
     const val ON_BACKGROUND = "on_background"
     const val TRANSITION = "transition"
+    const val FONT_ASSETS = "font_assets"
     const val SOURCE_FILE = "source_file"
     const val REF_METHODS = "ref_methods"
     const val COMPONENT_REF = "component_ref"

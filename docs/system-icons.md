@@ -18,7 +18,7 @@ The mapping table is maintained as the single source of truth in `crates/nexa-ir
 app SearchHeader {
     body {
         Row(gap: 8) {
-            Icon(system: "search", description: "Search", size: 20, tint: "#2563EB")
+            Icon(system: "search", description: "Search", size: 20, color: "#2563EB")
             Text("Search products")
         }
     }
@@ -35,8 +35,8 @@ app SearchHeader {
 
     body {
         Column(gap: 8) {
-            Icon(system: "search", description: "Search", size: 24, tint: "#007AFF")
-            Button("Search catalog", icon: "search") {
+            Icon(system: "search", description: "Search", size: 24, color: "#007AFF")
+            Button("Search catalog", icon: Icon(system: "search")) {
                 searchSubmitted = true
             }
         }
@@ -51,11 +51,16 @@ app SearchHeader {
 | `system` | `String` | Exactly one icon name is required | Portable semantic name from the catalog below |
 | `sfsymbol` | `String` | Exactly one icon name is required | Explicit iOS SF Symbol, for example `"sparkles"` |
 | `materialsymbol` | `String` | Exactly one icon name is required | Explicit Android Material icon, for example `"auto_awesome"` |
-| `description` | `String` | Required | Accessible description for the image icon; use an empty string only when it is decorative and already labeled by its parent |
-| `size` | `Float64` | Required | Icon bounding-box size in platform logical units |
-| `tint` | `String` | Required | Hex color or supported theme color token |
+| `description` | `String` | Omitted | Accessible description; parent controls supply their own accessible context by default |
+| `size` | positive numeric literal, up to `512` | Omitted | Icon bounding-box size in platform logical units; standalone icons use native sizing |
+| `color` | color expression (`String`) | Omitted | Overrides the native system color or tints every custom glyph layer |
 
 Choose exactly one of `system`, `sfsymbol`, or `materialsymbol`. Nexa does not accept both platform-specific names on one `Icon` call.
+
+Custom sets use a set name as the selector, for example `Icon(Brand: "heart")`;
+their SVG and prebuilt-font workflow is documented in the
+[custom icon guide](custom-icons.md). A string supplied to an icon slot resolves
+only as a shared system icon.
 
 ---
 
@@ -68,10 +73,10 @@ app PlatformIcons {
     body {
         Column(gap: 12) {
             platform ios {
-                Icon(sfsymbol: "apple.logo", description: "Apple", size: 28, tint: "#1C1C1E")
+                Icon(sfsymbol: "apple.logo", description: "Apple", size: 28, color: "#1C1C1E")
             }
             platform android {
-                Icon(materialsymbol: "android", description: "Android", size: 28, tint: "#1C1C1E")
+                Icon(materialsymbol: "android", description: "Android", size: 28, color: "#1C1C1E")
             }
         }
     }

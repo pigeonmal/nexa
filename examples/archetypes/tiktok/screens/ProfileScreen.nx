@@ -25,7 +25,7 @@ component ProfileScreen() {
                 Text("@alex.morgan", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 Spacer()
                 Pressable(accessibilityLabel: "Profile options", accessibilityRole: Button) {
-                    Icon(system: "more", description: "More", size: 22, tint: "#FFFFFF")
+                    Icon(system: "more", description: "More", size: 22, color: "#FFFFFF")
                 }.onTap { profileNotice = "Profile settings" }
             }
             Row(gap: 13, alignment: Center) {
@@ -59,28 +59,28 @@ component ProfileScreen() {
                 }.onTap { profileNotice = "Message Alex from Inbox" }
                 Pressable(accessibilityLabel: "Share profile", accessibilityRole: Button) {
                     Row(alignment: Center, padding: 10, background: "#29292D", cornerRadius: 5) {
-                        Icon(system: "share", description: "Share profile", size: 15, tint: "#FFFFFF")
+                        Icon(system: "share", description: "Share profile", size: 15, color: "#FFFFFF")
                     }
                 }.onTap { profileNotice = "Profile link copied" }
             }
             Row(gap: 0, alignment: Center, height: 40) {
                 Pressable(accessibilityLabel: "Show videos", accessibilityRole: Button) {
                     Column(gap: 6, alignment: Center) {
-                        if section == "Videos" { Icon(system: "grid", description: "Videos", size: 19, tint: "#FFFFFF") } else { Icon(system: "grid", description: "Videos", size: 19, tint: "#848489") }
+                        if section == "Videos" { Icon(system: "grid", description: "Videos", size: 19, color: "#FFFFFF") } else { Icon(system: "grid", description: "Videos", size: 19, color: "#848489") }
                         if section == "Videos" { Stack(width: 42, height: 2, background: "#FFFFFF") {} }
                     }
                 }.onTap { section = "Videos" }
                 Spacer()
                 Pressable(accessibilityLabel: "Show liked videos", accessibilityRole: Button) {
                     Column(gap: 6, alignment: Center) {
-                        if section == "Liked" { Icon(system: "favorite", description: "Liked videos", size: 19, tint: "#FFFFFF") } else { Icon(system: "favorite", description: "Liked videos", size: 19, tint: "#848489") }
+                        if section == "Liked" { Icon(system: "favorite", description: "Liked videos", size: 19, color: "#FFFFFF") } else { Icon(system: "favorite", description: "Liked videos", size: 19, color: "#848489") }
                         if section == "Liked" { Stack(width: 42, height: 2, background: "#FFFFFF") {} }
                     }
                 }.onTap { section = "Liked" }
                 Spacer()
                 Pressable(accessibilityLabel: "Show saved videos", accessibilityRole: Button) {
                     Column(gap: 6, alignment: Center) {
-                        if section == "Saved" { Icon(system: "bookmark", description: "Saved videos", size: 19, tint: "#FFFFFF") } else { Icon(system: "bookmark", description: "Saved videos", size: 19, tint: "#848489") }
+                        if section == "Saved" { Icon(system: "bookmark", description: "Saved videos", size: 19, color: "#FFFFFF") } else { Icon(system: "bookmark", description: "Saved videos", size: 19, color: "#848489") }
                         if section == "Saved" { Stack(width: 42, height: 2, background: "#FFFFFF") {} }
                     }
                 }.onTap { section = "Saved" }

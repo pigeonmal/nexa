@@ -3438,7 +3438,7 @@ fn app_bottom_bar_and_controls_accept_runtime_hex_color_state() {
                 AppBottomBar(selected: page, tint: accent) {
                     Tab(index: 0, label: "Home") {
                         Button("Add", tint: accent) { }
-                        Icon(system: "add", description: "Add", size: 24, tint: accent)
+                        Icon(system: "add", description: "Add", size: 24, color: accent)
                     }
                 }
             }
@@ -3465,7 +3465,7 @@ fn app_bottom_bar_and_controls_accept_runtime_hex_color_state() {
             ..
         },
         Node::SystemIcon {
-            tint: nexa_ir::ColorExpression::Dynamic(icon_color),
+            tint: Some(nexa_ir::ColorExpression::Dynamic(icon_color)),
             ..
         },
     ] = tabs[0].children.as_slice()
@@ -3563,9 +3563,9 @@ fn icon_component_supports_shared_and_platform_specific_symbols() {
         r##"
         app IconExample {
             body {
-                Icon(system: "favorite_filled", description: "Like", size: 24, tint: "#FFFFFF")
-                Icon(sfsymbol: "person.crop.circle.fill", description: "Profile", size: 24, tint: "#FFFFFF")
-                Icon(materialsymbol: "outlined:account_circle", description: "Profile", size: 24, tint: "#FFFFFF")
+                Icon(system: "favorite_filled", description: "Like", size: 24, color: "#FFFFFF")
+                Icon(sfsymbol: "person.crop.circle.fill", description: "Profile", size: 24, color: "#FFFFFF")
+                Icon(materialsymbol: "outlined:account_circle", description: "Profile", size: 24, color: "#FFFFFF")
             }
         }
         "##,
@@ -3585,8 +3585,32 @@ fn icon_component_supports_shared_and_platform_specific_symbols() {
 }
 
 #[test]
-fn font_icon_accepts_typed_runtime_size_on_both_native_backends() {
-    let module = compile(
+fn icon_parameters_are_optional_and_legacy_tint_has_a_migration_error() {
+    let module = compile(r#"app NativeIconDefaults { body { Icon(system: "favorite") } }"#)
+        .expect("system icons need no description, size, or color");
+    assert!(matches!(
+        module.body.as_slice(),
+        [Node::SystemIcon {
+            description: None,
+            size: None,
+            tint: None,
+            ..
+        }]
+    ));
+
+    let error =
+        compile(r##"app OldIconTint { body { Icon(system: "favorite", tint: "#E11D48") } }"##)
+            .expect_err("Icon tint was replaced with color");
+    assert!(
+        error
+            .to_string()
+            .contains("`Icon(tint:)` was removed; use `color:`")
+    );
+}
+
+#[test]
+fn removed_font_family_and_glyph_arguments_get_actionable_migration_diagnostic() {
+    let error = compile(
         r##"
         app MaziconGlyph {
             state iconSize: Float64 = 20.0
@@ -3596,33 +3620,19 @@ fn font_icon_accepts_typed_runtime_size_on_both_native_backends() {
                     glyph: 61696,
                     description: "Activity",
                     size: iconSize,
-                    tint: "#FFFFFF"
+                    color: "#FFFFFF"
                 )
             }
         }
         "##,
     )
-    .expect("font glyph size should accept a typed runtime expression");
-
-    assert!(matches!(
-        module.body.first(),
-        Some(Node::FontIcon {
-            size: Expr::State(name, Type::Numeric(NumericType::Float64)),
-            ..
-        }) if name == "iconSize"
-    ));
-
-    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    .expect_err("the legacy two-argument font API was removed");
     assert!(
-        swift.contains("CGFloat(max(1.0, min(512.0, nexa_iconSize)))"),
-        "{swift}"
+        error
+            .to_string()
+            .contains("fontFamily` and `glyph` were removed")
     );
-
-    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
-    assert!(
-        kotlin.contains("(nexa_iconSize).toFloat().coerceIn(1f, 512f).dp"),
-        "{kotlin}"
-    );
+    assert!(error.to_string().contains("Icon(SetName: \"icon-name\")"));
 }
 
 #[test]
@@ -3649,7 +3659,11 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
 
     let Some(Node::ContentUnavailable {
         title,
-        icon: nexa_ir::SystemIcon::Shared(icon),
+        icon:
+            nexa_ir::IconSpec {
+                source: nexa_ir::IconSource::System(nexa_ir::SystemIcon::Shared(icon)),
+                ..
+            },
         description: Some(description),
         title_color:
             Some(nexa_ir::ColorExpression::Static(nexa_ir::ColorValue::Static(title_color))),
@@ -3750,7 +3764,7 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
     assert!(
         invalid_icon
             .to_string()
-            .contains("unknown icon `not_a_shared_icon`")
+            .contains("unknown system icon `not_a_shared_icon`")
     );
 }
 
@@ -4196,8 +4210,13 @@ fn bottom_sheet_header_save_and_close_actions_compile_for_both_platforms() {
     assert!(swift.contains("nexa_sheetRef.dismiss()"));
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
-    assert!(kotlin.contains("icon = NexaIconSpec(vector = Icons.Filled.Save),"));
-    assert!(kotlin.contains("icon = NexaIconSpec(vector = Icons.Filled.Close),"));
+    assert!(
+        kotlin.contains("icon = NexaIconSpec(vector = Icons.Filled.Save, preservesColor = false),")
+    );
+    assert!(
+        kotlin
+            .contains("icon = NexaIconSpec(vector = Icons.Filled.Close, preservesColor = false),")
+    );
     assert!(kotlin.contains("nexa_saved = true"));
     assert!(kotlin.contains("nexa_sheetRef.dismiss()"));
 }
@@ -6684,9 +6703,9 @@ fn picker_item_icons_are_resolved_to_shared_system_icons() {
         module.body.first(),
         Some(Node::Picker { item_icons, .. })
             if item_icons == &vec![
-                SystemIcon::Shared("calendar".to_owned()),
-                SystemIcon::Shared("flag_filled".to_owned()),
-                SystemIcon::Shared("edit".to_owned()),
+                nexa_ir::IconSpec::system(SystemIcon::Shared("calendar".to_owned())),
+                nexa_ir::IconSpec::system(SystemIcon::Shared("flag_filled".to_owned())),
+                nexa_ir::IconSpec::system(SystemIcon::Shared("edit".to_owned())),
             ]
     ));
 

@@ -381,7 +381,7 @@ pub(crate) fn render_app_bottom_bar(
                     content_depth + 3,
                     format_args!(
                         "NexaIconContent(icon = {}, description = \"\", size = 24.dp)",
-                        system_icons::spec_with_catalog(icon, &features.font_catalog)
+                        system_icons::spec(icon)
                     ),
                 );
             } else {
@@ -760,7 +760,7 @@ fn render_tab_toolbar_item(
             item_icons,
             label,
             tint,
-        } => controls::render_picker_with_catalog(
+        } => controls::render_picker_node(
             items,
             item_icons,
             state,
@@ -768,7 +768,6 @@ fn render_tab_toolbar_item(
             label.as_ref(),
             tint.as_ref(),
             false,
-            &features.font_catalog,
             depth,
             out,
         ),
@@ -920,8 +919,8 @@ pub(crate) fn render_page_pager(
 mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{
-        AccessibilityRole, BottomBarTab, Expr, Module, Node, Screen, ScreenId, SystemIcon,
-        ToolbarPlacement, Type,
+        AccessibilityRole, BottomBarTab, Expr, IconSpec, Module, Node, Screen, ScreenId,
+        SystemIcon, ToolbarPlacement, Type,
     };
 
     use crate::generator::features::Features;
@@ -1145,7 +1144,7 @@ mod tests {
                             Type::Array(Box::new(Type::String)),
                         ),
                         state: "sortSelection".to_owned(),
-                        icon: Some(SystemIcon::Shared("sort".to_owned())),
+                        icon: Some(IconSpec::system(SystemIcon::Shared("sort".to_owned()))),
                         item_icons: Vec::new(),
                         label: None,
                         tint: None,
@@ -1167,7 +1166,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "NexaPickerPrimitive(items = nexa_sortOptions, itemIcons = emptyList(), selected = nexa_sortSelection, icon = NexaIconSpec(vector = Icons.AutoMirrored.Filled.Sort), label = null, tint = null, fillMaxWidth = false)"
+            "NexaPickerPrimitive(items = nexa_sortOptions, itemIcons = emptyList(), selected = nexa_sortSelection, icon = NexaIconSpec(vector = Icons.AutoMirrored.Filled.Sort, preservesColor = false), label = null, tint = null, fillMaxWidth = false)"
         ));
     }
 

@@ -134,13 +134,13 @@ app BrandedTabs {
                 Row(gap: 24, alignment: Center, padding: 12, background: "#09090B") {
                     Pressable(accessibilityLabel: "Home tab", accessibilityRole: Button) {
                         Column(gap: 4, alignment: Center) {
-                            Icon(system: "home", description: "Home", size: 20, tint: "#FFFFFF")
+                            Icon(system: "home", description: "Home", size: 20, color: "#FFFFFF")
                             Text("Home", color: "#FFFFFF")
                         }
                     }.onTap { selectedTab = 0 }
                     Pressable(accessibilityLabel: "Profile tab", accessibilityRole: Button) {
                         Column(gap: 4, alignment: Center) {
-                            Icon(system: "person", description: "Profile", size: 20, tint: "#A1A1AA")
+                            Icon(system: "person", description: "Profile", size: 20, color: "#A1A1AA")
                             Text("Profile", color: "#A1A1AA")
                         }
                     }.onTap { selectedTab = 1 }

@@ -2491,7 +2491,9 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         },
         Node::Button {
             label: Expr::String(String::new()),
-            icon: Some(nexa_ir::SystemIcon::Shared("add".to_owned())),
+            icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
+                "add".to_owned(),
+            ))),
             loading: None,
             disabled: None,
             style: Some(nexa_ir::ButtonStyle::BorderedProminent),
@@ -2612,6 +2614,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             state: "amount".to_owned(),
             animated: false,
             show_step_indicators: true,
+
             min: Expr::Number {
                 raw: "0.0".to_owned(),
                 ty: nexa_ir::NumericType::Float64,
@@ -2708,18 +2711,28 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
                 Expr::String("Title".to_owned()),
             ]),
             state: "priority".to_owned(),
-            icon: Some(nexa_ir::SystemIcon::shared("flag").expect("catalog icon")),
+            icon: Some(nexa_ir::IconSpec::system(
+                nexa_ir::SystemIcon::shared("flag").expect("catalog icon"),
+            )),
             item_icons: vec![
-                nexa_ir::SystemIcon::shared("calendar").expect("catalog icon"),
-                nexa_ir::SystemIcon::shared("flag_filled").expect("catalog icon"),
-                nexa_ir::SystemIcon::shared("edit").expect("catalog icon"),
+                nexa_ir::IconSpec::system(
+                    nexa_ir::SystemIcon::shared("calendar").expect("catalog icon"),
+                ),
+                nexa_ir::IconSpec::system(
+                    nexa_ir::SystemIcon::shared("flag_filled").expect("catalog icon"),
+                ),
+                nexa_ir::IconSpec::system(
+                    nexa_ir::SystemIcon::shared("edit").expect("catalog icon"),
+                ),
             ],
             label: Some(Expr::String("Priority".to_owned())),
             tint: None,
         },
         Node::ContentUnavailable {
             title: Expr::String("No tasks".to_owned()),
-            icon: nexa_ir::SystemIcon::shared("inbox").expect("catalog icon"),
+            icon: nexa_ir::IconSpec::system(
+                nexa_ir::SystemIcon::shared("inbox").expect("catalog icon"),
+            ),
             description: Some(Expr::String("Add a task to get started.".to_owned())),
             title_color: None,
             description_color: None,
@@ -2728,14 +2741,16 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         },
         Node::SystemIcon {
             icon: nexa_ir::SystemIcon::shared("star").expect("catalog icon"),
-            description: "Priority".to_owned(),
-            size: 20.0,
-            tint: nexa_ir::ColorExpression::Static(nexa_ir::ColorValue::Static(nexa_ir::Color {
-                red: 255,
-                green: 0,
-                blue: 0,
-                alpha: 255,
-            })),
+            description: Some("Priority".to_owned()),
+            size: Some(20.0),
+            tint: Some(nexa_ir::ColorExpression::Static(
+                nexa_ir::ColorValue::Static(nexa_ir::Color {
+                    red: 255,
+                    green: 0,
+                    blue: 0,
+                    alpha: 255,
+                }),
+            )),
         },
         Node::LinearGradient {
             start_color: nexa_ir::ColorValue::Static(nexa_ir::Color {
@@ -2833,9 +2848,9 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(swift_runtime.contains("NexaAppBottomBarPrimitive("));
     assert!(swift_runtime.contains("nexaDevUsesIconOnlyButtonLabel"));
     assert!(swift_runtime.contains("NexaIconView(icon: icon, description:"));
-    assert!(swift.contains("itemIcons: [NexaIconSpec(symbol: \"calendar\"), NexaIconSpec(symbol: \"flag.fill\"), NexaIconSpec(symbol: \"pencil\")]"));
+    assert!(swift.contains("itemIcons: [NexaIconSpec(symbol: \"calendar\", preservesColor: false), NexaIconSpec(symbol: \"flag.fill\", preservesColor: false), NexaIconSpec(symbol: \"pencil\", preservesColor: false)]"));
     assert!(swift.contains("NexaIconView(icon: itemIcons[index]"));
-    assert!(swift_runtime.contains("compactMap(nexaDevIconSpec)"));
+    assert!(swift_runtime.contains("compactMap { nexaDevIconSpec("));
     for primitive in ["NexaAssetImagePrimitive(", "NexaRemoteImagePrimitive("] {
         assert!(swift.contains(primitive), "iOS AOT omitted {primitive}");
         assert!(
@@ -2955,7 +2970,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(kotlin.contains("internal fun NexaAppBottomBarPrimitive("));
     assert!(kotlin_runtime.contains("NexaAppBottomBarPrimitive("));
     assert!(kotlin.contains(
-        "itemIcons = listOf(NexaIconSpec(vector = Icons.Outlined.CalendarMonth), NexaIconSpec(vector = Icons.Filled.Flag), NexaIconSpec(vector = Icons.Filled.Edit))"
+        "itemIcons = listOf(NexaIconSpec(vector = Icons.Outlined.CalendarMonth, preservesColor = false), NexaIconSpec(vector = Icons.Filled.Flag, preservesColor = false), NexaIconSpec(vector = Icons.Filled.Edit, preservesColor = false))"
     ));
     assert!(kotlin.contains("itemIcons.getOrNull(index)?.let"));
     assert!(kotlin_runtime.contains("fields.optJSONArray(\"item_icons\")"));
@@ -3578,7 +3593,7 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
             "Android dev renderer has no {kind} system icon mapping"
         );
     }
-    assert!(swift_font_icons.contains("store.evaluate(fields[\"size\"]"));
+    assert!(swift_font_icons.contains("guard let rawSize = fields[\"size\"]"));
     assert!(swift_font_icons.contains("NexaFontIconPrimitive("));
     assert!(kotlin_font_icons.contains("store.evaluatePresented(fields.opt(\"size\")"));
     assert!(kotlin_font_icons.contains("NexaFontIconPrimitive("));
@@ -5185,7 +5200,9 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                 on_move: None,
                 swipe_actions: Some(vec![Node::Button {
                     label: Expr::String("Delete".to_owned()),
-                    icon: Some(nexa_ir::SystemIcon::Shared("delete".to_owned())),
+                    icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
+                        "delete".to_owned(),
+                    ))),
                     loading: None,
                     disabled: None,
                     style: None,
@@ -5604,7 +5621,9 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 on_move: None,
                 swipe_actions: Some(vec![Node::Button {
                     label: Expr::String("Delete".to_owned()),
-                    icon: Some(nexa_ir::SystemIcon::Shared("delete".to_owned())),
+                    icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
+                        "delete".to_owned(),
+                    ))),
                     loading: None,
                     disabled: None,
                     style: None,

@@ -2,7 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
     Action, AnimationEasing, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle,
-    Module, Node, ScreenId, SystemIcon, TaskExecutor,
+    IconSpec, Module, Node, ScreenId, TaskExecutor,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -344,7 +344,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 pub(crate) fn render_button(
     label: &Expr,
     accessibility_label: Option<&Expr>,
-    icon: Option<&SystemIcon>,
+    icon: Option<&IconSpec>,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
     style: Option<nexa_ir::ButtonStyle>,
@@ -357,11 +357,10 @@ pub(crate) fn render_button(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    render_button_with_catalog(
+    render_button_node(
         label,
         accessibility_label,
         icon,
-        &nexa_codegen::FontCatalog::default(),
         loading,
         disabled,
         style,
@@ -377,11 +376,10 @@ pub(crate) fn render_button(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn render_button_with_catalog(
+pub(crate) fn render_button_node(
     label: &Expr,
     accessibility_label: Option<&Expr>,
-    icon: Option<&SystemIcon>,
-    font_catalog: &nexa_codegen::FontCatalog,
+    icon: Option<&IconSpec>,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
     style: Option<nexa_ir::ButtonStyle>,
@@ -427,10 +425,7 @@ pub(crate) fn render_button_with_catalog(
             ),
         },
     );
-    let icon = icon.map_or_else(
-        || "null".to_owned(),
-        |icon| super::system_icons::spec_with_catalog(icon, font_catalog),
-    );
+    let icon = icon.map_or_else(|| "null".to_owned(), super::system_icons::spec);
     let tint = tint.map_or_else(
         || "null".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -783,16 +778,16 @@ pub(crate) fn render_segmented_control(
 #[cfg(test)]
 pub(crate) fn render_picker(
     items: &Expr,
-    item_icons: &[SystemIcon],
+    item_icons: &[IconSpec],
     state: &str,
-    icon: Option<&SystemIcon>,
+    icon: Option<&IconSpec>,
     label: Option<&Expr>,
     tint: Option<&nexa_ir::ColorExpression>,
     fill_max_width: bool,
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    render_picker_with_catalog(
+    render_picker_node(
         items,
         item_icons,
         state,
@@ -800,30 +795,25 @@ pub(crate) fn render_picker(
         label,
         tint,
         fill_max_width,
-        &nexa_codegen::FontCatalog::default(),
         depth,
         out,
     );
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn render_picker_with_catalog(
+pub(crate) fn render_picker_node(
     items: &Expr,
-    item_icons: &[SystemIcon],
+    item_icons: &[IconSpec],
     state: &str,
-    icon: Option<&SystemIcon>,
+    icon: Option<&IconSpec>,
     label: Option<&Expr>,
     tint: Option<&nexa_ir::ColorExpression>,
     fill_max_width: bool,
-    font_catalog: &nexa_codegen::FontCatalog,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     let selected = state_name(state);
-    let icon = icon.map_or_else(
-        || "null".to_owned(),
-        |icon| super::system_icons::spec_with_catalog(icon, font_catalog),
-    );
+    let icon = icon.map_or_else(|| "null".to_owned(), super::system_icons::spec);
     let item_icons = if item_icons.is_empty() {
         "emptyList()".to_owned()
     } else {
@@ -831,7 +821,7 @@ pub(crate) fn render_picker_with_catalog(
             "listOf({})",
             item_icons
                 .iter()
-                .map(|icon| super::system_icons::spec_with_catalog(icon, font_catalog))
+                .map(super::system_icons::spec)
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -1411,13 +1401,7 @@ pub(crate) fn render_pressable(
             .filter(|node| matches!(node, Node::Button { .. }))
             .count();
         if item_count > 0 {
-            render_context_menu(
-                context_menu,
-                item_count,
-                &features.font_catalog,
-                depth + 2,
-                out,
-            );
+            render_context_menu(context_menu, item_count, depth + 2, out);
         }
         out.push('\n');
         indent(out, depth + 1);
@@ -1436,13 +1420,7 @@ pub(crate) fn render_pressable(
     }
 }
 
-fn render_context_menu(
-    nodes: &[Node],
-    item_count: usize,
-    font_catalog: &nexa_codegen::FontCatalog,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
+fn render_context_menu(nodes: &[Node], item_count: usize, depth: usize, out: &mut SourceWriter) {
     let mut item_index = 0;
     for node in nodes {
         let Node::Button {
@@ -1481,7 +1459,7 @@ fn render_context_menu(
                 depth + 1,
                 format_args!(
                     "leadingIcon = {{ NexaIconContent(icon = {}, description = \"\", size = 24.dp) }},",
-                    super::system_icons::spec_with_catalog(icon, font_catalog)
+                    super::system_icons::spec(icon)
                 ),
             );
         }
@@ -2080,7 +2058,9 @@ fn render_kotlin_error_catches(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Action, CollectionMutation, Expr, NumericType, SystemIcon, TaskExecutor, Type};
+    use nexa_ir::{
+        Action, CollectionMutation, Expr, IconSpec, NumericType, SystemIcon, TaskExecutor, Type,
+    };
 
     use super::{
         render_actions, render_button, render_picker, render_progress_bar, render_progress_ring,
@@ -2102,7 +2082,9 @@ mod tests {
             &Expr::Array(vec![Expr::String("Low".to_owned())]),
             &[],
             "priority",
-            Some(&SystemIcon::Shared("flag_filled".to_owned())),
+            Some(&IconSpec::system(SystemIcon::Shared(
+                "flag_filled".to_owned(),
+            ))),
             None,
             None,
             true,
@@ -2113,7 +2095,11 @@ mod tests {
         assert!(
             output.contains("NexaPickerPrimitive(items = listOf(\"Low\"), itemIcons = emptyList()")
         );
-        assert!(output.contains("icon = NexaIconSpec(vector = Icons.Filled.Flag)"));
+        assert!(
+            output.contains(
+                "icon = NexaIconSpec(vector = Icons.Filled.Flag, preservesColor = false)"
+            )
+        );
         assert!(
             output
                 .contains("label = null, tint = null, fillMaxWidth = true) { nexa_priority = it }")
@@ -2128,9 +2114,9 @@ mod tests {
             Expr::String("Title".to_owned()),
         ]);
         let item_icons = vec![
-            SystemIcon::Shared("calendar".to_owned()),
-            SystemIcon::Shared("flag_filled".to_owned()),
-            SystemIcon::Shared("edit".to_owned()),
+            IconSpec::system(SystemIcon::Shared("calendar".to_owned())),
+            IconSpec::system(SystemIcon::Shared("flag_filled".to_owned())),
+            IconSpec::system(SystemIcon::Shared("edit".to_owned())),
         ];
         let mut output = SourceWriter::new();
 
@@ -2146,7 +2132,7 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("itemIcons = listOf(NexaIconSpec(vector = Icons.Outlined.CalendarMonth), NexaIconSpec(vector = Icons.Filled.Flag), NexaIconSpec(vector = Icons.Filled.Edit))"));
+        assert!(output.contains("itemIcons = listOf(NexaIconSpec(vector = Icons.Outlined.CalendarMonth, preservesColor = false), NexaIconSpec(vector = Icons.Filled.Flag, preservesColor = false), NexaIconSpec(vector = Icons.Filled.Edit, preservesColor = false))"));
     }
 
     #[test]
@@ -2162,7 +2148,9 @@ mod tests {
             &items,
             &[],
             "priority",
-            Some(&SystemIcon::Shared("flag_filled".to_owned())),
+            Some(&IconSpec::system(SystemIcon::Shared(
+                "flag_filled".to_owned(),
+            ))),
             None,
             Some(&tint),
             true,
@@ -2171,7 +2159,7 @@ mod tests {
         );
 
         assert!(output.contains("nexaColorFromHex(nexa_priorityTint)"));
-        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), itemIcons = emptyList(), selected = nexa_priority, icon = NexaIconSpec(vector = Icons.Filled.Flag), label = null, tint = nexaColorFromHex(nexa_priorityTint), fillMaxWidth = true)"));
+        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), itemIcons = emptyList(), selected = nexa_priority, icon = NexaIconSpec(vector = Icons.Filled.Flag, preservesColor = false), label = null, tint = nexaColorFromHex(nexa_priorityTint), fillMaxWidth = true)"));
     }
 
     #[test]
@@ -2272,7 +2260,7 @@ mod tests {
         render_button(
             &label,
             None,
-            Some(&SystemIcon::Shared("add".to_owned())),
+            Some(&IconSpec::system(SystemIcon::Shared("add".to_owned()))),
             None,
             None,
             None,
@@ -2286,7 +2274,10 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("icon = NexaIconSpec(vector = Icons.Filled.Add)"));
+        assert!(
+            output
+                .contains("icon = NexaIconSpec(vector = Icons.Filled.Add, preservesColor = false)")
+        );
         assert!(output.contains("iconOnlyCircle = true"));
         assert!(output.contains("shape = androidx.compose.foundation.shape.CircleShape"));
     }
@@ -2300,7 +2291,7 @@ mod tests {
         render_button(
             &label,
             Some(&accessibility_label),
-            Some(&SystemIcon::Shared("add".to_owned())),
+            Some(&IconSpec::system(SystemIcon::Shared("add".to_owned()))),
             None,
             None,
             Some(nexa_ir::ButtonStyle::BorderedProminent),

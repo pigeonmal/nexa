@@ -1,199 +1,205 @@
-# Custom icons in Nexa
+# Custom Icons in Nexa
 
-| **Scope**: custom in-app glyphs and image icons | **Targets**: iOS and Android | **Config**: `nexa.config.nx` |
+| **Scope**: project SVG and font icon sets | **Targets**: SwiftUI and Jetpack Compose | **Since**: named icon set API |
 
-Nexa supports custom in-app icons through glyphs in TTF or OTF fonts. You register the font once, assign readable aliases to its Unicode codepoints, and use those aliases in `.nx`; the compiler emits native SwiftUI and Compose glyph rendering.
+Nexa discovers project icons from their assets, resolves each set and icon during compilation, and emits native text glyphs. SVG files are the default; existing TTF and OTF icon fonts can use a small JSON name map.
 
 ## Quick start
 
-Add the icon font to `assets/fonts/`. This example assumes that `TrailIcons.ttf` contains the glyphs at decimal Unicode codepoints `61696` and `61697`.
+Add `assets/icons/Brand/heart.svg`:
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path fill="#E11D48" d="M12 21 3 12a5 5 0 0 1 9-5 5 5 0 0 1 9 5z"/>
+</svg>
+```
+
+Use it in `App.nx`:
+
+```nx
+app SavedItems {
+    state saved: Bool = false
+
+    body {
+        Button("Save item", icon: Icon(Brand: "heart")) {
+            saved = !saved
+        }
+    }
+}
+```
+
+No `nexa.config.nx` registration is needed. Add files to a set folder and refer to them as `Icon(SetName: "file-name")`.
+
+## 1. Sets and names
 
 ```text
-TrailPlanner/
-├── App.nx
-├── nexa.config.nx
-└── assets/
-    └── fonts/
-        └── TrailIcons.ttf
+assets/
+└── icons/
+    ├── Brand/
+    │   ├── heart.svg
+    │   └── logo-mark.svg
+    └── Commerce/
+        └── heart.svg
 ```
 
-Register the font and give the codepoints names in `nexa.config.nx`:
-
-```nexa
-config {
-    assets {
-        iconFonts { TrailIcons: "assets/fonts/TrailIcons.ttf" },
-        icons {
-            trail_map: ["TrailIcons", 61696],
-            trail_bookmark: ["TrailIcons", 61697],
-        }
-    }
-    android { minSdk: 24 }
-}
-```
-
-Use aliases anywhere an icon name is accepted:
-
-```nx
-app TrailPlanner {
-    state savedTrips: Int32 = 3
-
-    body {
-        Column(gap: 12, padding: 16) {
-            Row(gap: 10, alignment: Center) {
-                Icon(system: "trail_map", description: "Trail map", size: 28, tint: "#176B52")
-                Column(gap: 3) {
-                    Text("Weekend routes", fontSize: 20, fontWeight: Semibold)
-                    Text("Trips saved: \(savedTrips)", color: "#52605B")
-                }
-            }
-            Button("Save this route", icon: "trail_bookmark") {
-                savedTrips = savedTrips + 1
-            }
-        }
-    }
-}
-```
-
-Run `nexa check` to validate the project, then `nexa dev` to launch it.
-
-## Choose the right kind of icon
-
-| Need | Use | Example |
+| Part | Rule | Example |
 |---|---|---|
-| A common symbol with matching native behavior on both platforms | Nexa's shared icon catalog | `Icon(system: "search", ...)` |
-| Your own monochrome, scalable glyph | A registered font glyph alias | `Icon(system: "trail_map", ...)` |
-| A multicolor logo or detailed illustration | An image asset | `Image(asset: "trail_logo", ...)` |
-| The image shown on the device home screen | The app icon configuration | `assets.icon` in `nexa.config.nx` |
+| Set folder | A Nexa identifier: ASCII letters, digits, and `_`; starts with a letter or `_` | `Brand`, `commerce_icons` |
+| SVG filename | The filename without `.svg` is the icon name; names cannot contain whitespace | `heart.svg` becomes `"heart"` |
+| Duplicate names | Allowed in different sets; the set selector disambiguates them | `Icon(Brand: "heart")`, `Icon(Commerce: "heart")` |
+| Source per set | A set uses either `assets/icons/<Set>/` or `assets/fonts/<Set>.ttf` / `.otf` with a sidecar | Do not define both `Brand` sources |
 
-The shared system icon catalog is documented in [System Icons](system-icons.md). Image assets are documented in the [component guide](components.md#image). The app launcher icon is separate from icons drawn inside a screen.
+Set and icon names are checked during compilation. An unknown set reports the
+available sets; an unknown icon reports names in the selected set. A custom
+selector never falls back to a similarly named system icon.
 
-### Image-backed marks
+## 2. System and custom icons
 
-For a multicolor logo or detailed illustration, put a PNG, JPEG, or WebP directly in `assets/images/` and pass its filename stem to `Image(asset:)`. Image names use lowercase letters, digits, and underscores; `Image` does not apply an icon-font tint.
+`Icon(system:)` selects only Nexa's shared system catalog. `sfsymbol:` and
+`materialsymbol:` are explicit platform selectors. A custom folder or font
+selector names a project set:
 
 ```nx
-app TrailBrand {
-    body {
-        Image(asset: "trail_logo", description: "Trail Planner", maxHeight: 48)
-    }
+Column(gap: 12) {
+    Icon(system: "search")
+    Icon(sfsymbol: "sparkles")
+    Icon(materialsymbol: "outlined:shopping_bag")
+    Icon(Brand: "heart")
 }
 ```
 
-## How font aliases work
-
-The font contains outlines for glyphs and a character map that associates each glyph with a Unicode codepoint. Nexa uses the codepoint to select the glyph; the alias such as `trail_map` is a readable compile-time name for that mapping.
-
-At project compilation, Nexa checks that the configured font exists, is a TTF or OTF file directly inside `assets/fonts/`, and that every alias refers to a declared font and a valid Unicode scalar. It also rejects duplicate aliases and aliases that collide with a shared Nexa icon. Nexa cannot tell whether the font's character map actually contains the selected codepoint, so confirm that mapping in the icon font's documentation or font editor.
-
-The filename stem does not have to match the family declared in `iconFonts`. Nexa reads the font metadata at project generation and maps the configured family to the iOS PostScript name and Android resource ID. When using an automatically discovered font without an `iconFonts` mapping, use its embedded family name in `.nx`.
-
-### Finding codepoints
-
-Use the icon font's codepoint chart or inspect its character map with a font editor. Fonts often place custom icon glyphs in the Unicode Private Use Area; for example, `U+F100` is decimal `61696`.
-
-`icons` expects decimal integer values, not strings such as `"U+F100"` and not hexadecimal notation. Convert the codepoint to decimal before adding it to the config. Keep the original icon font's license and codepoint chart with your project so the mapping can be maintained.
-
-## Using custom icons in components
-
-An alias resolves to the same typed font glyph wherever a built-in icon-name parameter is supported:
-
-- `Icon(system: "trail_map", ...)` draws the icon by itself and lets you set its size, tint, and accessible description.
-- `Button("Save route", icon: "trail_bookmark") { ... }` adds it to a native button.
-- `ContentUnavailable(title: ..., icon: "trail_map")` uses it in an empty state.
-- `Picker(icon: "trail_map", ...)` and `Picker(itemIcons: [...])` use it on a picker or its menu rows.
-- `Tab(..., icon: "trail_map")` uses it in an app bottom bar tab.
-
-Check the [generated syntax audit](syntax-audit.md) for each component's complete, current argument requirements. Icon names in these parameters must be string literals so Nexa can resolve them during compilation.
-
-### Icon in a row and action
+An icon slot accepts either a shared system name or an `Icon(...)` value.
+Strings in slots are system names; use the explicit value for project icons:
 
 ```nx
-app TrailDetails {
-    state routeSaved: Bool = false
+app ShopIcons {
+    state selectedTab: Int32 = 0
+    state sortOrder: String = "Newest"
 
     body {
-        Column(gap: 14, padding: 16) {
-            Row(gap: 8, alignment: Center) {
-                Icon(system: "trail_map", description: "Map", size: 22, tint: "#176B52")
-                Text("Pine Ridge Loop", fontSize: 20, fontWeight: Semibold)
-            }
-            Text("6.4 km · 2 hours · Moderate", color: "#52605B")
-            Button("Save route", icon: "trail_bookmark") {
-                routeSaved = true
-            }
-            if routeSaved {
-                Text("Saved to your weekend list", color: "#176B52")
+        Button("Save", icon: Icon(Brand: "heart", color: "#E11D48")) { }
+        Picker(
+            items: ["Newest", "Price"],
+            selected: sortOrder,
+            icon: Icon(Commerce: "heart"),
+            itemIcons: ["calendar", Icon(Brand: "heart")]
+        )
+        ContentUnavailable(
+            title: "No saved products",
+            icon: Icon(Brand: "heart"),
+            description: "Save a product and it will appear here."
+        )
+        AppBottomBar(selected: selectedTab) {
+            Tab(index: 0, label: "Saved", icon: Icon(Brand: "heart")) {
+                Text("Your saved products")
             }
         }
     }
 }
 ```
 
-### Picker icons
+| Slot | Accepted value | Notes |
+|---|---|---|
+| `Icon(...)` standalone | System selector or custom set selector | Renders at its own native/default size unless `size:` is supplied |
+| `Button(icon:)` | Shared system name or `Icon(...)` | Omit `description` to use button accessibility context; label-only buttons are unchanged |
+| `Tab(icon:)` | Shared system name or `Icon(...)` | Applies to `Tab` declarations inside `AppBottomBar` |
+| `Picker(icon:)` | Shared system name or `Icon(...)` | Icon for the picker control |
+| `Picker(itemIcons:)` | Array of system names and/or `Icon(...)` values | Entries align by index with `items`; omit an entry to show no row icon |
+| `ContentUnavailable(icon:)` | Shared system name or `Icon(...)` | Omit `description` to use the native empty-state accessibility context |
 
-`itemIcons` entries are matched to picker items by index. Keep their order aligned with the `items` array; an item without a corresponding icon is shown without one. The native menu picker requires Android `minSdk: 24` or later.
+The compiler lowers all of these values to typed IR. AOT output does not look
+up project icon names at runtime.
 
-```nx
-app TrailFilters {
-    state selectedFilter: String = "Nearby"
+## 3. Optional icon parameters
 
-    body {
-        Picker(
-            items: ["Nearby", "Saved"],
-            selected: selectedFilter,
-            itemIcons: ["trail_map", "trail_bookmark"]
-        )
-    }
+| Parameter | Type | Default | Behavior |
+|---|---|---|---|
+| `description` | `String` | Omitted | Standalone icons keep native accessibility behavior; component slots use their parent context. An explicit empty string marks an icon decorative. |
+| `size` | positive numeric literal, `1` through `512` | Omitted | Standalone system icons use the platform symbol default. Custom glyphs use the platform body text size. Component slots use their native contextual size. |
+| `color` | color expression (`String`) | Omitted | System icons use native content color. SVG glyphs keep their original color layers; supplying `color:` tints every layer with one color. |
+
+The `size` value is in points on iOS and dp on Android. `color` accepts a hex
+color or a dynamic `String` expression such as a theme color state.
+
+## 4. SVG support and generated fonts
+
+Nexa builds one deterministic TrueType font per SVG set under
+`.nexa/build/icon-fonts/`. It sorts source filenames, assigns stable private-use
+codepoints, normalizes SVG geometry, and writes the generated font as a static
+app resource. The content-versioned font family lets `nexa dev` replace changed
+artwork without colliding with the font already loaded by the host.
+
+| Supported artwork | Examples |
+|---|---|
+| Paths | `path` and normal path commands |
+| Basic shapes | `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon` |
+| Composition | Groups, nested groups, transforms, viewBox scaling |
+| Paint | Solid fills and strokes, including multiple colors in one SVG |
+
+Paint order follows the SVG tree, so layered fills remain layered in the font.
+The generator expands strokes to outlines and stores solid color layers in the
+font. A supplied `color:` intentionally turns the whole glyph into a single
+tinted icon.
+
+Text, images, filters, masks, patterns, markers, gradients, external paint
+references, and unsupported SVG elements or attributes fail compilation with
+the source file and offending element or attribute. Convert text to paths and
+keep icon files self-contained when importing artwork.
+
+## 5. Existing TTF and OTF icon fonts
+
+Keep the font in `assets/fonts/` and add a sidecar with the same filename stem.
+The sidecar maps readable icon names to Unicode codepoints:
+
+```text
+assets/fonts/
+├── Brand.ttf
+└── Brand.icons.json
+```
+
+```json
+{
+  "heart": "U+F100",
+  "search": 61697
 }
 ```
 
-## Direct glyphs for advanced cases
+Numeric values are decimal codepoints. String values are hexadecimal and may
+use `U+` or `0x` prefixes. The compiler validates the JSON, sidecar pairing,
+font file, set name, icon name, and that every mapped codepoint exists in the
+font. Nexa uses the font's PostScript name for iOS rendering; the set stem
+continues to identify the asset and Android resource.
 
-Use `Icon(fontFamily:, glyph:, ...)` when the glyph codepoint is already held as a typed `Int32` value. This form avoids creating an alias for a value supplied dynamically, while still requiring a static font family.
+Use the font set exactly like an SVG set: `Icon(Brand: "heart")`. The font is
+packaged statically with generated iOS and Android apps; no configuration table
+or runtime alias lookup is involved.
 
-```nx
-app DynamicTrailMarker {
-    state markerGlyph: Int32 = 61696
+## 6. Development builds and native rendering
 
-    body {
-        Icon(
-            fontFamily: "TrailIcons",
-            glyph: markerGlyph,
-            description: "Selected trail marker",
-            size: 28,
-            tint: "#176B52"
-        )
-    }
-}
-```
+`nexa dev` watches SVG files, paired font sidecars, and their TTF or OTF files.
+An edit regenerates SVG fonts when needed and sends the icon font bytes with the
+typed module update. iOS registers these fonts with CoreText; Android loads them
+from the app cache into Compose. Icon asset edits do not rebuild the DevRuntime
+host, and ordinary module updates keep compatible app state. AOT builds package
+the same font files as static native resources.
 
-For fixed icons, prefer named aliases: they make `.nx` source readable and keep font codepoints in one place. The complete `Icon` signature and accepted values are in the [syntax audit](syntax-audit.md#icon).
+Release output stays ahead-of-time: SwiftUI renders symbols and font glyphs
+with native `Image` and `Text`; Compose renders them with Material `Icon` and
+`Text`. Project glyphs are tracked separately from system icons, so a
+custom-only Android app does not acquire Nexa's Material system-icon imports.
+Explicit system icon usage still enables the required native icon dependency.
 
-## Native output and runtime cost
+## 7. Migration from the old icon tables
 
-Nexa includes project fonts in the generated app resources for both targets. It lowers each alias to a typed font-family and codepoint pair; generated code does not look up icon names in a dynamic dictionary.
+| Old form | New form |
+|---|---|
+| `assets.iconFonts` plus `assets.icons` in `nexa.config.nx` | Put SVGs in `assets/icons/<Set>/` or pair a font with `<Set>.icons.json` |
+| `Icon(fontFamily: "Brand", glyph: 61696)` | `Icon(Brand: "heart")` |
+| `Button("Save", icon: "brand_heart")` using a configured alias | `Button("Save", icon: Icon(Brand: "heart"))` |
+| `Icon(system: "brand_heart")` | Use `Icon(Brand: "heart")`; `system:` accepts shared system names only |
+| `Icon(system: "search", tint: "#2563EB")` | `Icon(system: "search", color: "#2563EB")` |
 
-- **iOS:** the font is registered with the app and SwiftUI draws the Unicode character using the custom font at the requested point size.
-- **Android:** the font is packaged as an Android font resource and Compose draws the same Unicode character with a native text primitive.
-
-The same font file and codepoint mapping must work on both platforms. Use a font that includes all mapped glyphs and test its visual weight, alignment, and legibility at the sizes used in your UI.
-
-Custom font glyphs are not supported in Android widgets. Use a shared Nexa icon in a widget.
-
-For a glyph supplied dynamically through `Icon(glyph:)`, keep the value within the Unicode scalar range and make sure the font contains it. Fixed aliases are safer because the mapping is visible and reviewable in the project config.
-
-## Troubleshooting
-
-- **`unknown icon` during `nexa check`:** confirm the alias spelling in `assets.icons` and that the config is in the project root or a parent directory of the `.nx` entry file.
-- **Font path or family error:** keep the file directly under `assets/fonts/`, use `.ttf` or `.otf`, and confirm the `iconFonts` family points to the correct file.
-- **A square, blank space, or wrong symbol appears:** verify the codepoint against the font's character map and confirm the configured family is registered in `iconFonts`.
-- **It works on one target only:** make sure both builds use the same font file and codepoint, then rebuild so the native resource bundles are regenerated.
-- **A button or tab rejects the custom name:** use an alias declared under `assets.icons`; `Icon(sfsymbol:)` and `Icon(materialsymbol:)` are for platform-specific symbols, not registered font aliases.
-
-## Related guides
-
-- [System Icons](system-icons.md) — shared semantic names and platform mappings.
-- [Component Guide](components.md) — `Icon`, `Image`, buttons, pickers, and tabs.
-- [Getting Started](getting-started.md#4-configuration-nexaconfignx) — project configuration and CLI setup.
-- [Syntax Audit](syntax-audit.md#icon) — exact accepted syntax for `Icon`.
+The compiler gives a migration diagnostic for removed `iconFonts` and `icons`
+config entries, `fontFamily` / `glyph` arguments, and `Icon(tint:)`. Component
+parameters such as `Button(tint:)` and `Picker(tint:)` keep their existing
+meaning.

@@ -36,9 +36,9 @@ use nexa_ir::{
     HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis,
     ListCommon, ListPlan, NativeComponentEventHandler, Node, NumberFlow, NumberFlowFormat,
     NumericType, PickerDateSelection, PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId,
-    SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
-    TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle, TextInputFont, TextStyle,
-    ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
+    SectionedListCommon, StatusBarConfig, StatusBarStyle, TaskExecutor as IrTaskExecutor,
+    TextFontDesign, TextFontStyle, TextInputFont, TextStyle, ToolbarPlacement, Type,
+    ViewTransition as IrViewTransition, WhenCase,
     adaptive_layout::{LayoutEdge, SafeAreaInsetPlan, ScrollHeaderBehavior, ScrollHeaderPlan},
 };
 use nexa_syntax::{ast, catalog};
@@ -460,24 +460,6 @@ fn enum_argument(value: &ast::Expr, context: &str) -> Result<String, CompileErro
             value.span(),
             format!("{context} must be a named enum value or string"),
         )),
-    }
-}
-
-fn validate_icon_size_literal_if_static(size: &ast::Expr) -> Result<(), CompileError> {
-    let ast::Expr::Number(value, span) = size else {
-        return Ok(());
-    };
-    let valid = value
-        .parse::<f32>()
-        .ok()
-        .is_some_and(|value| value.is_finite() && value > 0.0 && value <= 512.0);
-    if valid {
-        Ok(())
-    } else {
-        Err(CompileError::new(
-            *span,
-            "Icon size must be a positive numeric literal no greater than 512",
-        ))
     }
 }
 
@@ -1882,20 +1864,6 @@ fn lower_text_font_family(
         Some(value) => Err(CompileError::new(
             value.span(),
             "Text fontFamily must be a static string or a fontFamily theme token",
-        )),
-    }
-}
-
-fn lower_icon_font_family(value: ast::Expr, themes: &ThemeSymbols) -> Result<String, CompileError> {
-    match value {
-        ast::Expr::String(family, span) => {
-            validate_font_family(&family, span)?;
-            Ok(family)
-        }
-        ast::Expr::ThemeToken(name, span) => themes.font_family(&name, span),
-        value => Err(CompileError::new(
-            value.span(),
-            "Icon fontFamily must be a static string or a fontFamily theme token",
         )),
     }
 }
@@ -3669,27 +3637,175 @@ fn require_string_literal(expr: &ast::Expr, field: &str) -> Result<String, Compi
     }
 }
 
+pub(super) fn lower_icon_spec(
+    expr: &ast::Expr,
+    field: &str,
+    cx: &SemanticContext<'_>,
+) -> Result<nexa_ir::IconSpec, CompileError> {
+    let ast::Expr::CallNamed {
+        name,
+        arguments,
+        span,
+        ..
+    } = expr
+    else {
+        let name = require_string_literal(expr, field)?;
+        return nexa_ir::SystemIcon::shared(&name)
+            .map(nexa_ir::IconSpec::system)
+            .ok_or_else(|| {
+                CompileError::new(
+                    expr.span(),
+                    format!("unknown system icon `{name}` in {field}; custom icons use `Icon(SetName: \"icon-name\")`"),
+                )
+            });
+    };
+    if name != "Icon" {
+        return Err(CompileError::new(
+            *span,
+            format!("{field} accepts a system icon name or an `Icon(...)` value"),
+        ));
+    }
+
+    if arguments.contains_key("fontFamily") || arguments.contains_key("glyph") {
+        return Err(CompileError::new(
+            *span,
+            "`fontFamily` and `glyph` were removed from Icon; use `Icon(SetName: \"icon-name\")` and add a sidecar map for prebuilt fonts",
+        ));
+    }
+    if arguments.contains_key("tint") {
+        return Err(CompileError::new(
+            *span,
+            "`Icon(tint:)` was removed; use `color:`. Component tint parameters such as `Button(tint:)` are unchanged.",
+        ));
+    }
+
+    let mut selector = None;
+    for (key, source) in arguments {
+        if matches!(key.as_str(), "system" | "sfsymbol" | "materialsymbol")
+            || !matches!(key.as_str(), "description" | "size" | "color")
+        {
+            if selector.is_some() {
+                return Err(CompileError::new(
+                    source.span(),
+                    "Icon accepts exactly one system selector or custom set selector",
+                ));
+            }
+            selector = Some((key.as_str(), source));
+        }
+    }
+    let Some((selector, source)) = selector else {
+        let known_sets = cx
+            .custom_icons
+            .map(|icons| icons.sets.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        let sets = if known_sets.is_empty() {
+            "no custom icon sets were found".to_owned()
+        } else {
+            format!("available sets: {}", known_sets.join(", "))
+        };
+        return Err(CompileError::new(
+            *span,
+            format!(
+                "Icon requires `system:`, `sfsymbol:`, `materialsymbol:`, or a custom set name ({sets})"
+            ),
+        ));
+    };
+    let icon_name = require_string_literal(source, "Icon name")?;
+    let icon_source = match selector {
+        "system" => nexa_ir::SystemIcon::shared(&icon_name)
+            .map(nexa_ir::IconSource::System)
+            .ok_or_else(|| CompileError::new(source.span(), format!("unknown system icon `{icon_name}`; custom names never resolve through `system:`")))?,
+        "sfsymbol" => nexa_ir::SystemIcon::sf_symbol(&icon_name)
+            .map(nexa_ir::IconSource::System)
+            .ok_or_else(|| CompileError::new(source.span(), "Icon `sfsymbol` must be a non-empty symbol name"))?,
+        "materialsymbol" => nexa_ir::SystemIcon::material_symbol(&icon_name)
+            .map(nexa_ir::IconSource::System)
+            .ok_or_else(|| CompileError::new(source.span(), "Icon `materialsymbol` must be a non-empty Compose icon name"))?,
+        set => {
+            let sets = cx.custom_icons.map(|icons| icons.sets.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+            let Some(icon_set) = cx.custom_icons.and_then(|icons| icons.sets.get(set)) else {
+                let detail = if sets.is_empty() { "no custom icon sets were found".to_owned() } else { format!("available sets: {}", sets.join(", ")) };
+                return Err(CompileError::new(source.span(), format!("unknown custom icon set `{set}`; {detail}")));
+            };
+            if !icon_set.icons.contains_key(&icon_name) {
+                let known = icon_set.icons.keys().cloned().collect::<Vec<_>>();
+                let detail = format!("available icons in `{set}`: {}", known.join(", "));
+                return Err(CompileError::new(source.span(), format!("unknown custom icon `{set}:{icon_name}`; {detail}")));
+            }
+            let (font_family, font_resource, glyph, layers) = cx.resolve_custom_icon(set, &icon_name).ok_or_else(|| {
+                CompileError::new(source.span(), format!("custom icon `{set}:{icon_name}` could not be resolved"))
+            })?;
+            nexa_ir::IconSource::FontGlyph {
+                font_family,
+                font_resource,
+                glyph,
+                layers: layers
+                    .into_iter()
+                    .map(|layer| nexa_ir::IconGlyphLayer {
+                        glyph: layer.glyph,
+                        rgba: layer.rgba,
+                    })
+                    .collect(),
+            }
+        }
+    };
+
+    let description = arguments
+        .get("description")
+        .map(|value| require_string_literal(value, "Icon description"))
+        .transpose()?;
+    let size = arguments
+        .get("size")
+        .map(|value| match value {
+            ast::Expr::Number(raw, number_span) => raw
+                .parse::<f32>()
+                .ok()
+                .filter(|number| number.is_finite() && *number > 0.0 && *number <= 512.0)
+                .ok_or_else(|| {
+                    CompileError::new(
+                        *number_span,
+                        "Icon size must be positive and no greater than 512",
+                    )
+                }),
+            other => Err(CompileError::new(
+                other.span(),
+                "Icon size must be a numeric literal",
+            )),
+        })
+        .transpose()?;
+    let color = arguments
+        .get("color")
+        .map(|value| lower_color_expression(value.clone(), "Icon color", cx))
+        .transpose()?;
+    for (key, value) in arguments {
+        if key != selector && !matches!(key.as_str(), "description" | "size" | "color") {
+            return Err(CompileError::new(
+                value.span(),
+                format!("Icon has no argument `{key}`; use `color:` to tint an icon"),
+            ));
+        }
+    }
+    Ok(nexa_ir::IconSpec {
+        source: icon_source,
+        description,
+        size,
+        color,
+    })
+}
+
 fn lower_picker_item_icons(
     expr: ast::Expr,
     cx: &SemanticContext<'_>,
-) -> Result<Vec<SystemIcon>, CompileError> {
+) -> Result<Vec<nexa_ir::IconSpec>, CompileError> {
     let ast::Expr::Array(items, _) = expr else {
         return Err(CompileError::new(
             expr.span(),
-            "Picker `itemIcons` must be an array literal of shared system icon names",
+            "Picker `itemIcons` must be an array literal of system icon names or `Icon(...)` values",
         ));
     };
     items
         .iter()
-        .map(|item| {
-            let name = require_string_literal(item, "Picker `itemIcons` entry")?;
-            cx.resolve_icon(&name).ok_or_else(|| {
-                CompileError::new(
-                    item.span(),
-                    format!("unknown icon `{name}` in Picker `itemIcons`; use a Nexa shared icon or an alias from `assets.icons`"),
-                )
-            })
-        })
+        .map(|item| lower_icon_spec(item, "Picker `itemIcons` entry", cx))
         .collect()
 }
 

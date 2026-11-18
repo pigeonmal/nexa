@@ -61,7 +61,7 @@ widget NextTask(
 ) {
     Column(gap: 8, padding: 12, background: "#F1F5F9", cornerRadius: 12) {
         Row(gap: 6) {
-            Icon(system: "check_circle", description: "Tasks", size: 18, tint: "#2563EB")
+            Icon(system: "check_circle", description: "Tasks", size: 18, color: "#2563EB")
             Text("Next task", fontSize: 16, fontWeight: Semibold)
         }
         Text(entry.taskTitle, fontSize: 14, lineLimit: 2)

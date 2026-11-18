@@ -97,7 +97,7 @@ app RenderParity {
                                 }
                                 Row(gap: 8, margin: Insets(top: 0), alignment: Center) {
                                     Text("Row layout")
-                                    Icon(system: "check_circle", size: 24, tint: "#E11D48", description: "Completed")
+                                    Icon(system: "check_circle", size: 24, color: "#E11D48", description: "Completed")
                                 }
                                 Row(horizontalArrangement: Center) {
                                     Text("Horizontally centered row")
@@ -131,6 +131,7 @@ app RenderParity {
                             }
                             Section(title: "Input and controls") {
                                 Slider(value: sliderValue, min: 0, max: 1, step: 0.05, showStepIndicators: true, tint: "#CA2828", trackColor: "#424242", thumbColor: "#FFFFFF", trackHeight: 3.51, thumbSize: 14.04, hitSlop: 18.72, accessibilityLabel: "Progress slider")
+
                                     .onEditingChanged { editing ->
                                         enabled = editing
                                     }
@@ -180,10 +181,10 @@ app RenderParity {
                                 Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
                                 Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 64)
                                 Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
-                                Icon(system: "star", size: 24, tint: "#E11D48", description: "Favorite")
-                                Icon(sfsymbol: "star.fill", size: 24, tint: "#E11D48", description: "Native iOS symbol")
-                                Icon(materialsymbol: "star", size: 24, tint: "#E11D48", description: "Native Android symbol")
-                                Icon(fontFamily: "Mazicon", glyph: 61696, size: 24, tint: "#E11D48", description: "Mazicon glyph")
+                                Icon(system: "star", size: 24, color: "#E11D48", description: "Favorite")
+                                Icon(sfsymbol: "star.fill", size: 24, color: "#E11D48", description: "Native iOS symbol")
+                                Icon(materialsymbol: "star", size: 24, color: "#E11D48", description: "Native Android symbol")
+                                Icon(system: "favorite", size: 24, color: "#E11D48", description: "Favorite")
                                 Text(
                                 "Style parameter coverage",
                                 comment: "All visual styling is provided as named component parameters.",
@@ -315,7 +316,7 @@ app RenderParity {
                                 FastList(count: 24, gap: 4, showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, ref: parityListRef, accessibilityLabel: "Parity task list") {
                                     index in
                                     Row(gap: 8, padding: 8) {
-                                        Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                                        Icon(system: "check_circle", size: 20, color: "#E11D48", description: "Task")
                                         Text("Virtual row \(index)")
                                     }
                                 }.safeAreaInset(edge: Bottom) {
@@ -709,10 +710,10 @@ app RenderParity {
                 Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
                 Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 64)
                 Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
-                Icon(system: "star", size: 24, tint: "#E11D48", description: "Shared system icon")
-                Icon(sfsymbol: "star.fill", size: 24, tint: "#E11D48", description: "Native iOS symbol")
-                Icon(materialsymbol: "star", size: 24, tint: "#E11D48", description: "Native Android symbol")
-                Icon(fontFamily: "Mazicon", glyph: 61696, size: 24, tint: "#E11D48", description: "Mazicon glyph")
+                Icon(system: "star", size: 24, color: "#E11D48", description: "Shared system icon")
+                Icon(sfsymbol: "star.fill", size: 24, color: "#E11D48", description: "Native iOS symbol")
+                Icon(materialsymbol: "star", size: 24, color: "#E11D48", description: "Native Android symbol")
+                Icon(system: "favorite", size: 24, color: "#E11D48", description: "Favorite")
             }
             Section(title: "Pressable parameters", comment: "Disabled state, haptics, and full-size layout") {
                 Text("Pressable result: tap=$pressableTapCount, long=$pressableLongPressCount")

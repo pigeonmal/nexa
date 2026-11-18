@@ -8,11 +8,13 @@ fn default_true() -> bool {
 pub mod adaptive_layout;
 pub mod capabilities;
 pub mod facts;
+pub mod icon;
 pub mod localization;
 pub mod navigation;
 pub mod system_icons;
 pub mod walk;
 
+pub use icon::{IconGlyphLayer, IconSource, IconSpec};
 pub use navigation::{
     EntryId, NavigationChromePolicy, NavigationCommand, NavigationEntryState, NavigationError,
     NavigationGraph, NavigationSnapshot, NavigationTransition, NavigationTransitionPolicy,
@@ -900,7 +902,7 @@ pub enum Node {
     /// Empty-state content rendered with native platform presentation.
     ContentUnavailable {
         title: Expr,
-        icon: SystemIcon,
+        icon: IconSpec,
         description: Option<Expr>,
         #[serde(default)]
         title_color: Option<ColorExpression>,
@@ -936,7 +938,7 @@ pub enum Node {
     },
     Button {
         label: Expr,
-        icon: Option<SystemIcon>,
+        icon: Option<IconSpec>,
         loading: Option<Expr>,
         disabled: Option<Expr>,
         style: Option<ButtonStyle>,
@@ -1067,10 +1069,10 @@ pub enum Node {
     Picker {
         items: Expr,
         state: String,
-        icon: Option<SystemIcon>,
-        /// Compile-time shared system icons displayed beside the matching menu options.
+        icon: Option<IconSpec>,
+        /// Compile-time icons displayed beside the matching menu options.
         #[serde(default)]
-        item_icons: Vec<SystemIcon>,
+        item_icons: Vec<IconSpec>,
         label: Option<Expr>,
         #[serde(default)]
         tint: Option<ColorExpression>,
@@ -1092,16 +1094,24 @@ pub enum Node {
     },
     SystemIcon {
         icon: SystemIcon,
-        description: String,
-        size: f32,
-        tint: ColorExpression,
+        description: Option<String>,
+        #[serde(default)]
+        size: Option<f32>,
+        #[serde(default)]
+        tint: Option<ColorExpression>,
     },
     FontIcon {
         font_family: String,
+        #[serde(default)]
+        font_resource: String,
         glyph: Expr,
-        description: String,
-        size: Expr,
-        tint: ColorExpression,
+        #[serde(default)]
+        layers: Vec<IconGlyphLayer>,
+        description: Option<String>,
+        #[serde(default)]
+        size: Option<Expr>,
+        #[serde(default)]
+        tint: Option<ColorExpression>,
     },
     LinearGradient {
         start_color: ColorValue,
@@ -1346,7 +1356,7 @@ pub struct BottomBarTab {
     pub label: String,
     #[serde(default)]
     pub comment: Option<String>,
-    pub icon: Option<SystemIcon>,
+    pub icon: Option<IconSpec>,
     pub badge: Option<String>,
     pub role: Option<String>,
     /// Optional native navigation title for this destination.

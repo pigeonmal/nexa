@@ -140,119 +140,50 @@ pub(super) fn lower_icon_component(
     inv: ast::ComponentInvocation,
     cx: &SemanticContext<'_>,
 ) -> Result<Node, CompileError> {
-    let themes = cx.themes;
-
     let span = inv.span;
-    let mut args = inv.arguments;
-    let font_family_arg = args.remove("fontFamily");
-    let glyph_arg = args.remove("glyph");
-    let selectors = [("system", 0), ("sfsymbol", 1), ("materialsymbol", 2)];
-    let mut selection = None;
-    for (name, kind) in selectors {
-        if let Some(expression) = args.remove(name) {
-            if selection.is_some() {
-                return Err(CompileError::new(
-                    expression.span(),
-                    "Icon accepts exactly one of `system`, `sfsymbol`, or `materialsymbol`",
-                ));
-            }
-            selection = Some((
-                kind,
-                require_string_literal(&expression, "Icon symbol name")?,
-            ));
-        }
-    }
-    if selection.is_some() && (font_family_arg.is_some() || glyph_arg.is_some()) {
+    if inv.arguments.contains_key("fontFamily") || inv.arguments.contains_key("glyph") {
         return Err(CompileError::new(
             span,
-            "Icon accepts either a system symbol or `fontFamily` with `glyph`",
+            "`fontFamily` and `glyph` were removed from Icon; use `Icon(SetName: \"icon-name\")` and add a sidecar map for prebuilt fonts",
         ));
     }
-    let font_family = font_family_arg
-        .map(|value| lower_icon_font_family(value, themes))
-        .transpose()?;
-    let glyph = glyph_arg
-        .map(|value| {
-            lower_expr(
-                &value,
-                Some(&Type::Numeric(NumericType::Int32)),
-                &cx.exprs(false),
-            )
-        })
-        .transpose()?;
-    if glyph.is_some() != font_family.is_some() {
-        return Err(CompileError::new(
-            span,
-            "font glyph icons require both `fontFamily` and `glyph`",
-        ));
-    }
-    let description_expr = take_required_arg(&mut args, &inv.name, "description", span)?;
-    let description = require_string_literal(&description_expr, "Icon description")?;
-    let size = take_required_arg(&mut args, &inv.name, "size", span)?;
-    let tint = lower_color_expression(
-        take_required_arg(&mut args, &inv.name, "tint", span)?,
-        "Icon tint",
-        cx,
-    )?;
-    if let (Some(font_family), Some(glyph)) = (font_family, glyph) {
-        validate_icon_size_literal_if_static(&size)?;
-        let size = lower_expr(
-            &size,
-            Some(&Type::Numeric(NumericType::Float64)),
-            &cx.exprs(false),
-        )?;
-        Ok(Node::FontIcon {
-            font_family,
-            glyph,
-            description,
-            size,
-            tint,
-        })
-    } else {
-        let size = match size {
-            ast::Expr::Number(value, number_span) => value
-                .parse::<f32>()
-                .ok()
-                .filter(|value| value.is_finite() && *value > 0.0 && *value <= 512.0)
-                .ok_or_else(|| {
-                    CompileError::new(
-                        number_span,
-                        "Icon size must be a positive numeric literal no greater than 512",
-                    )
-                })?,
-            expr => {
-                return Err(CompileError::new(
-                    expr.span(),
-                    "system Icon size must be a positive numeric literal",
-                ));
-            }
-        };
-        let icon = match selection {
-                    Some((0, name)) => cx.resolve_icon(&name).ok_or_else(|| {
-                        CompileError::new(
-                            span,
-                            format!("unknown icon `{name}`; use a Nexa shared icon, an alias from `assets.icons`, `sfsymbol`, or `materialsymbol` for a platform-specific name"),
-                        )
-                    })?,
-                    Some((1, name)) => SystemIcon::sf_symbol(name).ok_or_else(|| {
-                        CompileError::new(span, "Icon `sfsymbol` must be a non-empty symbol name")
-                    })?,
-                    Some((2, name)) => SystemIcon::material_symbol(name).ok_or_else(|| {
-                        CompileError::new(span, "Icon `materialsymbol` must be a non-empty Compose icon name")
-                    })?,
-                    _ => {
-                        return Err(CompileError::new(
-                            span,
-                            "Icon requires one system symbol or a font glyph with `fontFamily`",
-                        ));
-                    }
-                };
-        Ok(Node::SystemIcon {
+    let call = ast::Expr::CallNamed {
+        name: "Icon".to_owned(),
+        type_arguments: Vec::new(),
+        arguments: inv.arguments,
+        span,
+    };
+    let spec = super::lower_icon_spec(&call, "Icon", cx)?;
+    let description = spec.description;
+    let tint = spec.color;
+    let size = spec.size;
+    match spec.source {
+        nexa_ir::IconSource::System(icon) => Ok(Node::SystemIcon {
             icon,
             description,
             size,
             tint,
-        })
+        }),
+        nexa_ir::IconSource::FontGlyph {
+            font_family,
+            font_resource,
+            glyph,
+            layers,
+        } => Ok(Node::FontIcon {
+            font_family,
+            font_resource,
+            glyph: Expr::Number {
+                raw: glyph.to_string(),
+                ty: NumericType::Int32,
+            },
+            layers,
+            description,
+            size: size.map(|size| Expr::Number {
+                raw: size.to_string(),
+                ty: NumericType::Float64,
+            }),
+            tint,
+        }),
     }
 }
 

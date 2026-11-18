@@ -241,6 +241,7 @@ impl DevServer {
             patch.operations.is_empty()
                 && patch.identities.is_none()
                 && patch.translations.is_none()
+                && patch.font_assets.is_none()
         }) {
             return Ok(());
         }

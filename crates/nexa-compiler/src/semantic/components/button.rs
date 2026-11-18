@@ -53,17 +53,9 @@ pub(super) fn lower_button_component(
         return Err(CompileError::new(span, "Button label must be a String"));
     }
     let icon = icon
-                .map(|value| {
-                    let name = require_string_literal(&value, "Button icon")?;
-                    let resolved = cx.resolve_icon(&name);
-                    resolved.ok_or_else(|| {
-                        CompileError::new(
-                            value.span(),
-                            format!("unknown icon `{name}` in Button `icon`; use a Nexa shared icon, an alias from `assets.icons`, or the `Icon` component for platform-specific symbols"),
-                        )
-                    })
-                })
-                .transpose()?;
+        .as_ref()
+        .map(|value| lower_icon_spec(value, "Button icon", cx))
+        .transpose()?;
     let loading = loading
         .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
         .transpose()?;

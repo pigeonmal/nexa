@@ -1,7 +1,8 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::adaptive_layout::{LayoutEdge, ScrollOwnerResolution};
 use nexa_ir::{
-    Dimension, EdgeInsets, Expr, LayoutKind, Module, Node, SystemIcon, ToolbarPlacement, ViewStyle,
+    Dimension, EdgeInsets, Expr, IconSource, LayoutKind, Module, Node, SystemIcon,
+    ToolbarPlacement, ViewStyle,
 };
 
 use crate::generator::{
@@ -193,8 +194,8 @@ pub(crate) fn render_node(
             icon_tint,
             background,
         } => {
-            let icon_description = match icon {
-                SystemIcon::Shared(name) => name
+            let icon_description = match &icon.source {
+                IconSource::System(SystemIcon::Shared(name)) => name
                     .split('_')
                     .filter(|part| !part.is_empty())
                     .map(|part| {
@@ -206,9 +207,12 @@ pub(crate) fn render_node(
                     })
                     .collect::<Vec<_>>()
                     .join(" "),
-                SystemIcon::SfSymbol(_)
-                | SystemIcon::MaterialSymbol(_)
-                | SystemIcon::FontGlyph { .. } => "Icon".to_owned(),
+                IconSource::System(SystemIcon::SfSymbol(_))
+                | IconSource::System(SystemIcon::MaterialSymbol(_))
+                | IconSource::FontGlyph { .. } => icon
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| "Icon".to_owned()),
             };
             out.line_at(
                 depth,
@@ -216,7 +220,7 @@ pub(crate) fn render_node(
                     "NexaContentUnavailablePrimitive(title = {}, description = {}, icon = {}, iconDescription = {}, titleColor = {}, descriptionColor = {}, iconTint = {}, background = {})",
                     crate::generator::engine::expressions::text_expression(title),
                     description.as_ref().map(crate::generator::engine::expressions::text_expression).unwrap_or_else(|| "null".to_owned()),
-                    system_icons::spec_with_catalog(icon, &features.font_catalog),
+                    system_icons::spec(icon),
                     crate::generator::utils::kotlin_string(&icon_description),
                     title_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
                     description_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
@@ -417,11 +421,10 @@ pub(crate) fn render_node(
             actions,
             ..
         } => {
-            controls::render_button_with_catalog(
+            controls::render_button_node(
                 label,
                 accessibility_label.as_deref(),
                 icon.as_ref(),
-                &features.font_catalog,
                 loading.as_ref(),
                 disabled.as_ref(),
                 *style,
@@ -521,7 +524,7 @@ pub(crate) fn render_node(
             label,
             tint,
             ..
-        } => controls::render_picker_with_catalog(
+        } => controls::render_picker_node(
             items,
             item_icons,
             state,
@@ -529,7 +532,6 @@ pub(crate) fn render_node(
             label.as_ref(),
             tint.as_ref(),
             true,
-            &features.font_catalog,
             depth,
             out,
         ),
@@ -560,28 +562,31 @@ pub(crate) fn render_node(
             description,
             size,
             tint,
-        } => system_icons::render_with_catalog(
+        } => system_icons::render(
             icon,
-            description,
+            description.as_deref(),
             *size,
-            tint,
-            &features.font_catalog,
+            tint.as_ref(),
             depth,
             out,
         ),
         Node::FontIcon {
-            font_family,
+            font_resource,
+            font_family: _,
             glyph,
+            layers,
             description,
             size,
             tint,
-        } => system_icons::render_font_with_catalog(
-            font_family,
-            glyph,
-            description,
-            size,
-            tint,
-            &features.font_catalog,
+        } => system_icons::render_font(
+            system_icons::FontIconRenderArgs {
+                font_resource,
+                glyph,
+                layers,
+                description: description.as_deref(),
+                size: size.as_ref(),
+                tint: tint.as_ref(),
+            },
             depth,
             out,
         ),
@@ -977,11 +982,10 @@ pub(crate) fn render_node_in_form_row(
             tint,
             actions,
             ..
-        } => controls::render_button_with_catalog(
+        } => controls::render_button_node(
             label,
             accessibility_label.as_deref(),
             icon.as_ref(),
-            &features.font_catalog,
             loading.as_ref(),
             disabled.as_ref(),
             *style,

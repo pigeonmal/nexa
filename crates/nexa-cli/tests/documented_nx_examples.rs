@@ -5,7 +5,11 @@
 //! standalone public programs, so compile those directly against both target
 //! semantics to prevent their grammar, types, or component APIs from drifting.
 
-use std::{fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use nexa_compiler::{
     Target, compile_file_with_warnings_for_target, compile_with_warnings_for_target,
@@ -23,39 +27,80 @@ fn documented_plugin_idl_examples() -> Vec<(String, String)> {
 }
 
 fn compile_documented_example(location: &str, source: &str, target: Target) -> Result<(), String> {
-    if location.starts_with("docs/custom-icons.md:") && source.contains("trail_") {
-        return compile_custom_icon_example(location, source, target);
+    let icon_sets = custom_icon_sets(source);
+    if icon_sets.is_empty() {
+        return compile_with_warnings_for_target(source, target)
+            .map(|_| ())
+            .map_err(|error| format!("{location}: {error}"));
     }
-
-    compile_with_warnings_for_target(source, target)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
-fn compile_custom_icon_example(location: &str, source: &str, target: Target) -> Result<(), String> {
-    let config = documented_fenced_examples("nexa")
-        .into_iter()
-        .find(|(config_location, config)| {
-            config_location.starts_with("docs/custom-icons.md:")
-                && config.trim_start().starts_with("config {")
-        })
-        .map(|(_, config)| config)
-        .ok_or_else(|| "custom icon guide is missing its project config example".to_owned())?;
 
     let project = nexa_testkit::TempDir::new("nexa-documented-custom-icons");
     let app_path = project.path().join("App.nx");
-    let config_path = project.path().join("nexa.config.nx");
-    let font_directory = project.path().join("assets/fonts");
-    fs::create_dir_all(&font_directory).map_err(|error| error.to_string())?;
     fs::write(&app_path, source).map_err(|error| error.to_string())?;
-    fs::write(&config_path, config).map_err(|error| error.to_string())?;
-    // Project compilation validates the font resource path and extension; it
-    // does not inspect font tables, which are outside this compiler example.
-    fs::write(font_directory.join("TrailIcons.ttf"), []).map_err(|error| error.to_string())?;
+    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#E11D48" d="M12 21 3 12a5 5 0 0 1 9-5 5 5 0 0 1 9 5z"/></svg>"##;
+    for (set, names) in icon_sets {
+        for name in names {
+            let path = project
+                .path()
+                .join("assets/icons")
+                .join(set.as_str())
+                .join(format!("{name}.svg"));
+            let directory = path
+                .parent()
+                .ok_or_else(|| "invalid icon path".to_owned())?;
+            fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+            fs::write(path, svg).map_err(|error| error.to_string())?;
+        }
+    }
 
     compile_file_with_warnings_for_target(&app_path, target)
         .map(|_| ())
         .map_err(|error| format!("{location}: {error}"))
+}
+
+fn custom_icon_sets(source: &str) -> BTreeMap<String, BTreeSet<String>> {
+    let mut sets = BTreeMap::new();
+    let mut cursor = 0;
+    while let Some(relative) = source[cursor..].find("Icon(") {
+        let start = cursor + relative + "Icon(".len();
+        let Some(end) = source[start..].find(')') else {
+            break;
+        };
+        let invocation = &source[start..start + end];
+        cursor = start + end + 1;
+        let Some((set, icon)) = invocation.split_once(':') else {
+            continue;
+        };
+        let set = set.trim();
+        if matches!(set, "system" | "sfsymbol" | "materialsymbol") {
+            continue;
+        }
+        let valid_set = set.chars().enumerate().all(|(index, value)| {
+            value == '_' || value.is_ascii_alphanumeric() && (index > 0 || !value.is_ascii_digit())
+        });
+        if !valid_set || set.is_empty() {
+            continue;
+        }
+        let Some(first_quote) = icon.find('"') else {
+            continue;
+        };
+        let icon = &icon[first_quote + 1..];
+        let Some(last_quote) = icon.find('"') else {
+            continue;
+        };
+        let name = &icon[..last_quote];
+        if name.is_empty()
+            || name.chars().any(char::is_whitespace)
+            || name.contains('/')
+            || name.contains('\\')
+        {
+            continue;
+        }
+        sets.entry(set.to_owned())
+            .or_insert_with(BTreeSet::new)
+            .insert(name.to_owned());
+    }
+    sets
 }
 
 fn documented_fenced_examples(language: &str) -> Vec<(String, String)> {

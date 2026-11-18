@@ -33,6 +33,10 @@ pub struct DevModule {
     pub identities: Vec<StableIdentity>,
     #[serde(default)]
     pub translations: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    /// Versioned icon fonts delivered to DevRuntime so SVG edits can refresh
+    /// their native text faces without rebuilding the debug host.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub font_assets: BTreeMap<String, Vec<u8>>,
     /// Compiler proof used to avoid deep comparisons of unchanged entries.
     #[serde(skip)]
     pub change_hint: Option<DevModuleChangeHint>,
@@ -56,6 +60,8 @@ pub struct DevModulePatch {
     pub identities: Option<Vec<StableIdentity>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translations: Option<BTreeMap<String, BTreeMap<String, serde_json::Value>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub font_assets: Option<BTreeMap<String, Vec<u8>>>,
 }
 
 /// One operation in the JSON-pointer subset used for development module
@@ -118,6 +124,7 @@ pub fn diff_with_module_values(
         identities: (previous.identities != next.identities).then(|| next.identities.clone()),
         translations: (previous.translations != next.translations)
             .then(|| next.translations.clone()),
+        font_assets: (previous.font_assets != next.font_assets).then(|| next.font_assets.clone()),
     })
 }
 
@@ -196,6 +203,8 @@ pub fn diff_module_with_values(
     diff_value!(on_inactive);
     diff_value!(on_background);
 
+    let font_assets = (previous.font_assets != next.font_assets).then(|| next.font_assets.clone());
+
     Some(DevModulePatch {
         protocol_version: next.protocol_version,
         base_revision: previous.revision.clone(),
@@ -204,6 +213,7 @@ pub fn diff_module_with_values(
         identities: (previous.identities != next.identities).then(|| next.identities.clone()),
         translations: (previous.translations != next.translations)
             .then(|| next.translations.clone()),
+        font_assets,
     })
 }
 
@@ -566,6 +576,7 @@ pub fn lower_owned_with_change_hint(
         module,
         identities,
         translations,
+        font_assets: BTreeMap::new(),
         change_hint,
     }
 }

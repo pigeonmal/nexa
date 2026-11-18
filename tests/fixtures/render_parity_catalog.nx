@@ -49,7 +49,7 @@ app RenderParityCatalog {
                             }
                             Row(gap: 8, alignment: Center) {
                                 Text("Row layout")
-                                Icon(system: "check_circle", size: 24, tint: "#E11D48", description: "Completed")
+                                Icon(system: "check_circle", size: 24, color: "#E11D48", description: "Completed")
                             }
                             Stack(alignment: Center, width: 120, height: 44, background: "#303030", cornerRadius: 8) {
                                 Text("Stack layout")
@@ -83,7 +83,7 @@ app RenderParityCatalog {
                             Text("Enabled: $enabled", fontSize: 12)
                             TextInput(value: title, placeholder: "Task title", keyboardType: Text, capitalization: None)
                             Text("Title: $title", fontSize: 12)
-                            Slider(value: sliderValue, min: 0, max: 1, step: 0.05, tint: "#CA2828", trackColor: "#424242", thumbColor: "#FFFFFF", trackHeight: 3.51, thumbSize: 14.04, hitSlop: 18.72, accessibilityLabel: "Progress slider")
+                            Slider(value: sliderValue, min: 0, max: 1, step: 0.05, tint: "#CA2828", trackColor: "#424242", thumbColor: "#FFFFFF", trackHeight: 3.51, thumbSize: 14.04, hitSlop: 18.72, showStepIndicators: false, accessibilityLabel: "Progress slider")
                                 .onEditingChanged { editing ->
                                     enabled = editing
                                 }
@@ -101,7 +101,7 @@ app RenderParityCatalog {
                         }
                         Section(title: "Images and links") {
                             Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, maxHeight: 64)
-                            Icon(system: "star", size: 24, tint: "#E11D48", description: "Favorite")
+                            Icon(system: "star", size: 24, color: "#E11D48", description: "Favorite")
                             LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: TopToBottom, height: 32)
                             Link(url: "https://example.com") {
                                 Text("External documentation link")
@@ -130,7 +130,7 @@ app RenderParityCatalog {
                         }
                         FastList(count: 24, rowHeight: 56, accessibilityLabel: "Parity task list") { index in
                             Row(gap: 8, padding: 8) {
-                                Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                                Icon(system: "check_circle", size: 20, color: "#E11D48", description: "Task")
                                 Text("Virtual row \(index)")
                             }
                         }.onScroll {

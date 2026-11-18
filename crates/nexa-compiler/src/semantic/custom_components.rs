@@ -181,7 +181,7 @@ pub(super) struct ComponentLoweringContext<'a> {
     pub(super) external_signatures: &'a ComponentSignatures,
     pub(super) target: Target,
     pub(super) nullable_generic_plugin_reads: bool,
-    pub(super) custom_icons: Option<&'a HashMap<String, nexa_ir::SystemIcon>>,
+    pub(super) custom_icons: Option<&'a nexa_icon_font::IconRegistry>,
 }
 
 pub(super) fn retain_reachable(

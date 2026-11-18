@@ -40,7 +40,7 @@ screen TikTokShell {
                             Stack(width: 43, height: 25, background: "#25F4EE", cornerRadius: 6) {}
                             Stack(width: 43, height: 25, background: "#FE2C55", cornerRadius: 6) {}
                             Stack(alignment: Center, width: 40, height: 25, background: "#FFFFFF", cornerRadius: 6) {
-                                Icon(system: "add", description: "Create", size: 20, tint: "#111111")
+                                Icon(system: "add", description: "Create", size: 20, color: "#111111")
                             }
                         }
                     }.onTap { selectedTab = 2 }

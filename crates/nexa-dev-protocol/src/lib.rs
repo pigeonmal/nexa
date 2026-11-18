@@ -4,7 +4,7 @@
 use nexa_dev_ir::DevModulePatch;
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u16 = 14;
+pub const PROTOCOL_VERSION: u16 = 15;
 
 /// Template token for native DevRuntime protocol schemas.
 pub const PROTOCOL_VERSION_TOKEN: &str = "__NEXA_PROTOCOL_VERSION__";

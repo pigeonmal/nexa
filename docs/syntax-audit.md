@@ -495,15 +495,11 @@ Reference: components.md#content-unavailable
 
 ### `Icon`
 
-Displays a system symbol or a glyph from a registered font
+Displays a system icon or a project icon from a named set
 
-Signature: `Icon(system:, sfsymbol:, materialsymbol:, fontFamily:, glyph:, description, size, tint, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Icon(system:, sfsymbol:, materialsymbol:, description:, size:, color:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `description`, `size`, `tint`
-
-Optional options: `system`, `sfsymbol`, `materialsymbol`, `fontFamily`, `glyph`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
-
-Exactly one of: `system`, `sfsymbol`, `materialsymbol`, `glyph`
+Optional options: `system`, `sfsymbol`, `materialsymbol`, `description`, `size`, `color`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 

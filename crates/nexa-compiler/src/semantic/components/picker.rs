@@ -14,17 +14,10 @@ pub(super) fn lower_picker_component(
     let items = take_required_arg(&mut args, &inv.name, "items", span)?;
     let selected = take_required_arg(&mut args, &inv.name, "selected", span)?;
     let icon = args
-                .remove("icon")
-                .map(|value| {
-                    let name = require_string_literal(&value, "Picker icon")?;
-                    cx.resolve_icon(&name).ok_or_else(|| {
-                        CompileError::new(
-                            value.span(),
-                            format!("unknown icon `{name}` in Picker `icon`; use a Nexa shared icon or an alias from `assets.icons`"),
-                        )
-                    })
-                })
-                .transpose()?;
+        .remove("icon")
+        .as_ref()
+        .map(|value| lower_icon_spec(value, "Picker icon", cx))
+        .transpose()?;
     let item_icons = args
         .remove("itemIcons")
         .map(|icons| lower_picker_item_icons(icons, cx))

@@ -1993,20 +1993,36 @@ struct NexaSegmentedControlPrimitive: View {
 // nexa-codegen: NexaSystemIconPrimitive
 struct NexaSystemIconPrimitive: View {
     let symbol: String
-    let description: String
-    let size: CGFloat
-    let tint: Color
+    let description: String?
+    let size: CGFloat?
+    let tint: Color?
 
     @ViewBuilder var body: some View {
-        let icon = Image(systemName: symbol)
-            .font(.system(size: size))
-            .foregroundStyle(tint)
-        if description.isEmpty {
-            icon.accessibilityHidden(true)
+        let image = Image(systemName: symbol).foregroundStyle(tint ?? .primary)
+        if let size {
+            accessible(image.font(.system(size: size)))
         } else {
-            icon.accessibilityLabel(description)
+            accessible(image)
         }
     }
+
+    @ViewBuilder private func accessible<Content: View>(_ content: Content) -> some View {
+        if let description {
+            if description.isEmpty {
+                content.accessibilityHidden(true)
+            } else {
+                content.accessibilityLabel(description)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+// nexa-codegen: NexaIconLayer
+struct NexaIconLayer {
+    let glyph: Int32
+    let color: Color
 }
 
 // nexa-codegen: NexaIconSpec
@@ -2014,39 +2030,75 @@ struct NexaIconSpec {
     let symbol: String?
     let glyph: Int32?
     let fontFamily: String?
+    let description: String?
+    let size: CGFloat?
+    let tint: Color?
+    let preservesColor: Bool
+    let layers: [NexaIconLayer]
 
-    init(symbol: String) {
+    init(symbol: String, description: String? = nil, size: CGFloat? = nil, tint: Color? = nil, preservesColor: Bool = false) {
         self.symbol = symbol
         self.glyph = nil
         self.fontFamily = nil
+        self.description = description
+        self.size = size
+        self.tint = tint
+        self.preservesColor = preservesColor
+        self.layers = []
     }
 
-    init(glyph: Int32, fontFamily: String) {
+    init(glyph: Int32, fontFamily: String, description: String? = nil, size: CGFloat? = nil, tint: Color? = nil, layers: [NexaIconLayer] = [], preservesColor: Bool = true) {
         self.symbol = nil
         self.glyph = glyph
         self.fontFamily = fontFamily
+        self.description = description
+        self.size = size
+        self.tint = tint
+        self.preservesColor = preservesColor
+        self.layers = layers
     }
 }
 
 // nexa-codegen: NexaIconView
 struct NexaIconView: View {
     let icon: NexaIconSpec
-    let description: String
-    let size: CGFloat
+    let description: String?
+    let size: CGFloat?
     var tint: Color? = nil
 
     @ViewBuilder var body: some View {
+        let displaySize = icon.size ?? size
+        let displayTint = icon.tint ?? (icon.preservesColor ? nil : tint)
         if let glyph = icon.glyph, let fontFamily = icon.fontFamily {
-            let glyphText = UnicodeScalar(Int(glyph)).map { String($0) } ?? "�"
-            let text = Text(glyphText).font(.custom(fontFamily, size: size))
-            if let tint {
-                accessible(text.foregroundStyle(tint))
+            if icon.layers.isEmpty {
+                let glyphText = UnicodeScalar(Int(glyph)).map { String($0) } ?? "�"
+                let text = Text(glyphText).font(.custom(fontFamily, size: displaySize ?? 17))
+                if let tint = displayTint {
+                    accessible(text.foregroundStyle(tint))
+                } else {
+                    accessible(text)
+                }
             } else {
-                accessible(text)
+                accessible(ZStack {
+                    ForEach(icon.layers.indices, id: \.self) { index in
+                        let layer = icon.layers[index]
+                        let glyphText = UnicodeScalar(Int(layer.glyph)).map { String($0) } ?? "�"
+                        Text(glyphText)
+                            .font(.custom(fontFamily, size: displaySize ?? 17))
+                            .foregroundStyle(displayTint ?? layer.color)
+                    }
+                })
             }
         } else if let symbol = icon.symbol {
-            let image = Image(systemName: symbol).font(.system(size: size))
-            if let tint {
+            let image = Image(systemName: symbol)
+            if let displaySize {
+                let sizedImage = image.font(.system(size: displaySize))
+                if let tint = displayTint {
+                    accessible(sizedImage.foregroundStyle(tint))
+                } else {
+                    accessible(sizedImage)
+                }
+            } else if let tint = displayTint {
                 accessible(image.foregroundStyle(tint))
             } else {
                 accessible(image)
@@ -2058,10 +2110,14 @@ struct NexaIconView: View {
 
     @ViewBuilder
     private func accessible<Content: View>(_ content: Content) -> some View {
-        if description.isEmpty {
-            content.accessibilityHidden(true)
+        if let description = icon.description ?? description {
+            if description.isEmpty {
+                content.accessibilityHidden(true)
+            } else {
+                content.accessibilityLabel(description)
+            }
         } else {
-            content.accessibilityLabel(description)
+            content
         }
     }
 }
@@ -2070,19 +2126,43 @@ struct NexaIconView: View {
 struct NexaFontIconPrimitive: View {
     let glyph: Int32
     let fontFamily: String
-    let description: String
-    let size: CGFloat
-    let tint: Color
+    let description: String?
+    let size: CGFloat?
+    let tint: Color?
+    var layers: [NexaIconLayer] = []
 
     @ViewBuilder var body: some View {
-        let glyphText = UnicodeScalar(Int(glyph)).map { String($0) } ?? "�"
-        let icon = Text(glyphText)
-            .font(.custom(fontFamily, size: size))
-            .foregroundStyle(tint)
-        if description.isEmpty {
-            icon.accessibilityHidden(true)
+        if layers.isEmpty {
+            let glyphText = UnicodeScalar(Int(glyph)).map { String($0) } ?? "�"
+            let text = Text(glyphText).font(.custom(fontFamily, size: size ?? 17))
+            if let tint {
+                accessible(text.foregroundStyle(tint))
+            } else {
+                accessible(text)
+            }
         } else {
-            icon.accessibilityLabel(description)
+            accessible(ZStack {
+                ForEach(layers.indices, id: \.self) { index in
+                    let layer = layers[index]
+                    let glyphText = UnicodeScalar(Int(layer.glyph)).map { String($0) } ?? "�"
+                    Text(glyphText)
+                        .font(.custom(fontFamily, size: size ?? 17))
+                        .foregroundStyle(tint ?? layer.color)
+                }
+            })
+        }
+    }
+
+    @ViewBuilder
+    private func accessible<Content: View>(_ content: Content) -> some View {
+        if let description {
+            if description.isEmpty {
+                content.accessibilityHidden(true)
+            } else {
+                content.accessibilityLabel(description)
+            }
+        } else {
+            content
         }
     }
 }
@@ -2112,15 +2192,8 @@ struct NexaContentUnavailablePrimitive: View {
     let iconTint: Color?
     let background: Color?
 
-    @ViewBuilder private var iconContent: some View {
-        if let glyph = icon.glyph, let fontFamily = icon.fontFamily {
-            Text(UnicodeScalar(Int(glyph)).map { String($0) } ?? "�")
-                .font(.custom(fontFamily, size: CGFloat(58)))
-        } else if let symbol = icon.symbol {
-            Image(systemName: symbol)
-        } else {
-            EmptyView()
-        }
+    private var iconContent: some View {
+        NexaIconView(icon: icon, description: "", size: 58, tint: iconTint)
     }
 
     @ViewBuilder var body: some View {
@@ -5353,10 +5426,10 @@ mod tests {
     };
     use nexa_ir::{
         Action, AnimationSpec, Color, ColorExpression, ColorValue, Component, Expr, FastListMove,
-        Function, FunctionParameter, ImageScale, ImageSource, LayoutKind, ListAxis, ListCommon,
-        ListPlan, Module, Node, NumericType, PickerDateProps, PickerDateSelection, PickerDateStyle,
-        PickerDateType, Screen, ScreenId, SectionedListCommon, State, SystemIcon, TaskExecutor,
-        TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        Function, FunctionParameter, IconSpec, ImageScale, ImageSource, LayoutKind, ListAxis,
+        ListCommon, ListPlan, Module, Node, NumericType, PickerDateProps, PickerDateSelection,
+        PickerDateStyle, PickerDateType, Screen, ScreenId, SectionedListCommon, State, SystemIcon,
+        TaskExecutor, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
 
     #[test]
@@ -6058,6 +6131,7 @@ mod tests {
         assert!(input.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
         assert!(input.contains("NexaNativeTextInput(\n            owner: self,"));
         assert!(input.contains("focusCoordinator: keyboardFocusCoordinator"));
+
         assert!(input.contains("let onSubmitAction: (() -> Void)?"));
         assert!(input.contains("if clearable {"));
         assert!(input.contains("xmark.circle.fill"));
@@ -6566,7 +6640,7 @@ mod tests {
                         value: Box::new(Expr::String("Edit".to_owned())),
                         comment: Some("Context menu action".to_owned()),
                     },
-                    icon: Some(SystemIcon::Shared("edit".to_owned())),
+                    icon: Some(IconSpec::system(SystemIcon::Shared("edit".to_owned()))),
                     loading: None,
                     disabled: None,
                     style: None,
