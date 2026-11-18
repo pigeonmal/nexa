@@ -11,7 +11,7 @@ use nexa_ir::walk::IrFolder;
 use nexa_ir::{Action, Expr, Function, Module, Node, State, walk};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 85;
+pub const DEV_IR_FORMAT_VERSION: u16 = 86;
 
 /// Template token for native DevRuntime schemas. Native hosts receive this
 /// value from the same constant used to encode and validate Dev IR modules.
@@ -786,11 +786,19 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
         | Node::NavigationLink { children, .. }
         | Node::Link { children, .. }
         | Node::Accessibility { children, .. }
-        | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::Dialog { children, .. }
         | Node::ConfirmationDialog { children, .. }
         | Node::RefreshControl { children, .. } => vec![("body".to_owned(), children)],
+        Node::KeyboardAware {
+            children, toolbar, ..
+        } => {
+            let mut groups = vec![("body".to_owned(), children.as_slice())];
+            if let Some(toolbar) = toolbar {
+                groups.push(("toolbar".to_owned(), toolbar.as_slice()));
+            }
+            groups
+        }
         Node::ViewInsets { child, .. } => {
             vec![("body".to_owned(), std::slice::from_ref(child.as_ref()))]
         }

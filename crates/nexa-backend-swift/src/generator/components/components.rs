@@ -686,6 +686,10 @@ pub(crate) fn render_node(
             behavior,
             hide_horizontal_scrollbar,
             hide_vertical_scrollbar,
+            focused_input_offset,
+            toolbar,
+            on_show,
+            on_hide,
             children,
         } => keyboard::render_keyboard_aware(
             keyboard::KeyboardAwareOptions {
@@ -693,8 +697,12 @@ pub(crate) fn render_node(
                 behavior: *behavior,
                 hide_horizontal_scrollbar: *hide_horizontal_scrollbar,
                 hide_vertical_scrollbar: *hide_vertical_scrollbar,
+                focused_input_offset: *focused_input_offset,
+                on_show: on_show.as_ref(),
+                on_hide: on_hide.as_ref(),
             },
             children,
+            toolbar.as_deref(),
             &scope,
             depth,
             out,

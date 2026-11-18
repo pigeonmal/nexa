@@ -699,9 +699,113 @@ fn keyboard_aware_defaults_to_stay_and_avoid_is_explicit_on_both_targets() {
             )
         );
         assert!(kotlin.contains(
-            "NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = true, avoidIme = true)"
+            "NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = true, avoidIme = true"
         ));
     }
+}
+
+#[test]
+fn keyboard_toolbar_offset_and_typed_transition_callbacks_lower_on_both_targets() {
+    let module = compile(
+        r#"app KeyboardEvents {
+            state query: String = ""
+            state keyboardHeight: Float64 = 0.0
+            state keyboardDuration: Float64 = 0.0
+            state showCount: Int32 = 0
+            state hideCount: Int32 = 0
+            body {
+                KeyboardAware(behavior: Avoid, focusedInputOffset: 12) {
+                    ScrollView { TextInput(value: query, placeholder: "Search") }
+                    KeyboardToolbar { Button("Done") { } }
+                }
+                .onShow { event ->
+                    keyboardHeight = event.height
+                    keyboardDuration = event.duration
+                    showCount = showCount + 1
+                }
+                .onHide { event ->
+                    keyboardHeight = event.height
+                    keyboardDuration = event.duration
+                    hideCount = hideCount + 1
+                }
+            }
+        }"#,
+        Target::Swift,
+    )
+    .expect("keyboard toolbar and transition callbacks should type-check")
+    .module;
+    let Node::KeyboardAware {
+        focused_input_offset,
+        toolbar,
+        on_show,
+        on_hide,
+        children,
+        ..
+    } = &module.body[0]
+    else {
+        panic!("expected KeyboardAware IR");
+    };
+    assert_eq!(*focused_input_offset, 12.0);
+    assert!(matches!(toolbar, Some(nodes) if nodes.len() == 1));
+    assert_eq!(nexa_ir::walk::scroll_owners(children).len(), 1);
+    assert!(matches!(on_show, Some(handler) if handler.actions.len() == 3));
+    assert!(matches!(on_hide, Some(handler) if handler.actions.len() == 3));
+
+    for target in [Target::Swift, Target::Kotlin] {
+        let generated = match target {
+            Target::Swift => SwiftBackend.generate(&module),
+            Target::Kotlin => KotlinBackend.generate(&module),
+            Target::All => unreachable!("single-platform targets are listed above"),
+        };
+        let offset_marker = match target {
+            Target::Swift => "focusedInputOffset: 12",
+            Target::Kotlin => "focusedInputOffset = 12f",
+            Target::All => unreachable!("single-platform targets are listed above"),
+        };
+        assert!(generated.contains(offset_marker), "missing {offset_marker}");
+        assert!(generated.contains("NexaKeyboardEvent"));
+        assert!(generated.contains("nexa_field_height"));
+        assert!(generated.contains("nexa_field_duration"));
+        match target {
+            Target::Swift => {
+                assert!(generated.contains("import Combine"));
+                assert!(generated.contains("keyboardWillChangeFrameNotification"));
+                assert!(generated.contains("onShow: { nexa_event in"));
+                assert!(generated.contains("onHide: { nexa_event in"));
+            }
+            Target::Kotlin => {
+                assert!(generated.contains("WindowInsetsAnimationCompat"));
+                assert!(generated.contains("WindowInsetsCompat.Type.ime()"));
+                assert!(generated.contains("onShow = { nexa_event ->"));
+                assert!(generated.contains("onHide = { nexa_event ->"));
+            }
+            Target::All => unreachable!("single-platform targets are listed above"),
+        }
+    }
+}
+
+#[test]
+fn keyboard_aware_rejects_multiple_direct_toolbars() {
+    let error = match compile(
+        r#"app DuplicateKeyboardToolbars {
+            body {
+                KeyboardAware {
+                    Text("Search")
+                    KeyboardToolbar { Text("First") }
+                    KeyboardToolbar { Text("Second") }
+                }
+            }
+        }"#,
+        Target::Swift,
+    ) {
+        Ok(_) => panic!("KeyboardAware accepts at most one toolbar child"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("at most one direct KeyboardToolbar")
+    );
 }
 
 #[test]
@@ -885,8 +989,7 @@ fn scroll_view_participates_in_insets_headers_and_keyboard_ownership() {
     let kotlin = KotlinBackend.generate(&keyboard);
     assert!(swift.contains("hasNativeScrollOwner: true"));
     assert!(
-        kotlin.contains(
-            "NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = true, avoidIme = true)"
-        )
+        kotlin
+            .contains("NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = true, avoidIme = true")
     );
 }

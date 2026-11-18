@@ -618,8 +618,8 @@
       "source": "ConfirmationDialog",
       "translations": {}
     },
-    "Content above should remain visible when the keyboard opens.": {
-      "source": "Content above should remain visible when the keyboard opens.",
+    "Contact information": {
+      "source": "Contact information",
       "translations": {}
     },
     "Content and lists": {
@@ -774,6 +774,10 @@
       "comment": "Dialog with cancel and delete actions",
       "translations": {}
     },
+    "Delivery notes": {
+      "source": "Delivery notes",
+      "translations": {}
+    },
     "Demonstrates Column semantics": {
       "source": "Demonstrates Column semantics",
       "translations": {}
@@ -862,6 +866,14 @@
     },
     "Dismiss callback waiting": {
       "source": "Dismiss callback waiting",
+      "translations": {}
+    },
+    "Dismiss keyboard": {
+      "source": "Dismiss keyboard",
+      "translations": {}
+    },
+    "Dismiss keyboard from toolbar": {
+      "source": "Dismiss keyboard from toolbar",
       "translations": {}
     },
     "Divider": {
@@ -962,6 +974,10 @@
       "source": "Effects and behavior tests",
       "translations": {}
     },
+    "Email address": {
+      "source": "Email address",
+      "translations": {}
+    },
     "Email · Next": {
       "source": "Email · Next",
       "translations": {}
@@ -990,10 +1006,6 @@
     },
     "End · gap 20": {
       "source": "End · gap 20",
-      "translations": {}
-    },
-    "Enter a task": {
-      "source": "Enter a task",
       "translations": {}
     },
     "Expanded": {
@@ -1110,6 +1122,10 @@
     },
     "Featured": {
       "source": "Featured",
+      "translations": {}
+    },
+    "Final field": {
+      "source": "Final field",
       "translations": {}
     },
     "Finish": {
@@ -1258,6 +1274,18 @@
       ],
       "translations": {}
     },
+    "Focus final field": {
+      "source": "Focus final field",
+      "translations": {}
+    },
+    "Focus final keyboard test field": {
+      "source": "Focus final keyboard test field",
+      "translations": {}
+    },
+    "Focus the final field. It starts below the keyboard-safe area and should scroll into view.": {
+      "source": "Focus the final field. It starts below the keyboard-safe area and should scroll into view.",
+      "translations": {}
+    },
     "Font 13 · Semibold · height 34 · radius 10 · border 2": {
       "source": "Font 13 · Semibold · height 34 · radius 10 · border 2",
       "translations": {}
@@ -1401,6 +1429,18 @@
       "source": "Horizontal: Start / Center / End",
       "translations": {}
     },
+    "IME transitions: show {keyboardShowEvents} · hide {keyboardHideEvents}": {
+      "source": "IME transitions: show {keyboardShowEvents} · hide {keyboardHideEvents}",
+      "arguments": [
+        "keyboardShowEvents",
+        "keyboardHideEvents"
+      ],
+      "argument_types": [
+        "Int32",
+        "Int32"
+      ],
+      "translations": {}
+    },
     "Icon": {
       "source": "Icon",
       "translations": {}
@@ -1520,6 +1560,18 @@
       ],
       "argument_types": [
         "String"
+      ],
+      "translations": {}
+    },
+    "Last target: {keyboardEventHeight} dp · duration {keyboardEventDuration} s": {
+      "source": "Last target: {keyboardEventHeight} dp · duration {keyboardEventDuration} s",
+      "arguments": [
+        "keyboardEventHeight",
+        "keyboardEventDuration"
+      ],
+      "argument_types": [
+        "Float64",
+        "Float64"
       ],
       "translations": {}
     },
@@ -1713,6 +1765,14 @@
       "source": "Medium feedback",
       "translations": {}
     },
+    "Message": {
+      "source": "Message",
+      "translations": {}
+    },
+    "Message actions": {
+      "source": "Message actions",
+      "translations": {}
+    },
     "Mid": {
       "source": "Mid",
       "translations": {}
@@ -1842,6 +1902,10 @@
     },
     "Nested quick actions": {
       "source": "Nested quick actions",
+      "translations": {}
+    },
+    "New message": {
+      "source": "New message",
       "translations": {}
     },
     "Next": {
@@ -2353,10 +2417,6 @@
     },
     "Save": {
       "source": "Save",
-      "translations": {}
-    },
-    "Save draft": {
-      "source": "Save draft",
       "translations": {}
     },
     "Save keeps this sheet open. Close dismisses it.": {
@@ -2929,6 +2989,10 @@
       "source": "Subheadline",
       "translations": {}
     },
+    "Subject": {
+      "source": "Subject",
+      "translations": {}
+    },
     "Subtract €0.10": {
       "source": "Subtract €0.10",
       "translations": {}
@@ -3481,6 +3545,10 @@
     },
     "Write a note": {
       "source": "Write a note",
+      "translations": {}
+    },
+    "Your name": {
+      "source": "Your name",
       "translations": {}
     },
     "Zero padding": {

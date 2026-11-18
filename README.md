@@ -164,6 +164,7 @@ For exact component parameters and event modifiers, see the [component guide](do
 | 🔌 [**Native Plugins**](docs/plugins.md) | Native platform extension architecture | `.nxid` IDL, Swift, Kotlin, C++20 JNI |
 | 📱 [**Native Widgets**](docs/widgets.md) | iOS WidgetKit and Android Glance | Timelines, refresh policies, shared storage |
 | 🎨 [**System Icons**](docs/system-icons.md) | Unified cross-platform icon catalog | SF Symbols and Material Symbols mapping |
+| 🖋️ [**Custom Icons**](docs/custom-icons.md) | Use your own icon font glyphs in app UI | Font registration, glyph aliases, native output, and examples |
 | 🏗️ [**Architecture & Performance**](docs/architecture.md) | Compiler internals & benchmarks | Unboxed primitives, memory safety, codegen |
 
 ---

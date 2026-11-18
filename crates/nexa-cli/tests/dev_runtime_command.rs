@@ -1862,11 +1862,15 @@ fn development_runtime_uses_mount_focus_and_text_input_component_refs() {
     assert!(kotlin.contains("componentRef = componentRef"));
     assert!(!kotlin.contains("focusedState"));
     assert!(!kotlin.contains("nativeFocus?.value"));
-    let kotlin_primitives = fs::read_to_string(output.join(
-        "android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt",
-    )).expect("read shared input primitives");
+    let kotlin_primitives = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
+    )
+    .expect("read shared input primitives");
     assert!(kotlin_primitives.contains("remember { initialFocus }"));
-    assert!(kotlin_primitives.contains("if (inputHasFocus.value) focusManager.clearFocus(force = true)"));
+    assert!(
+        kotlin_primitives
+            .contains("if (inputHasFocus.value) focusManager.clearFocus(force = true)")
+    );
     assert!(kotlin.contains("store.hotRestart()"));
     assert!(kotlin.contains("fun hotRestart()"));
     assert!(kotlin.contains("val minLines = fields.optInt(\"min_lines\", 1)"));

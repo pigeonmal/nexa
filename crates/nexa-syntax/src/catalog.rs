@@ -255,9 +255,15 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "KeyboardAware",
-        summary: "Keeps content at the window edge by default, with an option to avoid the software keyboard",
-        snippet: "KeyboardAware {\n    $0\n}",
-        probe: "app P { body { KeyboardAware(behavior: Avoid) { Text(\"x\") } } }",
+        summary: "Owns keyboard avoidance, dismissal, a pinned keyboard toolbar, and keyboard transition events",
+        snippet: "KeyboardAware(behavior: Avoid, focusedInputOffset: 8) {\n    ScrollView {\n        $0\n    }\n    KeyboardToolbar {\n        Button(\"Done\") { }\n    }\n}.onShow { event -> }",
+        probe: "app P { state height: Float64 = 0.0 body { KeyboardAware(behavior: Avoid, focusedInputOffset: 8) { Text(\"x\") KeyboardToolbar { Text(\"Done\") } }.onShow { event -> height = event.height }.onHide { event -> height = event.height } } }",
+    },
+    ComponentEntry {
+        name: "KeyboardToolbar",
+        summary: "Custom content pinned above the software keyboard inside KeyboardAware",
+        snippet: "KeyboardToolbar {\n    $0\n}",
+        probe: "app P { body { KeyboardAware { Text(\"Search\") KeyboardToolbar { Button(\"Done\") { } } } } }",
     },
     ComponentEntry {
         name: "BottomSheet",
@@ -761,6 +767,16 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         name: "scrollHeader",
         summary: "Attach a pinned, collapsing, or hide-on-scroll header to one vertical scroll owner",
         snippet: "scrollHeader(behavior: ${1:Pinned}, collapsedHeight: ${2:56}) {\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "onShow",
+        summary: "Runs when the software keyboard starts appearing",
+        snippet: "onShow { event ->\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "onHide",
+        summary: "Runs when the software keyboard starts disappearing",
+        snippet: "onHide { event ->\n    $0\n}",
     },
 ];
 
@@ -2470,7 +2486,34 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("behavior"),
             opt("hideHorizontalScrollbar"),
             opt("hideVerticalScrollbar"),
+            opt("focusedInputOffset"),
         ],
+        exclusive: &[],
+        children: ChildModel::Nodes,
+        modifiers: &[
+            ModifierSchema {
+                name: "onShow",
+                arguments: &[],
+                body: ModifierBody::EventActions,
+                required: false,
+            },
+            ModifierSchema {
+                name: "onHide",
+                arguments: &[],
+                body: ModifierBody::EventActions,
+                required: false,
+            },
+        ],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
+        name: "KeyboardToolbar",
+        doc: "components.md#keyboardaware",
+        features: &[FeatureTag::Layout],
+        parens: ParensModel::None,
+        positional: PositionalModel::None,
+        arguments: &[],
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],

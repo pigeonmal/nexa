@@ -35,7 +35,10 @@ pub(crate) fn render_with_dev_runtime(features: &Features, dev_runtime: bool) ->
     imports.add(true, "SwiftUI");
     imports.add(true, "Foundation");
     imports.add(true, "UIKit");
-    imports.add(features.facts.ui.bottom_sheet.present, "Combine");
+    imports.add(
+        features.facts.ui.bottom_sheet.present || features.facts.ui.keyboard_aware,
+        "Combine",
+    );
     imports.add(features.uses_scroll_header || dev_runtime, "Combine");
     imports.add(features.uses_widgets, "WidgetKit");
     imports.add(features.facts.ui.lists.reorderable, "Combine");

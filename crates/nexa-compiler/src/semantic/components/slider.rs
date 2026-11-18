@@ -45,8 +45,11 @@ pub(super) fn lower_slider_component(
         .map(|step| require_f64_literal(&step, "Slider step"))
         .transpose()?
         .unwrap_or(0.0);
-    let show_step_indicators =
-        optional_bool(args.remove("showStepIndicators"), true, "Slider showStepIndicators")?;
+    let show_step_indicators = optional_bool(
+        args.remove("showStepIndicators"),
+        true,
+        "Slider showStepIndicators",
+    )?;
     let tint = args
         .remove("tint")
         .map(|value| lower_color_expression(value, "Slider tint", cx))

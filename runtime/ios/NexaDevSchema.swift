@@ -113,6 +113,12 @@ public enum NexaDevKeys {
     public static let pageSnap = "page_snap"
     public static let hideHorizontalScrollbar = "hide_horizontal_scrollbar"
     public static let hideVerticalScrollbar = "hide_vertical_scrollbar"
+    public static let focusedInputOffset = "focused_input_offset"
+    public static let keyboardToolbar = "toolbar"
+    public static let keyboardOnShow = "on_show"
+    public static let keyboardOnHide = "on_hide"
+    public static let keyboardEventParameter = "parameter"
+    public static let keyboardEventActions = "actions"
 
     // Diagnostic fields
     public static let file = "file"

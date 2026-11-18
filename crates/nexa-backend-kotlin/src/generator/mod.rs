@@ -107,6 +107,7 @@ fn project_features_from_analysis(
             || module.on_background.is_some()
             || !module.widgets.is_empty(),
         uses_background_tasks: !module.background_tasks.is_empty(),
+        uses_keyboard_aware: features.uses_keyboard_aware,
     }
 }
 
@@ -2120,6 +2121,64 @@ internal fun NexaDialogActionDividerPrimitive() {
     NexaSystemDividerPrimitive()
 }
 
+// nexa-codegen: NexaKeyboardEvent
+data class NexaKeyboardEvent(
+    val nexa_field_height: Double,
+    val nexa_field_duration: Double,
+)
+
+// nexa-codegen: NexaKeyboardAwareTransitionObserver
+@androidx.compose.runtime.Composable
+private fun NexaKeyboardAwareTransitionObserver(
+    onTransition: (Boolean, NexaKeyboardEvent) -> Unit,
+) {
+    val latestOnTransition = androidx.compose.runtime.rememberUpdatedState(onTransition)
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { context ->
+            val probe = android.view.View(context)
+            var lastImeVisible: Boolean? = null
+            androidx.core.view.ViewCompat.setWindowInsetsAnimationCallback(
+                probe,
+                object : androidx.core.view.WindowInsetsAnimationCompat.Callback(
+                    androidx.core.view.WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE,
+                ) {
+                    override fun onStart(
+                        animation: androidx.core.view.WindowInsetsAnimationCompat,
+                        bounds: androidx.core.view.WindowInsetsAnimationCompat.BoundsCompat,
+                    ): androidx.core.view.WindowInsetsAnimationCompat.BoundsCompat {
+                        if (animation.typeMask and androidx.core.view.WindowInsetsCompat.Type.ime() != 0) {
+                            val rootInsets = androidx.core.view.ViewCompat.getRootWindowInsets(probe)
+                            val imeType = androidx.core.view.WindowInsetsCompat.Type.ime()
+                            val visible = rootInsets?.isVisible(imeType) == true
+                            if (lastImeVisible != visible) {
+                                lastImeVisible = visible
+                                val density = probe.resources.displayMetrics.density.toDouble()
+                                val targetHeight = rootInsets?.getInsets(imeType)?.bottom
+                                    ?: bounds.upperBound.bottom
+                                val height = if (visible) targetHeight / density else 0.0
+                                val duration = animation.durationMillis.coerceAtLeast(0L) / 1000.0
+                                latestOnTransition.value(
+                                    visible,
+                                    NexaKeyboardEvent(height, duration),
+                                )
+                            }
+                        }
+                        return bounds
+                    }
+
+                    override fun onProgress(
+                        insets: androidx.core.view.WindowInsetsCompat,
+                        runningAnimations: MutableList<androidx.core.view.WindowInsetsAnimationCompat>,
+                    ): androidx.core.view.WindowInsetsCompat = insets
+                },
+            )
+            probe
+        },
+        modifier = androidx.compose.ui.Modifier.size(0.dp),
+        update = {},
+    )
+}
+
 // nexa-codegen: NexaKeyboardAwareColumnPrimitive
 @androidx.compose.runtime.Composable
 @kotlin.OptIn(
@@ -2129,16 +2188,60 @@ internal fun NexaDialogActionDividerPrimitive() {
 internal fun NexaKeyboardAwareColumnPrimitive(
     interactiveDismiss: Boolean,
     avoidIme: Boolean,
-    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+    focusedInputOffset: Float,
+    hasToolbar: Boolean,
+    onShow: ((NexaKeyboardEvent) -> Unit)?,
+    onHide: ((NexaKeyboardEvent) -> Unit)?,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+    toolbar: @androidx.compose.runtime.Composable () -> Unit,
 ) {
-    val modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme)
-        .then(nexaSafeAreaScrollViewportModifier("Vertical"))
-        .verticalScroll(androidx.compose.foundation.rememberScrollState())
-    NexaScrollContentPrimitive { contentPadding ->
+    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    val contentBottomInset = if (imeVisible) focusedInputOffset.dp else 0.dp
+    val scrollContent: @androidx.compose.runtime.Composable () -> Unit = {
+        val scrollModifier = nexaSafeAreaScrollViewportModifier("Vertical")
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
+        NexaScrollContentPrimitive { contentPadding ->
+            androidx.compose.foundation.layout.Column(
+                modifier = scrollModifier.padding(contentPadding),
+            ) { content() }
+        }
+    }
+    if (avoidIme) {
         androidx.compose.foundation.layout.Column(
-            modifier = modifier.padding(contentPadding),
-            content = content,
-        )
+            modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme).fillMaxSize(),
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(bottom = contentBottomInset),
+            ) { scrollContent() }
+            if (imeVisible && hasToolbar) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                ) { toolbar() }
+            }
+        }
+    } else {
+        androidx.compose.foundation.layout.Box(
+            modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme).fillMaxSize(),
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.fillMaxSize()
+                    .padding(bottom = contentBottomInset),
+            ) { scrollContent() }
+            if (imeVisible && hasToolbar) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .align(androidx.compose.ui.Alignment.BottomCenter)
+                        .imePadding()
+                        .fillMaxWidth(),
+                ) { toolbar() }
+            }
+        }
+    }
+    NexaKeyboardAwareTransitionObserver { showing, event ->
+        if (showing) onShow?.invoke(event) else onHide?.invoke(event)
     }
 }
 
@@ -2151,12 +2254,51 @@ internal fun NexaKeyboardAwareColumnPrimitive(
 internal fun NexaKeyboardAwareOwnerPrimitive(
     interactiveDismiss: Boolean,
     avoidIme: Boolean,
+    focusedInputOffset: Float,
+    hasToolbar: Boolean,
+    onShow: ((NexaKeyboardEvent) -> Unit)?,
+    onHide: ((NexaKeyboardEvent) -> Unit)?,
     content: @androidx.compose.runtime.Composable () -> Unit,
+    toolbar: @androidx.compose.runtime.Composable () -> Unit,
 ) {
-    androidx.compose.foundation.layout.Box(
-        modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme),
-    ) {
-        content()
+    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    val contentBottomInset = if (imeVisible) focusedInputOffset.dp else 0.dp
+    if (avoidIme) {
+        androidx.compose.foundation.layout.Column(
+            modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme).fillMaxSize(),
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(bottom = contentBottomInset),
+            ) { content() }
+            if (imeVisible && hasToolbar) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                ) { toolbar() }
+            }
+        }
+    } else {
+        androidx.compose.foundation.layout.Box(
+            modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme).fillMaxSize(),
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.fillMaxSize()
+                    .padding(bottom = contentBottomInset),
+            ) { content() }
+            if (imeVisible && hasToolbar) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .align(androidx.compose.ui.Alignment.BottomCenter)
+                        .imePadding()
+                        .fillMaxWidth(),
+                ) { toolbar() }
+            }
+        }
+    }
+    NexaKeyboardAwareTransitionObserver { showing, event ->
+        if (showing) onShow?.invoke(event) else onHide?.invoke(event)
     }
 }
 
@@ -3044,7 +3186,7 @@ internal fun NexaPickerPrimitive(
                 icon = icon,
                 description = "",
                 size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()),
-                tint = resolvedTint,
+                tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
             )
             androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(__NEXA_ICON_LABEL_SPACING__.toFloat())))
         }
@@ -3052,7 +3194,7 @@ internal fun NexaPickerPrimitive(
             NexaTextPrimitive(
                 text = label,
                 modifier = androidx.compose.ui.Modifier.weight(1f),
-                color = resolvedTint,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                 fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
                 lineHeight = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
@@ -4850,6 +4992,17 @@ mod tests {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaKeyboardAwareColumnPrimitive("));
         assert!(primitives.contains("internal fun NexaKeyboardAwareOwnerPrimitive("));
+        let keyboard_toolbar_layouts = primitives
+            .split("// nexa-codegen: NexaKeyboardAwareColumnPrimitive")
+            .nth(1)
+            .expect("keyboard-aware layouts are emitted")
+            .split("// nexa-codegen: nexaKeyboardAwareModifier")
+            .next()
+            .expect("keyboard-aware layouts end before their modifier helper");
+        assert!(
+            !keyboard_toolbar_layouts.contains(".background("),
+            "unspecified Android toolbar backgrounds should stay transparent"
+        );
         let keyboard_aware = primitives
             .split("private fun nexaKeyboardAwareModifier(")
             .nth(1)
@@ -5579,7 +5732,6 @@ mod tests {
         assert!(primitives.contains(
             "style = androidx.compose.material3.MaterialTheme.typography.titleSmall,\n                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,"
         ));
-        assert!(primitives.contains("start = androidx.compose.ui.unit.Dp(16.toFloat()),"));
         let form_section = primitives
             .split("internal fun NexaFormSectionPrimitive(")
             .nth(1)
@@ -5594,6 +5746,9 @@ mod tests {
             .nth(1)
             .and_then(|source| source.split("androidx.compose.material3.Surface").next())
             .unwrap_or_default();
+        assert!(section_container.contains("start = androidx.compose.ui.unit.Dp(0.toFloat()),"));
+        assert!(section_container.contains("end = androidx.compose.ui.unit.Dp(0.toFloat()),"));
+        assert!(section_heading.contains("start = androidx.compose.ui.unit.Dp(16.toFloat()),"));
         assert!(!section_container.contains("top = androidx.compose.ui.unit.Dp"));
         assert!(!section_heading.contains("top = androidx.compose.ui.unit.Dp"));
         assert!(!form_section.contains("firstSection"));
@@ -5716,7 +5871,7 @@ mod tests {
             "val rowWidthModifier = if (fillMaxWidth && label != null) {\n        androidx.compose.ui.Modifier.fillMaxWidth()\n    } else {\n        androidx.compose.ui.Modifier.wrapContentWidth(androidx.compose.ui.Alignment.CenterHorizontally)\n    }"
         ));
         assert!(primitives.contains(
-            "text = label,\n                modifier = androidx.compose.ui.Modifier.weight(1f),\n                color = resolvedTint,"
+            "text = label,\n                modifier = androidx.compose.ui.Modifier.weight(1f),\n                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,"
         ));
         assert!(primitives.contains(".clickable { expanded.value = true }"));
         assert!(
@@ -5837,7 +5992,10 @@ mod tests {
         assert!(primitives.contains(
             "textColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface"
         ));
-        assert!(primitives.contains("placeholderColor ?: androidx.compose.ui.graphics.Color(0xFF8E8E93)"));
+        assert!(
+            primitives
+                .contains("placeholderColor ?: androidx.compose.ui.graphics.Color(0xFF8E8E93)")
+        );
     }
 
     #[test]

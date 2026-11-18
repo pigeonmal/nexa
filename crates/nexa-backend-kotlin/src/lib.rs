@@ -45,6 +45,7 @@ pub struct KotlinProjectFeatures {
     pub uses_compose_graphics: bool,
     pub uses_lifecycle_events: bool,
     pub uses_background_tasks: bool,
+    pub uses_keyboard_aware: bool,
 }
 
 pub struct KotlinBackend;

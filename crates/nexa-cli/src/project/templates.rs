@@ -2258,9 +2258,10 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
         "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.foundation:foundation\")\n    implementation(\"androidx.compose.material3:material3:{material3_version}\")\n",
     );
     if dev_runtime {
-        dependencies.push_str(
-            "    implementation(\"androidx.compose.runtime:runtime\")\n    implementation(\"androidx.core:core\")\n",
-        );
+        dependencies.push_str("    implementation(\"androidx.compose.runtime:runtime\")\n");
+    }
+    if dev_runtime || features.uses_keyboard_aware {
+        dependencies.push_str("    implementation(\"androidx.core:core\")\n");
     }
     if dev_runtime || features.uses_navigation {
         dependencies.push_str(

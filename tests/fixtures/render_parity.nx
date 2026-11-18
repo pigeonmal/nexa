@@ -51,6 +51,8 @@ app RenderParity {
     state loading: Bool = false
     state disabled: Bool = true
     state inputFocusCallbackCount: Int32 = 0
+    state keyboardTransitionHeight: Float64 = 0.0
+    state keyboardTransitionDuration: Float64 = 0.0
     state dialogPresented: Bool = false
     state confirmationPresented: Bool = false
     state sheetDismissed: Bool = false
@@ -128,7 +130,7 @@ app RenderParity {
                                 }
                             }
                             Section(title: "Input and controls") {
-                                Slider(value: sliderValue, min: 0, max: 1, step: 0.05, tint: "#CA2828", trackColor: "#424242", thumbColor: "#FFFFFF", trackHeight: 3.51, thumbSize: 14.04, hitSlop: 18.72, accessibilityLabel: "Progress slider")
+                                Slider(value: sliderValue, min: 0, max: 1, step: 0.05, showStepIndicators: true, tint: "#CA2828", trackColor: "#424242", thumbColor: "#FFFFFF", trackHeight: 3.51, thumbSize: 14.04, hitSlop: 18.72, accessibilityLabel: "Progress slider")
                                     .onEditingChanged { editing ->
                                         enabled = editing
                                     }
@@ -460,7 +462,7 @@ app RenderParity {
     }
 
     screen TextEntry {
-        KeyboardAware(dismiss: Never, behavior: Stay, hideHorizontalScrollbar: false, hideVerticalScrollbar: false) {
+        KeyboardAware(dismiss: Never, behavior: Stay, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, focusedInputOffset: 4) {
             Column(gap: 12, padding: 16) {
                 NavigationBack(label: "Back to previous screen")
                 Text("Nested navigation destination", accessibilityLabel: "Nested navigation destination")
@@ -470,6 +472,15 @@ app RenderParity {
                 }
                 Text("Title: $title", fontSize: 12)
             }
+            KeyboardToolbar {
+                Text("Keyboard toolbar actions")
+            }
+        }.onShow { event ->
+            keyboardTransitionHeight = event.height
+            keyboardTransitionDuration = event.duration
+        }.onHide { event ->
+            keyboardTransitionHeight = event.height
+            keyboardTransitionDuration = event.duration
         }
     }
 

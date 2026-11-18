@@ -648,10 +648,26 @@ pub(crate) fn render_node(
         Node::KeyboardAware {
             dismiss,
             behavior,
+            focused_input_offset,
+            toolbar,
+            on_show,
+            on_hide,
             children,
             ..
         } => keyboard::render_keyboard_aware(
-            *dismiss, *behavior, children, module, features, depth, out,
+            keyboard::KeyboardAwareOptions {
+                dismiss: *dismiss,
+                behavior: *behavior,
+                focused_input_offset: *focused_input_offset,
+                toolbar: toolbar.as_deref(),
+                on_show: on_show.as_ref(),
+                on_hide: on_hide.as_ref(),
+            },
+            children,
+            module,
+            features,
+            depth,
+            out,
         ),
         Node::BottomSheet {
             component_ref,

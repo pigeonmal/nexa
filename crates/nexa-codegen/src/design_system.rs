@@ -42,13 +42,14 @@ pub const BUTTON_SMALL_VERTICAL_PADDING: u8 = 4;
 pub const BUTTON_LARGE_HORIZONTAL_PADDING: u8 = 20;
 pub const BUTTON_LARGE_VERTICAL_PADDING: u8 = 12;
 /// Grouped Form geometry shared by the SwiftUI and Compose renderers.
-pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 16;
+/// Compose section surfaces share the Form row viewport; row content keeps its own inset.
+pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 0;
 pub const FORM_SECTION_BOTTOM_PADDING: u8 = 12;
 pub const FORM_ROW_HORIZONTAL_INSET: u8 = 16;
 /// Android section headings align with the row content inside the section surface.
 pub const FORM_SECTION_HEADER_INSET: u8 = FORM_ROW_HORIZONTAL_INSET;
-/// SwiftUI's inset-grouped Form adds four points to section headings relative to row content.
-pub const IOS_FORM_SECTION_HEADER_LEADING_CORRECTION: u8 = 4;
+/// SwiftUI's inset-grouped Form adds four points to section labels relative to row content.
+pub const IOS_FORM_SECTION_LEADING_CORRECTION: u8 = 4;
 /// SwiftUI Form row baseline; content and explicit padding may expand it.
 pub const FORM_ROW_MIN_HEIGHT: u8 = 56;
 /// Compose Forms use 50dp rows while preserving Android's 48dp interactive minimum.

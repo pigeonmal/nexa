@@ -3829,17 +3829,40 @@ struct NexaDevNodeList: View {
             })
         case "KeyboardAware":
             let children = fields["children"] as? [Any] ?? []
+            let toolbar = fields[NexaDevKeys.keyboardToolbar] as? [Any]
             let dismissMode = fields["dismiss"] as? String == "Interactive" ? ScrollDismissesKeyboardMode.interactively : .never
             let behavior = fields["behavior"] as? String == "Avoid" ? "avoid" : "stay"
             let hasNativeScrollOwner = nexaDevContainsNativeScrollOwner(children)
             let renderedChildren = NexaDevNodeList(nodes: children, module: module, store: store, parameters: locals, stateScope: scope)
+            let renderedToolbar = toolbar.map {
+                NexaDevNodeList(nodes: $0, module: module, store: store, parameters: locals, stateScope: scope)
+            }
+            let eventHandler: (Any?) -> ((NexaKeyboardEvent) -> Void)? = { raw in
+                guard let handler = raw as? [String: Any],
+                      let parameter = handler["parameter"] as? String else { return nil }
+                let actions = handler["actions"] as? [Any] ?? []
+                return { event in
+                    var eventLocals = locals
+                    eventLocals[parameter] = [
+                        "height": event.nexa_field_height,
+                        "duration": event.nexa_field_duration,
+                    ]
+                    store.perform(actions, scope: scope, locals: eventLocals)
+                }
+            }
             return AnyView(NexaKeyboardAwarePrimitive(
                 behavior: behavior == "stay" ? .stay : .avoid,
                 hasNativeScrollOwner: hasNativeScrollOwner,
                 dismissMode: dismissMode,
                 hideHorizontalScrollbar: fields[NexaDevKeys.hideHorizontalScrollbar] as? Bool ?? false,
-                hideVerticalScrollbar: fields[NexaDevKeys.hideVerticalScrollbar] as? Bool ?? false
-            ) { renderedChildren })
+                hideVerticalScrollbar: fields[NexaDevKeys.hideVerticalScrollbar] as? Bool ?? false,
+                focusedInputOffset: CGFloat((fields[NexaDevKeys.focusedInputOffset] as? NSNumber)?.doubleValue ?? 0),
+                hasToolbar: toolbar != nil,
+                onShow: eventHandler(fields[NexaDevKeys.keyboardOnShow]),
+                onHide: eventHandler(fields[NexaDevKeys.keyboardOnHide])
+            ) { renderedChildren } toolbar: {
+                if let renderedToolbar { renderedToolbar }
+            })
         case "AppBottomBar":
             let state = fields["state"] as? String ?? ""
             let tabs = fields["tabs"] as? [[String: Any]] ?? []

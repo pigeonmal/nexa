@@ -1039,6 +1039,26 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
         tint ?? Color.accentColor
     }
 
+    private var selectionMenuLabel: some View {
+        HStack(spacing: 4) {
+            Text(selection)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption)
+        }
+        .foregroundStyle(resolvedTint)
+        .contentShape(Rectangle())
+    }
+
+    private var selectionMenu: some View {
+        Menu {
+            pickerOptions(selection: $selection)
+        } label: {
+            selectionMenuLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(selection)
+    }
+
     @ViewBuilder
     private func pickerOptions(selection: Binding<String>) -> some View {
         Picker("", selection: selection) {
@@ -1062,28 +1082,16 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
     @ViewBuilder
     var body: some View {
         if hasLabel {
-            Menu {
-                pickerOptions(selection: $selection)
-            } label: {
-                HStack(spacing: 8) {
-                    if let icon {
-                        NexaIconView(icon: icon, description: "", size: 16)
-                    }
-                    label()
-                    Spacer(minLength: 12)
-                    HStack(spacing: 4) {
-                        Text(selection)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption)
-                    }
+            HStack(spacing: 8) {
+                if let icon {
+                    NexaIconView(icon: icon, description: "", size: 16)
                 }
-                .foregroundStyle(resolvedTint)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                label()
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 12)
+                selectionMenu
             }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityValue(selection)
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else if let icon {
             Menu {
                 pickerOptions(selection: $selection)
@@ -3208,9 +3216,10 @@ struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View
             header
                 .foregroundStyle(.secondary)
                 .padding(.top, firstHeaderTopPadding)
-                .padding(.leading, -CGFloat(__NEXA_IOS_FORM_SECTION_HEADER_LEADING_CORRECTION__))
+                .padding(.leading, -CGFloat(__NEXA_IOS_FORM_SECTION_LEADING_CORRECTION__))
         } footer: {
             footer
+                .padding(.leading, -CGFloat(__NEXA_IOS_FORM_SECTION_LEADING_CORRECTION__))
         }
 
         section
@@ -3359,19 +3368,72 @@ struct NexaLinkPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaKeyboardEvent
+struct NexaKeyboardEvent: Equatable, Sendable {
+    let nexa_field_height: Double
+    let nexa_field_duration: Double
+}
+
+// nexa-codegen: NexaKeyboardFocusCoordinator
+@MainActor
+final class NexaKeyboardFocusCoordinator: ObservableObject {
+    @Published private(set) var focusedInputID: UUID?
+
+    func inputFocused(_ id: UUID) {
+        focusedInputID = id
+    }
+
+    func inputBlurred(_ id: UUID) {
+        if focusedInputID == id {
+            focusedInputID = nil
+        }
+    }
+}
+
+private struct NexaKeyboardFocusCoordinatorKey: EnvironmentKey {
+    static let defaultValue: NexaKeyboardFocusCoordinator? = nil
+}
+
+extension EnvironmentValues {
+    var nexaKeyboardFocusCoordinator: NexaKeyboardFocusCoordinator? {
+        get { self[NexaKeyboardFocusCoordinatorKey.self] }
+        set { self[NexaKeyboardFocusCoordinatorKey.self] = newValue }
+    }
+}
+
+// nexa-codegen: NexaKeyboardToolbarHeightPreferenceKey
+private struct NexaKeyboardToolbarHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // nexa-codegen: NexaKeyboardAwarePrimitive
 enum NexaKeyboardBehavior {
     case stay
     case avoid
 }
 
-struct NexaKeyboardAwarePrimitive<Content: View>: View {
+struct NexaKeyboardAwarePrimitive<Content: View, Toolbar: View>: View {
     let behavior: NexaKeyboardBehavior
     let hasNativeScrollOwner: Bool
+    let hasToolbar: Bool
+    let focusedInputOffset: CGFloat
     let hideHorizontalScrollbar: Bool
     let hideVerticalScrollbar: Bool
     let dismissMode: ScrollDismissesKeyboardMode
+    let onShow: ((NexaKeyboardEvent) -> Void)?
+    let onHide: ((NexaKeyboardEvent) -> Void)?
     private let content: Content
+    private let toolbar: Toolbar
+    @StateObject private var focusCoordinator = NexaKeyboardFocusCoordinator()
+    @State private var keyboardVisible = false
+    @State private var keyboardOverlap: CGFloat = 0
+    @State private var keyboardToolbarHeight: CGFloat = 0
+    @State private var keyboardAnimationCurve = UIView.AnimationCurve.easeInOut.rawValue
+    @State private var keyboardAnimationDuration = 0.25
 
     init(
         behavior: NexaKeyboardBehavior,
@@ -3379,14 +3441,24 @@ struct NexaKeyboardAwarePrimitive<Content: View>: View {
         dismissMode: ScrollDismissesKeyboardMode,
         hideHorizontalScrollbar: Bool = false,
         hideVerticalScrollbar: Bool = false,
-        @ViewBuilder content: () -> Content
+        focusedInputOffset: CGFloat = 0,
+        hasToolbar: Bool = false,
+        onShow: ((NexaKeyboardEvent) -> Void)? = nil,
+        onHide: ((NexaKeyboardEvent) -> Void)? = nil,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder toolbar: () -> Toolbar
     ) {
         self.behavior = behavior
         self.hasNativeScrollOwner = hasNativeScrollOwner
         self.dismissMode = dismissMode
         self.hideHorizontalScrollbar = hideHorizontalScrollbar
         self.hideVerticalScrollbar = hideVerticalScrollbar
+        self.focusedInputOffset = focusedInputOffset
+        self.hasToolbar = hasToolbar
+        self.onShow = onShow
+        self.onHide = onHide
         self.content = content()
+        self.toolbar = toolbar()
     }
 
     @ViewBuilder
@@ -3400,17 +3472,133 @@ struct NexaKeyboardAwarePrimitive<Content: View>: View {
     }
 
     @ViewBuilder
-    var body: some View {
-        let visibleScrollOwner = scrollOwner.modifier(NexaScrollIndicatorVisibility(
-            hideHorizontal: hideHorizontalScrollbar,
-            hideVertical: hideVerticalScrollbar
-        ))
+    private var configuredScrollOwner: some View {
+        scrollOwner
+            .modifier(NexaScrollIndicatorVisibility(
+                hideHorizontal: hideHorizontalScrollbar,
+                hideVertical: hideVerticalScrollbar
+            ))
+    }
+
+    @ViewBuilder
+    private var keyboardBody: some View {
         switch behavior {
-        case .stay:
-            visibleScrollOwner.ignoresSafeArea(.keyboard, edges: .bottom)
         case .avoid:
-            visibleScrollOwner
+            ZStack(alignment: .bottom) {
+                configuredScrollOwner
+                    .safeAreaInset(
+                        edge: .bottom,
+                        spacing: keyboardVisible ? focusedInputOffset : 0
+                    ) {
+                        Color.clear.frame(
+                            height: keyboardVisible && hasToolbar ? keyboardToolbarHeight : 0
+                        )
+                    }
+                if hasToolbar {
+                    toolbar
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: NexaKeyboardToolbarHeightPreferenceKey.self,
+                                    value: geometry.size.height
+                                )
+                            }
+                        }
+                        .opacity(keyboardVisible ? 1 : 0)
+                        .allowsHitTesting(keyboardVisible)
+                        .accessibilityHidden(!keyboardVisible)
+                }
+            }
+        case .stay:
+            ZStack(alignment: .bottom) {
+                configuredScrollOwner
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
+                if hasToolbar {
+                    toolbar
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .offset(y: -keyboardOverlap)
+                        .opacity(keyboardVisible ? 1 : 0)
+                        .allowsHitTesting(keyboardVisible)
+                        .accessibilityHidden(!keyboardVisible)
+                }
+            }
+            .ignoresSafeArea(.keyboard, edges: .bottom)
         }
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            keyboardBody
+                .environment(
+                    \.nexaKeyboardFocusCoordinator,
+                    behavior == .avoid ? focusCoordinator : nil
+                )
+                .onPreferenceChange(NexaKeyboardToolbarHeightPreferenceKey.self) { height in
+                    if abs(keyboardToolbarHeight - height) > 0.5 {
+                        keyboardToolbarHeight = height
+                    }
+                }
+                .onChange(of: focusCoordinator.focusedInputID) { focusedInputID in
+                    guard behavior == .avoid, keyboardVisible, let focusedInputID else { return }
+                    let animation = nexaKeyboardAnimation(
+                        curve: keyboardAnimationCurve,
+                        duration: keyboardAnimationDuration
+                    )
+                    withAnimation(animation) {
+                        proxy.scrollTo(focusedInputID, anchor: .bottom)
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+                    let info = notification.userInfo ?? [:]
+                    let frame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect ?? .zero
+                    let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+                    let curve = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.intValue ?? UIView.AnimationCurve.easeInOut.rawValue
+                    let screenBounds = nexaKeyboardScreenBounds()
+                    let intersection = screenBounds.intersection(frame)
+                    let visible = !intersection.isNull && !intersection.isEmpty
+                    let isDocked = frame.maxY >= screenBounds.maxY - 1
+                    let wasVisible = keyboardVisible
+                    let animation = nexaKeyboardAnimation(curve: curve, duration: duration)
+                    withAnimation(animation) {
+                        keyboardAnimationCurve = curve
+                        keyboardAnimationDuration = duration
+                        keyboardVisible = visible
+                        keyboardOverlap = visible && isDocked ? max(0, screenBounds.maxY - frame.minY) : 0
+                        if behavior == .avoid, visible, let focusedInputID = focusCoordinator.focusedInputID {
+                            proxy.scrollTo(focusedInputID, anchor: .bottom)
+                        }
+                    }
+                    if visible && !wasVisible {
+                        onShow?(NexaKeyboardEvent(nexa_field_height: Double(frame.height), nexa_field_duration: duration))
+                    } else if !visible && wasVisible {
+                        onHide?(NexaKeyboardEvent(nexa_field_height: 0, nexa_field_duration: duration))
+                    }
+                }
+        }
+    }
+}
+
+@MainActor
+private func nexaKeyboardScreenBounds() -> CGRect {
+    UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .first(where: { $0.activationState == .foregroundActive })?
+        .screen.coordinateSpace.bounds ?? .zero
+}
+
+private func nexaKeyboardAnimation(curve: Int, duration: Double) -> Animation {
+    switch curve {
+    case UIView.AnimationCurve.easeIn.rawValue:
+        .easeIn(duration: duration)
+    case UIView.AnimationCurve.easeOut.rawValue:
+        .easeOut(duration: duration)
+    case UIView.AnimationCurve.linear.rawValue:
+        .linear(duration: duration)
+    default:
+        .easeInOut(duration: duration)
     }
 }
 
@@ -4313,8 +4501,8 @@ fn shared_component_primitives_with_animation(
             nexa_codegen::design_system::NATIVE_LIST_ROW_HORIZONTAL_INSET.to_string(),
         ),
         (
-            "__NEXA_IOS_FORM_SECTION_HEADER_LEADING_CORRECTION__",
-            nexa_codegen::design_system::IOS_FORM_SECTION_HEADER_LEADING_CORRECTION.to_string(),
+            "__NEXA_IOS_FORM_SECTION_LEADING_CORRECTION__",
+            nexa_codegen::design_system::IOS_FORM_SECTION_LEADING_CORRECTION.to_string(),
         ),
         (
             "__NEXA_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__",
@@ -5113,9 +5301,10 @@ mod tests {
         generate_units_with_network_and_project_features, shared_component_primitives,
     };
     use nexa_ir::{
-        Action, AnimationSpec, Component, Expr, FastListMove, Function, FunctionParameter,
-        ImageScale, ImageSource, LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node,
-        NumericType, Screen, ScreenId, SectionedListCommon, State, SystemIcon, TaskExecutor,
+        Action, AnimationSpec, Color, ColorExpression, ColorValue, Component, Expr, FastListMove,
+        Function, FunctionParameter, ImageScale, ImageSource, LayoutKind, ListAxis, ListCommon,
+        ListPlan, Module, Node, NumericType, PickerDateProps, PickerDateSelection, PickerDateStyle,
+        PickerDateType, Screen, ScreenId, SectionedListCommon, State, SystemIcon, TaskExecutor,
         TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
 
@@ -5684,6 +5873,120 @@ mod tests {
     }
 
     #[test]
+    fn graphical_date_pickers_preserve_optional_native_styling() {
+        fn color(red: u8, green: u8, blue: u8) -> ColorExpression {
+            ColorExpression::Static(ColorValue::Static(Color {
+                red,
+                green,
+                blue,
+                alpha: 255,
+            }))
+        }
+
+        fn generated_picker(selection: PickerDateSelection, customized: bool) -> String {
+            let props = PickerDateProps {
+                picker_type: PickerDateType::Date,
+                style: PickerDateStyle::Graphical,
+                selection,
+                timestamp_state: None,
+                start_timestamp_state: None,
+                end_timestamp_state: None,
+                minimum: None,
+                maximum: None,
+                tint: customized.then(|| color(255, 0, 0)),
+                text_color: customized.then(|| color(0, 255, 0)),
+                background_color: customized.then(|| color(0, 0, 255)),
+                picker_background_color: customized.then(|| color(0, 0, 0)),
+                border_color: customized.then(|| color(255, 255, 255)),
+                border_width: customized.then_some(2.0),
+                corner_radius: customized.then_some(16.0),
+                locale: None,
+                time_zone: None,
+                is_24_hour: None,
+                enabled: None,
+                accessibility_label: None,
+            };
+            generate(&Module {
+                app_name: "GraphicalPickerStyling".to_owned(),
+                plugins: Vec::new(),
+                plugin_assets: Vec::new(),
+                enums: Vec::new(),
+                structs: Vec::new(),
+                functions: Vec::new(),
+                background_tasks: Vec::new(),
+                states: Vec::new(),
+                globals: Vec::new(),
+                screens: Vec::new(),
+                widgets: Vec::new(),
+                components: Vec::new(),
+                body: vec![Node::PickerDate {
+                    props: Box::new(props),
+                }],
+                status_bar: None,
+                direction: None,
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+                on_active: None,
+                on_inactive: None,
+                on_background: None,
+            })
+        }
+
+        let single_default = generated_picker(PickerDateSelection::Single, false);
+        let range_default = generated_picker(PickerDateSelection::Range, false);
+        for (source, selection) in [(&single_default, "Single"), (&range_default, "Range")] {
+            assert!(source.contains("style: \"Graphical\""));
+            assert!(source.contains(&format!("selection: \"{selection}\"")));
+            assert!(source.contains("tint: nil,"));
+            assert!(source.contains("textColor: nil,"));
+        }
+
+        let single_custom = generated_picker(PickerDateSelection::Single, true);
+        let range_custom = generated_picker(PickerDateSelection::Range, true);
+        for source in [&single_custom, &range_custom] {
+            assert!(source.contains(
+                "tint: Color(red: 1.000000, green: 0.000000, blue: 0.000000, opacity: 1.000000),"
+            ));
+            assert!(source.contains(
+                "textColor: Color(red: 0.000000, green: 1.000000, blue: 0.000000, opacity: 1.000000),"
+            ));
+            assert!(source.contains(
+                "backgroundColor: Color(red: 0.000000, green: 0.000000, blue: 1.000000, opacity: 1.000000),"
+            ));
+            assert!(source.contains(
+                "pickerBackgroundColor: Color(red: 0.000000, green: 0.000000, blue: 0.000000, opacity: 1.000000),"
+            ));
+            assert!(source.contains(
+                "borderColor: Color(red: 1.000000, green: 1.000000, blue: 1.000000, opacity: 1.000000),"
+            ));
+            assert!(source.contains("borderWidth: 2,"));
+            assert!(source.contains("cornerRadius: 16,"));
+        }
+
+        let primitives = shared_component_primitives(false);
+        let date_picker = primitives
+            .split("struct NexaDatePickerPrimitive: View {")
+            .nth(1)
+            .unwrap_or_default();
+        let tint_modifier = date_picker
+            .split("private struct NexaDatePickerTint: ViewModifier {")
+            .nth(1)
+            .unwrap_or_default();
+        assert!(date_picker.contains("graphical: isGraphicalPresentation"));
+        assert!(date_picker.contains("if !graphical, let color"));
+        assert!(date_picker.contains("private var isGraphicalPresentation: Bool"));
+        assert!(date_picker.contains("DatePicker(\"\", selection: selectedDate"));
+        assert!(date_picker.contains("MultiDatePicker(\"\", selection: selectedRange"));
+        assert!(!date_picker.contains(".clipShape(RoundedRectangle(cornerRadius: radius"));
+        assert!(date_picker.contains(".fill(pickerBackgroundColor)"));
+        assert!(date_picker.contains(".fill(backgroundColor)"));
+        assert!(date_picker.contains(".tint(color)"));
+        assert!(tint_modifier.contains("if let color"));
+        assert!(date_picker.contains("RoundedRectangle(cornerRadius: radius, style: .continuous)"));
+    }
+
+    #[test]
     fn refresh_bounce_modifier_allows_short_content_to_trigger_pull_to_refresh() {
         let primitives = super::NEXA_SHARED_COMPONENT_PRIMITIVES;
 
@@ -5702,9 +6005,8 @@ mod tests {
             .unwrap_or_default();
 
         assert!(input.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
-        assert!(input.contains(
-            "NexaNativeTextInput(owner: self, value: text, initialFocus: initialFocus)"
-        ));
+        assert!(input.contains("NexaNativeTextInput(\n            owner: self,"));
+        assert!(input.contains("focusCoordinator: keyboardFocusCoordinator"));
         assert!(input.contains("let onSubmitAction: (() -> Void)?"));
         assert!(input.contains("if clearable {"));
         assert!(input.contains("xmark.circle.fill"));
@@ -5712,6 +6014,18 @@ mod tests {
         assert!(native.contains("field.textAlignment = .natural"));
         assert!(native.contains("owner.onSubmitAction?()"));
         assert!(native.contains("guard value != proposal else { return true }"));
+    }
+
+    #[test]
+    fn text_input_reaches_keyboard_focus_support_without_keyboard_aware() {
+        let primitives = shared_component_primitives(false);
+        let reachable =
+            nexa_codegen::source_sections::reachable(&primitives, "NexaTextInputPrimitive");
+
+        assert!(reachable.contains("final class NexaKeyboardFocusCoordinator"));
+        assert!(reachable.contains("private struct NexaKeyboardFocusCoordinatorKey"));
+        assert!(reachable.contains("var nexaKeyboardFocusCoordinator:"));
+        assert!(!reachable.contains("struct NexaKeyboardAwarePrimitive<"));
     }
 
     #[test]
@@ -5727,7 +6041,7 @@ mod tests {
             status_bar.contains("@Environment(\\.nexaVisualSafeAreaInsets) private var safeInsets")
         );
         assert!(status_bar.contains(".frame(height: max(0, safeInsets.top))"));
-        assert!(!primitives.contains("UIApplication.shared.connectedScenes"));
+        assert!(!status_bar.contains("UIApplication.shared.connectedScenes"));
         assert!(status_bar.contains(".ignoresSafeArea(edges: .top)"));
     }
 
@@ -5774,7 +6088,7 @@ mod tests {
     }
 
     #[test]
-    fn form_section_heading_uses_the_secondary_label_style() {
+    fn form_section_labels_use_native_style_and_aligned_leading_insets() {
         let primitives = shared_component_primitives(false);
 
         assert!(primitives.contains(".foregroundStyle(.secondary)"));
@@ -5785,6 +6099,10 @@ mod tests {
             .unwrap_or_default();
         assert!(section.contains(".listSectionSeparator(.hidden)"));
         assert!(section.contains(".listRowBackground(background ?? Color.clear)"));
+        assert_eq!(
+            section.matches(".padding(.leading, -CGFloat(4))").count(),
+            2
+        );
         assert!(!section.contains("listSectionMargins(.top"));
         assert!(!section.contains("formSectionTopPadding"));
     }
@@ -5817,9 +6135,8 @@ mod tests {
             .split("} else if let icon {")
             .next()
             .unwrap_or_default();
-        assert!(
-            labeled_picker.contains("Menu {\n                pickerOptions(selection: $selection)")
-        );
+        assert!(labeled_picker.contains("label()"));
+        assert!(labeled_picker.contains("selectionMenu"));
         assert!(!labeled_picker.contains(".pickerStyle(.inline)"));
         assert!(!labeled_picker.contains(".popover("));
         assert!(labeled_picker.contains(".labelsHidden()"));
@@ -5828,6 +6145,7 @@ mod tests {
         assert!(labeled_picker.contains(
             "NexaIconView(icon: itemIcons[index], description: \"\", size: 16, tint: .secondary)"
         ));
+        assert!(labeled_picker.contains(".foregroundStyle(.primary)"));
         assert!(labeled_picker.contains(".foregroundStyle(resolvedTint)"));
         assert!(labeled_picker.contains(".contentShape(Rectangle())"));
         assert!(labeled_picker.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
@@ -5974,6 +6292,46 @@ mod tests {
         assert!(primitives.contains("struct NexaPageIndicatorRow: View"));
         assert!(primitives.contains("HStack(spacing: 8)"));
         assert!(primitives.contains(".padding(.bottom, 24)"));
+    }
+
+    #[test]
+    fn keyboard_aware_uses_native_safe_area_for_avoid_and_frame_timed_events() {
+        let primitives = shared_component_primitives(false);
+        let keyboard_aware = primitives
+            .split("struct NexaKeyboardAwarePrimitive<")
+            .nth(1)
+            .expect("keyboard-aware primitive is emitted");
+        let avoid = keyboard_aware
+            .split("case .avoid:")
+            .nth(1)
+            .and_then(|source| source.split("case .stay:").next())
+            .expect("avoid behavior is emitted");
+
+        assert!(keyboard_aware.contains("keyboardWillChangeFrameNotification"));
+        assert!(keyboard_aware.contains("keyboardAnimationCurveUserInfoKey"));
+        assert!(keyboard_aware.contains("case .avoid:"));
+        assert!(keyboard_aware.contains("case .stay:"));
+        assert!(keyboard_aware.contains("ScrollViewReader { proxy in"));
+        assert!(keyboard_aware.contains(".safeAreaInset("));
+        assert!(keyboard_aware.contains("spacing: keyboardVisible ? focusedInputOffset : 0"));
+        assert!(keyboard_aware.contains("proxy.scrollTo(focusedInputID, anchor: .bottom)"));
+        assert!(keyboard_aware.contains("behavior == .avoid ? focusCoordinator : nil"));
+        assert!(avoid.contains("NexaKeyboardToolbarHeightPreferenceKey"));
+        assert!(avoid.contains("keyboardVisible && hasToolbar ? keyboardToolbarHeight : 0"));
+        assert!(avoid.contains(".opacity(keyboardVisible ? 1 : 0)"));
+        assert!(!avoid.contains("if hasToolbar && keyboardVisible"));
+        assert!(keyboard_aware.contains("nexaKeyboardScreenBounds()"));
+        assert!(keyboard_aware.contains("frame.maxY >= screenBounds.maxY - 1"));
+        assert!(keyboard_aware.contains("if visible && !wasVisible"));
+        assert!(keyboard_aware.contains("else if !visible && wasVisible"));
+        assert!(keyboard_aware.contains(".ignoresSafeArea(.keyboard, edges: .bottom)"));
+        assert!(!keyboard_aware.contains("keyboardWillShowNotification"));
+        assert!(!keyboard_aware.contains("keyboardWillHideNotification"));
+        assert!(!keyboard_aware.contains("contentInset = contentInset"));
+        assert!(!keyboard_aware.contains("revealFocusedInput"));
+        assert!(primitives.contains("private var focusID = UUID()"));
+        assert!(primitives.contains(".id(focusID)"));
+        assert!(primitives.contains("focusCoordinator?.inputFocused(focusID)"));
     }
 
     #[test]

@@ -7,7 +7,9 @@
 
 use std::{fs, path::Path};
 
-use nexa_compiler::{Target, compile_with_warnings_for_target};
+use nexa_compiler::{
+    Target, compile_file_with_warnings_for_target, compile_with_warnings_for_target,
+};
 
 fn documented_app_examples() -> Vec<(String, String)> {
     documented_fenced_examples("nx")
@@ -18,6 +20,42 @@ fn documented_app_examples() -> Vec<(String, String)> {
 
 fn documented_plugin_idl_examples() -> Vec<(String, String)> {
     documented_fenced_examples("nxid")
+}
+
+fn compile_documented_example(location: &str, source: &str, target: Target) -> Result<(), String> {
+    if location.starts_with("docs/custom-icons.md:") && source.contains("trail_") {
+        return compile_custom_icon_example(location, source, target);
+    }
+
+    compile_with_warnings_for_target(source, target)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn compile_custom_icon_example(location: &str, source: &str, target: Target) -> Result<(), String> {
+    let config = documented_fenced_examples("nexa")
+        .into_iter()
+        .find(|(config_location, config)| {
+            config_location.starts_with("docs/custom-icons.md:")
+                && config.trim_start().starts_with("config {")
+        })
+        .map(|(_, config)| config)
+        .ok_or_else(|| "custom icon guide is missing its project config example".to_owned())?;
+
+    let project = nexa_testkit::TempDir::new("nexa-documented-custom-icons");
+    let app_path = project.path().join("App.nx");
+    let config_path = project.path().join("nexa.config.nx");
+    let font_directory = project.path().join("assets/fonts");
+    fs::create_dir_all(&font_directory).map_err(|error| error.to_string())?;
+    fs::write(&app_path, source).map_err(|error| error.to_string())?;
+    fs::write(&config_path, config).map_err(|error| error.to_string())?;
+    // Project compilation validates the font resource path and extension; it
+    // does not inspect font tables, which are outside this compiler example.
+    fs::write(font_directory.join("TrailIcons.ttf"), []).map_err(|error| error.to_string())?;
+
+    compile_file_with_warnings_for_target(&app_path, target)
+        .map(|_| ())
+        .map_err(|error| format!("{location}: {error}"))
 }
 
 fn documented_fenced_examples(language: &str) -> Vec<(String, String)> {
@@ -94,7 +132,7 @@ fn every_complete_nexa_app_example_in_docs_compiles_for_both_targets() {
         .spawn(move || {
             for (location, source) in examples {
                 for target in [Target::Swift, Target::Kotlin] {
-                    if let Err(error) = compile_with_warnings_for_target(&source, target) {
+                    if let Err(error) = compile_documented_example(&location, &source, target) {
                         panic!(
                             "documented Nexa example at {location} does not compile for {target:?}:\n{error}"
                         );

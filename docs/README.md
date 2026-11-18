@@ -38,6 +38,7 @@ app ReadingQueue {
 | **Plugins** | 🔌 [**Native Plugins Guide**](plugins.md) | Systems & Plugin Authors | Local plugin workflow, `.nxid` contracts, native targets, manifest, and analyzer hooks |
 | **Widgets** | 📱 [**Native Widgets Reference**](widgets.md) | Mobile Developers | iOS WidgetKit, Android Glance/RemoteViews, timelines, shared App Group storage |
 | **Design** | 🎨 [**System Icons Catalog**](system-icons.md) | Designers & Developers | Cross-platform icon catalog: Apple SF Symbols & Google Material Symbols |
+| **Design** | 🖋️ [**Custom Icons**](custom-icons.md) | App Developers & Designers | Register icon fonts, map glyph codepoints, and use aliases in native UI |
 | **Internals** | 🏗️ [**Architecture & Performance**](architecture.md) | Compiler & Systems Engineers | AOT pipeline, IR transformation, unboxed state, zero-overhead layout flattening |
 | **Release** | ✅ [**Release Checklist**](release-checklist.md) | Release Maintainers | Workspace gates, both native targets, plugins, DevRuntime parity, cache version, and migration notes |
 

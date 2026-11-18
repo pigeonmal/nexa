@@ -2354,22 +2354,56 @@ private fun NexaDevRenderNavigationNode(
         }
         "KeyboardAware" -> {
             val children = fields.optJSONArray("children") ?: JSONArray()
+            val toolbar = fields.optJSONArray(NexaDevKeys.KEYBOARD_TOOLBAR)
             val interactiveDismiss = fields.optString("dismiss") == "Interactive"
             val avoidIme = fields.optString("behavior") == "Avoid"
+            val focusedInputOffset = fields.optDouble(NexaDevKeys.FOCUSED_INPUT_OFFSET, 0.0).toFloat()
+            val eventHandler: (JSONObject?) -> ((NexaKeyboardEvent) -> Unit)? = { handler ->
+                if (handler == null) {
+                    null
+                } else {
+                    val parameter = handler.optString("parameter")
+                    val actions = handler.optJSONArray("actions") ?: JSONArray()
+                    val callback: (NexaKeyboardEvent) -> Unit = { event ->
+                        val eventLocals = locals + (parameter to mapOf(
+                            "height" to event.nexa_field_height,
+                            "duration" to event.nexa_field_duration,
+                        ))
+                        store.perform(actions, scope, eventLocals)
+                    }
+                    callback
+                }
+            }
             if (nexaDevContainsScrollable(children)) {
                 NexaKeyboardAwareOwnerPrimitive(
                     interactiveDismiss = interactiveDismiss,
                     avoidIme = avoidIme,
-                ) {
+                    focusedInputOffset = focusedInputOffset,
+                    hasToolbar = toolbar != null,
+                    onShow = eventHandler(fields.optJSONObject(NexaDevKeys.KEYBOARD_ON_SHOW)),
+                    onHide = eventHandler(fields.optJSONObject(NexaDevKeys.KEYBOARD_ON_HIDE)),
+                    toolbar = {
+                        if (toolbar != null) RenderChildren(toolbar, module, store, locals, scope)
+                    },
+                    content = {
                     RenderChildren(children, module, store, locals, scope)
-                }
+                    },
+                )
             } else {
                 NexaKeyboardAwareColumnPrimitive(
                     interactiveDismiss = interactiveDismiss,
                     avoidIme = avoidIme,
-                ) {
+                    focusedInputOffset = focusedInputOffset,
+                    hasToolbar = toolbar != null,
+                    onShow = eventHandler(fields.optJSONObject(NexaDevKeys.KEYBOARD_ON_SHOW)),
+                    onHide = eventHandler(fields.optJSONObject(NexaDevKeys.KEYBOARD_ON_HIDE)),
+                    toolbar = {
+                        if (toolbar != null) RenderChildren(toolbar, module, store, locals, scope)
+                    },
+                    content = {
                     RenderChildren(children, module, store, locals, scope)
-                }
+                    },
+                )
             }
         }
         "AppBottomBar" -> NexaDevRenderAppBottomBarNode(fields, module, store, locals, scope, modifier)

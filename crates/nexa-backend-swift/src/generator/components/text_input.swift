@@ -28,6 +28,8 @@ struct NexaTextInputPrimitive: View {
     let onChange: ((String) -> Void)?
     @Environment(\.sizeCategory) private var sizeCategory
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.nexaKeyboardFocusCoordinator) private var keyboardFocusCoordinator
+    @State private var focusID = UUID()
 
     var nativeFont: UIFont {
         let style: UIFont.TextStyle = fontRelativeTo == .title3 ? .title3 : .body
@@ -47,7 +49,14 @@ struct NexaTextInputPrimitive: View {
     }
 
     private var editor: some View {
-        NexaNativeTextInput(owner: self, value: text, initialFocus: initialFocus)
+        NexaNativeTextInput(
+            owner: self,
+            value: text,
+            initialFocus: initialFocus,
+            focusID: focusID,
+            focusCoordinator: keyboardFocusCoordinator
+        )
+            .id(focusID)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 

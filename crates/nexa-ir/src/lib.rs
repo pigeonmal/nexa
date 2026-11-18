@@ -1177,6 +1177,18 @@ pub enum Node {
         hide_horizontal_scrollbar: bool,
         #[serde(default)]
         hide_vertical_scrollbar: bool,
+        /// Extra clearance from the focused input to the keyboard or accessory, in logical units.
+        #[serde(default)]
+        focused_input_offset: f32,
+        /// Optional custom accessory rendered above the software keyboard.
+        #[serde(default)]
+        toolbar: Option<Vec<Node>>,
+        /// Runs once when the software keyboard begins appearing.
+        #[serde(default)]
+        on_show: Option<KeyboardEventHandler>,
+        /// Runs once when the software keyboard begins disappearing.
+        #[serde(default)]
+        on_hide: Option<KeyboardEventHandler>,
         children: Vec<Node>,
     },
     BottomSheet {
@@ -1312,6 +1324,12 @@ pub struct SliderChange {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SliderEditingChanged {
+    pub parameter: String,
+    pub actions: Vec<Action>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct KeyboardEventHandler {
     pub parameter: String,
     pub actions: Vec<Action>,
 }

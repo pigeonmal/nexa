@@ -35,8 +35,8 @@ app ComponentParity {
     screen Catalog {
         Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
-                NavigationLink(destination: TextCases) {
-                    Text("Text styles and sizing")
+                NavigationLink(destination: FormCases) {
+                    Text("Form and section")
                 }
             }
             Section(title: "Layout") {
@@ -1525,7 +1525,7 @@ app ComponentParity {
             Text("Slider", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Minimum, middle, maximum, and stepped values") {
                 Text("Min: $sliderLow")
-                Slider(value: sliderLow, min: 0, max: 1, step: 0.1, tint: "#2563EB")
+                Slider(value: sliderLow, min: 0, max: 1, step: 0.1, tint: "#2563EB", trackColor: "#DBEAFE", thumbColor: "#FFFFFF", trackHeight: 3.5, thumbSize: 14, hitSlop: 18)
                 Text("Middle: $sliderMiddle")
                 Slider(value: sliderMiddle, min: 0, max: 1)
                 Text("Max: $sliderHigh")
@@ -1550,7 +1550,7 @@ app ComponentParity {
         state choices: Array<String> = ["Day", "Week", "Month"]
         state singleChoice: Array<String> = ["Only"]
         state emptyChoices: Array<String> = []
-        KeyboardAware {
+        KeyboardAware(dismiss: Never) {
             Column(gap: 8, padding: 12) {
                 Text("SegmentedControl", fontSize: 28, fontWeight: Bold)
                 ParityCard(title: "Native segmented-control default style") {
@@ -1702,7 +1702,7 @@ app ComponentParity {
                 Text("Automatic · explicit native style")
                 PickerDate(type: Date, style: Automatic, timestamp: selectedDate, locale: "en-GB")
                 Text("Graphical · inline calendar")
-                PickerDate(type: Date, style: Graphical, selection: Single, timestamp: boundedDate, minimum: earliestDate, maximum: latestDate, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Graphical due date")
+                PickerDate(type: Date, style: Graphical, selection: Single, timestamp: boundedDate, minimum: earliestDate, maximum: latestDate, tint: "#EF4444", locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Graphical due date")
                 Text("Wheel · native wheel on iOS, Material input on Android")
                 PickerDate(type: Date, style: Wheel, timestamp: selectedDate, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Wheel date")
                 Text("Input · date input style")
@@ -2286,17 +2286,55 @@ app ComponentParity {
     }
 
     screen KeyboardCases {
-        state text: String = ""
-        Column(gap: 12, padding: 16) {
+        state keyboardCaseSubject: String = ""
+        state keyboardCaseMessage: String = ""
+        state keyboardCaseDeliveryNotes: String = ""
+        state keyboardCaseSender: String = ""
+        state keyboardCaseEmail: String = ""
+        state keyboardCaseRecipient: String = ""
+        state keyboardEventHeight: Float64 = 0.0
+        state keyboardEventDuration: Float64 = 0.0
+        state keyboardShowEvents: Int32 = 0
+        state keyboardHideEvents: Int32 = 0
+        let recipientInputRef = ComponentRef<TextInput>()
+        Column(gap: 12, padding: 0, background: "#777780") {
             Text("KeyboardAware", fontSize: 28, fontWeight: Bold)
-            KeyboardAware(dismiss: Never, behavior: Avoid) {
-                Column(gap: 12, padding: 16, background: "#FFFFFF", cornerRadius: 16) {
-                    TextInput(value: text, placeholder: "Enter a task")
-                    Button("Save draft") {
-                        text = text
-                    }
-                    Text("Content above should remain visible when the keyboard opens.")
+            Text("Focus the final field. It starts below the keyboard-safe area and should scroll into view.", fontSize: 13, color: "#777780")
+            Text("IME transitions: show $keyboardShowEvents · hide $keyboardHideEvents", fontSize: 13, color: "#777780")
+            Text("Last target: $keyboardEventHeight dp · duration $keyboardEventDuration s", fontSize: 13, color: "#777780")
+            Button("Focus final field", accessibilityLabel: "Focus final keyboard test field") {
+                recipientInputRef.focus()
+            }
+            Button("Done", accessibilityLabel: "Dismiss keyboard") {
+                recipientInputRef.blur()
+            }
+            KeyboardAware(dismiss: Interactive, behavior: Avoid, focusedInputOffset: 8) {
+                Column(padding: 0, cornerRadius: 16) {
+                    Text("New message", fontWeight: Semibold)
+                    TextInput(value: keyboardCaseSubject, placeholder: "Subject")
+                    TextInput(value: keyboardCaseMessage, placeholder: "Message", multiline: true, minLines: 8, maxLines: 8)
+                    TextInput(value: keyboardCaseDeliveryNotes, placeholder: "Delivery notes", multiline: true, minLines: 8, maxLines: 8)
+                    Text("Contact information", fontWeight: Semibold)
+                    TextInput(value: keyboardCaseSender, placeholder: "Your name")
+                    TextInput(value: keyboardCaseEmail, placeholder: "Email address", keyboardType: Email)
+                    TextInput(value: keyboardCaseRecipient, placeholder: "Final field", keyboardType: Email, ref: recipientInputRef)
                 }
+                KeyboardToolbar {
+                    Row(gap: 12, padding: 8) {
+                        Text("Message actions")
+                        Button("Done", accessibilityLabel: "Dismiss keyboard from toolbar") {
+                            recipientInputRef.blur()
+                        }
+                    }
+                }
+            }.onShow { event ->
+                keyboardEventHeight = event.height
+                keyboardEventDuration = event.duration
+                keyboardShowEvents = keyboardShowEvents + 1
+            }.onHide { event ->
+                keyboardEventHeight = event.height
+                keyboardEventDuration = event.duration
+                keyboardHideEvents = keyboardHideEvents + 1
             }
         }
     }
@@ -3092,6 +3130,6 @@ app ComponentParity {
             appBackgroundEntries = appBackgroundEntries + 1
         }
         Direction(value: LTR)
-        NavigationStack(root: PickerCases, titleMode: Inline, titleAlignment: Automatic, showNavigationBar: true)
+        NavigationStack(root: KeyboardCases, titleMode: Inline, titleAlignment: Automatic, showNavigationBar: true)
     }
 }

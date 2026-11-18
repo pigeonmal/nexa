@@ -134,6 +134,8 @@ source file:
 app Player { body { Button("Play", icon: "mazica_play") { } } }
 ```
 
+For font requirements, codepoint lookup, usage in `Icon`, pickers, tabs, and troubleshooting, see the [Custom Icons guide](custom-icons.md).
+
 ### Configuration Options Reference
 
 > Generated from `ProjectConfig::from_defaults`, so the Default column is what the compiler

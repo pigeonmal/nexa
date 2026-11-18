@@ -80,6 +80,8 @@ app PlatformIcons {
 
 Use `platform ios { ... }` and `platform android { ... }` when an app needs to render only the matching platform-specific icon.
 
+For your own scalable glyphs, register an icon font and map codepoints to aliases. See the [Custom Icons guide](custom-icons.md) for setup and examples.
+
 ---
 
 ## 3. Catalog of Shared Icons

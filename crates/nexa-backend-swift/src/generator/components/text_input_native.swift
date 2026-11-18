@@ -4,8 +4,12 @@ struct NexaNativeTextInput: UIViewRepresentable {
     var owner: NexaTextInputPrimitive
     var value: String
     var initialFocus: Bool
+    var focusID: UUID
+    var focusCoordinator: NexaKeyboardFocusCoordinator?
 
-    func makeCoordinator() -> Coordinator { Coordinator(owner: owner) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(owner: owner, focusID: focusID, focusCoordinator: focusCoordinator)
+    }
 
     func makeUIView(context: Context) -> NexaTextInputHost {
         let host = NexaTextInputHost()
@@ -15,6 +19,8 @@ struct NexaNativeTextInput: UIViewRepresentable {
 
     func updateUIView(_ host: NexaTextInputHost, context: Context) {
         context.coordinator.owner = owner
+        context.coordinator.focusID = focusID
+        context.coordinator.focusCoordinator = focusCoordinator
         host.configure(owner: owner, coordinator: context.coordinator, initialFocus: initialFocus, text: value)
     }
 
@@ -23,6 +29,7 @@ struct NexaNativeTextInput: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ host: NexaTextInputHost, coordinator: Coordinator) {
+        coordinator.focusCoordinator?.inputBlurred(coordinator.focusID)
         host.detachComponentRef()
         host.textField?.delegate = nil
         host.textView?.delegate = nil
@@ -35,7 +42,18 @@ struct NexaNativeTextInput: UIViewRepresentable {
     final class Coordinator: NSObject, UITextFieldDelegate, UITextViewDelegate {
         var owner: NexaTextInputPrimitive
         var isApplyingModel = false
-        init(owner: NexaTextInputPrimitive) { self.owner = owner }
+        var focusID: UUID
+        var focusCoordinator: NexaKeyboardFocusCoordinator?
+
+        init(
+            owner: NexaTextInputPrimitive,
+            focusID: UUID,
+            focusCoordinator: NexaKeyboardFocusCoordinator?
+        ) {
+            self.owner = owner
+            self.focusID = focusID
+            self.focusCoordinator = focusCoordinator
+        }
 
         private func accepted(_ previous: String, _ proposed: String) -> String {
             nexaTextInputEdit(previous: previous, proposed: proposed, maxLength: owner.maxLength, maxLines: owner.maxLines, multiline: owner.multiline)
@@ -97,10 +115,25 @@ struct NexaNativeTextInput: UIViewRepresentable {
             publish(value)
         }
 
-        func textFieldDidBeginEditing(_ textField: UITextField) { owner.nativeFocusChanged(true) }
-        func textFieldDidEndEditing(_ textField: UITextField) { owner.nativeFocusChanged(false) }
-        func textViewDidBeginEditing(_ textView: UITextView) { owner.nativeFocusChanged(true) }
-        func textViewDidEndEditing(_ textView: UITextView) { owner.nativeFocusChanged(false) }
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            focusCoordinator?.inputFocused(focusID)
+            owner.nativeFocusChanged(true)
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            focusCoordinator?.inputBlurred(focusID)
+            owner.nativeFocusChanged(false)
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            focusCoordinator?.inputFocused(focusID)
+            owner.nativeFocusChanged(true)
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            focusCoordinator?.inputBlurred(focusID)
+            owner.nativeFocusChanged(false)
+        }
 
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
             owner.onSubmitAction?()

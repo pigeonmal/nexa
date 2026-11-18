@@ -89,9 +89,14 @@ struct NexaDatePickerPrimitive: View {
                 borderWidth: borderWidth,
                 cornerRadius: cornerRadius
             ))
-            .tint(tint)
-            .foregroundStyle(textColor ?? .primary)
-            .disabled(!pickerIsEnabled)
+            .modifier(NexaDatePickerTint(color: tint))
+            .accessibilityHint(pickerIsEnabled ? "" : "Disabled")
+            .modifier(NexaDatePickerInteraction(enabled: pickerIsEnabled, compact: isCompactPresentation))
+            .modifier(NexaDatePickerTextStyle(
+                color: textColor,
+                graphical: isGraphicalPresentation,
+                disabled: !pickerIsEnabled && !isCompactPresentation
+            ))
 
         if let accessibilityLabel {
             content.accessibilityLabel(accessibilityLabel)
@@ -111,19 +116,52 @@ struct NexaDatePickerPrimitive: View {
 
     @ViewBuilder
     private var singlePicker: some View {
-        let picker = DatePicker("", selection: selectedDate, in: minimumDate...maximumDate, displayedComponents: displayedComponents)
-            .labelsHidden()
+        if isCompactPresentation, !pickerIsEnabled {
+            disabledCompactPicker
+        } else {
+            let picker = DatePicker("", selection: selectedDate, in: minimumDate...maximumDate, displayedComponents: displayedComponents)
+                .labelsHidden()
 
-        switch style {
-        case "Graphical":
-            picker.datePickerStyle(.graphical)
-        case "Wheel":
-            picker.datePickerStyle(.wheel)
-        case "Compact", "Input":
-            picker.datePickerStyle(.compact)
-        default:
-            picker.datePickerStyle(.automatic)
+            switch style {
+            case "Graphical":
+                picker.datePickerStyle(.graphical)
+            case "Wheel":
+                picker.datePickerStyle(.wheel)
+            case "Compact", "Input":
+                picker.datePickerStyle(.compact)
+            default:
+                picker.datePickerStyle(.automatic)
+            }
         }
+    }
+
+    @ViewBuilder
+    private var disabledCompactPicker: some View {
+        if pickerType == "DateTime" {
+            HStack(spacing: 8) {
+                disabledCompactValue(date(for: currentTimestamp).formatted(dateSummaryStyle))
+                disabledCompactValue(date(for: currentTimestamp).formatted(timeSummaryStyle))
+            }
+            .frame(minHeight: 48, alignment: .leading)
+        } else {
+            let value = pickerType == "Time"
+                ? date(for: currentTimestamp).formatted(timeSummaryStyle)
+                : date(for: currentTimestamp).formatted(dateSummaryStyle)
+            disabledCompactValue(value)
+        }
+    }
+
+    private func disabledCompactValue(_ value: String) -> some View {
+        Text(value)
+            .font(.system(size: 16))
+            .foregroundStyle((textColor ?? .primary).opacity(0.38))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+            .frame(minHeight: 48, alignment: .leading)
+            .accessibilityValue(value)
     }
 
     @ViewBuilder
@@ -203,11 +241,16 @@ struct NexaDatePickerPrimitive: View {
         return style
     }
 
+    private var timeSummaryStyle: Date.FormatStyle {
+        var style = Date.FormatStyle(date: .omitted, time: .shortened)
+        style.locale = pickerLocale
+        style.timeZone = pickerTimeZone
+        style.calendar = pickerCalendar
+        return style
+    }
+
     private var rangeDraftBinding: Binding<Set<DateComponents>> {
-        Binding(
-            get: { rangeDraft },
-            set: updateRangeDraft
-        )
+        Binding(get: { rangeDraft }, set: updateRangeDraft)
     }
 
     private var currentStartTimestamp: Int64 {
@@ -268,6 +311,15 @@ struct NexaDatePickerPrimitive: View {
         }
     }
 
+    private var isCompactPresentation: Bool {
+        selection == "Range" ? style == "Compact" || style == "Input" :
+            style == "Compact" || style == "Input" || style == "Automatic"
+    }
+
+    private var isGraphicalPresentation: Bool {
+        selection == "Range" ? style != "Compact" && style != "Input" : style == "Graphical"
+    }
+
     private func commitRangeSelection() {
         let dates = rangeDraft.compactMap(pickerCalendar.date(from:)).sorted()
         guard let first = dates.first, let last = dates.last, dates.count > 1 else { return }
@@ -280,17 +332,6 @@ struct NexaDatePickerPrimitive: View {
         isRangePresented = false
     }
 
-    private var selectedDate: Binding<Date> {
-        Binding(
-            get: { date(for: constrainedTimestamp(currentTimestamp)) },
-            set: { newValue in
-                let value = constrainedTimestamp(timestamp(for: canonicalDate(newValue)))
-                localTimestamp = value
-                timestamp?.wrappedValue = value
-            }
-        )
-    }
-
     private var selectedRange: Binding<Set<DateComponents>> {
         Binding(
             get: {
@@ -299,9 +340,7 @@ struct NexaDatePickerPrimitive: View {
                 })
             },
             set: { components in
-                let dates = components
-                    .compactMap { pickerCalendar.date(from: $0) }
-                    .sorted()
+                let dates = components.compactMap(pickerCalendar.date(from:)).sorted()
                 guard let first = dates.first else { return }
                 let start = timestamp(for: first)
                 localStartTimestamp = start
@@ -313,6 +352,17 @@ struct NexaDatePickerPrimitive: View {
                 } else {
                     localEndTimestamp = start
                 }
+            }
+        )
+    }
+
+    private var selectedDate: Binding<Date> {
+        Binding(
+            get: { date(for: constrainedTimestamp(currentTimestamp)) },
+            set: { newValue in
+                let value = constrainedTimestamp(timestamp(for: canonicalDate(newValue)))
+                localTimestamp = value
+                timestamp?.wrappedValue = value
             }
         )
     }
@@ -477,14 +527,67 @@ private struct NexaDatePickerAppearance: ViewModifier {
         let radius = cornerRadius ?? 12
         content
             .padding(pickerBackgroundColor == nil ? 0 : 4)
-            .background(pickerBackgroundColor)
-            .background(backgroundColor)
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .background {
+                if let pickerBackgroundColor {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(pickerBackgroundColor)
+                }
+            }
+            .background {
+                if let backgroundColor {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(backgroundColor)
+                }
+            }
             .overlay {
                 if let borderColor, let borderWidth {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
                         .stroke(borderColor, lineWidth: borderWidth)
                 }
             }
+    }
+}
+
+private struct NexaDatePickerInteraction: ViewModifier {
+    let enabled: Bool
+    let compact: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if compact {
+            content.disabled(!enabled)
+        } else {
+            content.allowsHitTesting(enabled)
+        }
+    }
+}
+
+private struct NexaDatePickerTextStyle: ViewModifier {
+    let color: Color?
+    let graphical: Bool
+    let disabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if !graphical, let color {
+            content.foregroundStyle(color)
+        } else if !graphical, disabled {
+            content.foregroundStyle(Color.secondary)
+        } else {
+            content
+        }
+    }
+}
+
+private struct NexaDatePickerTint: ViewModifier {
+    let color: Color?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let color {
+            content.tint(color)
+        } else {
+            content
+        }
     }
 }

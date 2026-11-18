@@ -41,10 +41,23 @@ pub fn walk_ir(
                     visit_expression,
                 );
             }
-            Node::Form { children, .. }
-            | Node::Toolbar { children, .. }
-            | Node::KeyboardAware { children, .. } => {
+            Node::Form { children, .. } | Node::Toolbar { children, .. } => {
                 walk_ir(children, visit_node, visit_expression)
+            }
+            Node::KeyboardAware {
+                children,
+                toolbar,
+                on_show,
+                on_hide,
+                ..
+            } => {
+                walk_ir(children, visit_node, visit_expression);
+                if let Some(toolbar) = toolbar {
+                    walk_ir(toolbar, visit_node, visit_expression);
+                }
+                for handler in [on_show, on_hide].into_iter().flatten() {
+                    walk_actions(&handler.actions, visit_expression);
+                }
             }
             Node::Layout {
                 style, children, ..
@@ -1387,8 +1400,22 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         }
         Node::Form { children, .. }
         | Node::Toolbar { children, .. }
-        | Node::KeyboardAware { children, .. }
         | Node::Dialog { children, .. } => visitor.visit_nodes(children),
+        Node::KeyboardAware {
+            children,
+            toolbar,
+            on_show,
+            on_hide,
+            ..
+        } => {
+            visitor.visit_nodes(children);
+            if let Some(toolbar) = toolbar {
+                visitor.visit_nodes(toolbar);
+            }
+            for handler in [on_show, on_hide].into_iter().flatten() {
+                visitor.visit_actions(&handler.actions);
+            }
+        }
         Node::Layout {
             style, children, ..
         }
@@ -2435,12 +2462,26 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             behavior,
             hide_horizontal_scrollbar,
             hide_vertical_scrollbar,
+            focused_input_offset,
+            toolbar,
+            on_show,
+            on_hide,
             children,
         } => Some(Node::KeyboardAware {
             dismiss,
             behavior,
             hide_horizontal_scrollbar,
             hide_vertical_scrollbar,
+            focused_input_offset,
+            toolbar: toolbar.map(|nodes| folder.fold_nodes(nodes)),
+            on_show: on_show.map(|handler| crate::KeyboardEventHandler {
+                parameter: handler.parameter,
+                actions: folder.fold_actions(handler.actions),
+            }),
+            on_hide: on_hide.map(|handler| crate::KeyboardEventHandler {
+                parameter: handler.parameter,
+                actions: folder.fold_actions(handler.actions),
+            }),
             children: folder.fold_nodes(children),
         }),
         Node::BottomSheet {
@@ -3880,6 +3921,10 @@ mod tests {
                 behavior: crate::adaptive_layout::KeyboardBehavior::Stay,
                 hide_horizontal_scrollbar: false,
                 hide_vertical_scrollbar: false,
+                focused_input_offset: 0.0,
+                toolbar: None,
+                on_show: None,
+                on_hide: None,
                 children: vec![form()],
             },
             Node::KeyboardAware {
@@ -3887,6 +3932,10 @@ mod tests {
                 behavior: crate::adaptive_layout::KeyboardBehavior::Stay,
                 hide_horizontal_scrollbar: false,
                 hide_vertical_scrollbar: false,
+                focused_input_offset: 0.0,
+                toolbar: None,
+                on_show: None,
+                on_hide: None,
                 children: Vec::new(),
             },
         ];

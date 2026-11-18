@@ -152,10 +152,13 @@ fn android_keyboard_aware_scroll_uses_native_ime_nested_scroll_for_dismissal() {
 
     assert!(
         kotlin.contains(
-            "NexaKeyboardAwareColumnPrimitive(interactiveDismiss = true, avoidIme = false)"
+            "NexaKeyboardAwareColumnPrimitive(interactiveDismiss = true, avoidIme = false"
         )
     );
     assert!(kotlin.contains("internal fun NexaKeyboardAwareColumnPrimitive("));
+    assert!(kotlin.contains("NexaKeyboardAwareTransitionObserver"));
+    assert!(kotlin.contains("WindowInsetsAnimationCompat"));
+    assert!(kotlin.contains("NexaKeyboardEvent"));
     assert!(kotlin.contains("if (avoidIme) modifier = modifier.imePadding()"));
     assert!(
         kotlin.contains(
@@ -176,6 +179,9 @@ fn android_keyboard_aware_scroll_uses_native_ime_nested_scroll_for_dismissal() {
     let manifest = fs::read_to_string(output.join("android/app/src/main/AndroidManifest.xml"))
         .expect("read generated Android manifest");
     assert!(manifest.contains("android:windowSoftInputMode=\"adjustNothing\""));
+    let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("read generated Android dependencies");
+    assert!(gradle.contains("implementation(\"androidx.core:core\")"));
 }
 
 #[test]
@@ -205,14 +211,13 @@ fn keyboard_aware_reuses_existing_scroll_owners_and_exposes_avoid_behavior() {
         .join("\n");
 
     assert!(
-        kotlin.contains(
-            "NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = true, avoidIme = true)"
-        )
+        kotlin
+            .contains("NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = true, avoidIme = true")
     );
     assert!(kotlin.contains("internal fun NexaKeyboardAwareOwnerPrimitive("));
     assert!(
         !kotlin.contains(
-            "NexaKeyboardAwareColumnPrimitive(interactiveDismiss = true, avoidIme = true)"
+            "NexaKeyboardAwareColumnPrimitive(interactiveDismiss = true, avoidIme = true"
         )
     );
 }

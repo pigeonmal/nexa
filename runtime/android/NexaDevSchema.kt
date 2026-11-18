@@ -112,6 +112,12 @@ internal object NexaDevKeys {
     const val PAGE_SNAP = "page_snap"
     const val HIDE_HORIZONTAL_SCROLLBAR = "hide_horizontal_scrollbar"
     const val HIDE_VERTICAL_SCROLLBAR = "hide_vertical_scrollbar"
+    const val FOCUSED_INPUT_OFFSET = "focused_input_offset"
+    const val KEYBOARD_TOOLBAR = "toolbar"
+    const val KEYBOARD_ON_SHOW = "on_show"
+    const val KEYBOARD_ON_HIDE = "on_hide"
+    const val KEYBOARD_EVENT_PARAMETER = "parameter"
+    const val KEYBOARD_EVENT_ACTIONS = "actions"
 
     // Diagnostic fields
     const val FILE = "file"

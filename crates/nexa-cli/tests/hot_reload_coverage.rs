@@ -2611,6 +2611,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         Node::Slider {
             state: "amount".to_owned(),
             animated: false,
+            show_step_indicators: true,
             min: Expr::Number {
                 raw: "0.0".to_owned(),
                 ty: nexa_ir::NumericType::Float64,
@@ -4839,8 +4840,13 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
     );
     assert!(
         fixture
-            .contains("screen TextEntry {\n        KeyboardAware(dismiss: Never, behavior: Stay, hideHorizontalScrollbar: false, hideVerticalScrollbar: false)")
+            .contains("screen TextEntry {\n        KeyboardAware(dismiss: Never, behavior: Stay, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, focusedInputOffset: 4)")
     );
+    assert!(fixture.contains(
+        "            KeyboardToolbar {\n                Text(\"Keyboard toolbar actions\")"
+    ));
+    assert!(fixture.contains("        }.onShow { event ->"));
+    assert!(fixture.contains("        }.onHide { event ->"));
     for style_modifier in [
         ".fontSize(",
         ".bold()",
@@ -4854,7 +4860,9 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
         ".zIndex(",
     ] {
         assert!(
-            !fixture.replace("emailInputRef.blur()", "").contains(style_modifier),
+            !fixture
+                .replace("emailInputRef.blur()", "")
+                .contains(style_modifier),
             "style coverage must pass styling as parameters, not dot modifiers: {style_modifier}"
         );
     }
@@ -4915,8 +4923,22 @@ fn keyboard_ergonomics_are_consumed_by_dev_runtime() {
     assert!(kotlin_renderer.contains("NexaKeyboardAwareColumnPrimitive("));
     assert!(swift_renderer.contains("fields[\"behavior\"] as? String == \"Avoid\""));
     assert!(swift_renderer.contains("nexaDevContainsNativeScrollOwner(children)"));
+    assert!(swift_renderer.contains("fields[NexaDevKeys.focusedInputOffset]"));
+    assert!(swift_renderer.contains("fields[NexaDevKeys.keyboardToolbar]"));
+    assert!(swift_renderer.contains("fields[NexaDevKeys.keyboardOnShow]"));
+    assert!(swift_renderer.contains("fields[NexaDevKeys.keyboardOnHide]"));
+    assert!(swift_renderer.contains("event.nexa_field_height"));
+    assert!(swift_renderer.contains("event.nexa_field_duration"));
+    assert!(swift_renderer.contains("toolbar.map"));
     assert!(kotlin_renderer.contains("avoidIme = fields.optString(\"behavior\") == \"Avoid\""));
     assert!(kotlin_renderer.contains("NexaKeyboardAwareOwnerPrimitive("));
+    assert!(kotlin_renderer.contains("NexaDevKeys.FOCUSED_INPUT_OFFSET"));
+    assert!(kotlin_renderer.contains("NexaDevKeys.KEYBOARD_TOOLBAR"));
+    assert!(kotlin_renderer.contains("NexaDevKeys.KEYBOARD_ON_SHOW"));
+    assert!(kotlin_renderer.contains("NexaDevKeys.KEYBOARD_ON_HIDE"));
+    assert!(kotlin_renderer.contains("event.nexa_field_height"));
+    assert!(kotlin_renderer.contains("event.nexa_field_duration"));
+    assert!(kotlin_renderer.contains("if (toolbar != null) RenderChildren(toolbar"));
     assert!(kotlin_core.contains("foregroundActivity"));
     assert!(kotlin_core.contains("hideSoftInputFromWindow"));
 }

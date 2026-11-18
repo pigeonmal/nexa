@@ -127,11 +127,26 @@ Reference: components.md#form
 
 ### `KeyboardAware`
 
-Keeps content at the window edge by default, with an option to avoid the software keyboard
+Owns keyboard avoidance, dismissal, a pinned keyboard toolbar, and keyboard transition events
 
-Signature: `KeyboardAware(dismiss:, behavior:, hideHorizontalScrollbar:, hideVerticalScrollbar:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `KeyboardAware(dismiss:, behavior:, hideHorizontalScrollbar:, hideVerticalScrollbar:, focusedInputOffset:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `dismiss`, `behavior`, `hideHorizontalScrollbar`, `hideVerticalScrollbar`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `dismiss`, `behavior`, `hideHorizontalScrollbar`, `hideVerticalScrollbar`, `focusedInputOffset`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+
+Children: node block
+
+Modifiers:
+
+- `.onShow` (event actions, optional)
+- `.onHide` (event actions, optional)
+
+Reference: components.md#keyboardaware
+
+### `KeyboardToolbar`
+
+Custom content pinned above the software keyboard inside KeyboardAware
+
+Signature: `KeyboardToolbar() { ... }`
 
 Children: node block
 

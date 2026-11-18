@@ -74,30 +74,13 @@ Grouping, decimal separators, and currency placement follow the current device l
 
 ## Custom icon fonts
 
-Register one TTF or OTF font in `nexa.config.nx` and name the glyph codepoints once. The aliases compile into native font glyphs and work with built-in `icon:` parameters on both platforms.
+Register a TTF or OTF font in `nexa.config.nx` and map codepoints to readable aliases. Nexa packages the font for both native targets and resolves aliases at compile time. See the [custom icons guide](custom-icons.md) for setup, supported usage, codepoint lookup, direct glyphs, and troubleshooting.
 
 ```nexa
 config {
     assets {
-        iconFonts { Mazicon: "assets/fonts/Mazicon.ttf" },
-        icons {
-            mazica_play: ["Mazicon", 61696],
-            mazica_search: ["Mazicon", 61697],
-        }
-    }
-}
-```
-
-Put the font directly in `assets/fonts/`; its filename stem must match the declared family so Android can resolve the resource statically. Use aliases in `Button(icon:)`, `ContentUnavailable(icon:)`, `Picker(icon:)`, `Picker(itemIcons:)`, `Tab(icon:)`, or `Icon(system:)`. The compiler checks the font path, family, alias, and Unicode codepoint and emits a typed glyph without runtime name lookup.
-
-```nexa
-app PlayerActions {
-    state filter: String = "All"
-
-    body {
-        Button("Play", icon: "mazica_play") { }
-        Picker(items: ["All"], selected: filter, itemIcons: ["mazica_search"])
-        Icon(system: "mazica_search", description: "Search", size: 24, tint: "#FFFFFF")
+        iconFonts { TrailIcons: "assets/fonts/TrailIcons.ttf" },
+        icons { trail_map: ["TrailIcons", 61696] }
     }
 }
 ```
@@ -423,25 +406,43 @@ The system `NavigationStack(titleMode: Large)` remains the native choice for sta
 | `behavior` | `Stay \| Avoid` | `Stay` | `Stay` leaves the scope at the window position and allows the IME to cover content. `Avoid` resizes or moves the scope above the IME. |
 | `hideHorizontalScrollbar` | `Bool` | `false` | Hides a horizontal native scroll indicator in a nested scroll owner. |
 | `hideVerticalScrollbar` | `Bool` | `false` | Hides a vertical native scroll indicator in the reused or supplied scroll owner. |
+| `focusedInputOffset` | `Float64` | `0` | Adds logical-unit clearance between the focused input and the nearest keyboard or toolbar obstruction. |
+
+`KeyboardAware` accepts its scrolling content and at most one direct `KeyboardToolbar` child. The toolbar accepts ordinary Nexa content, stays pinned immediately above the software keyboard, and is hidden while the software keyboard is closed. It is rendered outside the scrollable content, so it does not move with a `ScrollView`, `FastList`, `Form`, or supplied scroll container.
+
+The `.onShow` and `.onHide` modifiers each accept one typed `KeyboardEvent` binding. They run once at the beginning of a software-keyboard transition; `height` is the target IME height in logical units (`0` for hide), and `duration` is the native transition duration in seconds. Hardware-keyboard focus changes do not fire either event. Keyboard movement stays native and does not stream per-frame state updates.
+
+| Modifier | Binding | Behavior |
+|---|---|---|
+| `.onShow { event -> ... }` | `KeyboardEvent` | Runs once when the software keyboard starts appearing. |
+| `.onHide { event -> ... }` | `KeyboardEvent` | Runs once when the software keyboard starts disappearing; `event.height` is `0`. |
+
+`KeyboardEvent` exposes `height: Float64` in logical units and `duration: Float64` in seconds.
 
 When `KeyboardAware` creates its own scroll container, these flags control that container. When it reuses a `ScrollView`, `FastList`, or `Form`, set the flags on that scroll owner directly. Android Compose does not draw a scrollbar for its built-in scroll modifiers.
 
 ```nx
 app MessageComposer {
     state message: String = ""
+    state keyboardHeight: Float64 = 0.0
 
     body {
-        KeyboardAware(behavior: Avoid, dismiss: Interactive) {
+        KeyboardAware(behavior: Avoid, dismiss: Interactive, focusedInputOffset: 8) {
             Column(gap: 12, padding: 16) {
                 Text("Message the expedition team", fontWeight: Semibold)
                 TextInput(value: message, placeholder: "Write a message")
             }
+            KeyboardToolbar {
+                Button("Done") { }
+            }
         }
+        .onShow { event -> keyboardHeight = event.height }
+        .onHide { event -> keyboardHeight = event.height }
     }
 }
 ```
 
-The Android host uses a non-resizing IME policy by default so `Stay` remains anchored to the physical window. `Avoid` applies native IME insets to the `KeyboardAware` scope. Text input focus and keyboard dismissal continue to use native platform behavior.
+The Android host uses a non-resizing IME policy by default so `Stay` remains anchored to the physical window. `Avoid` applies native IME insets to the `KeyboardAware` scope. Text input focus, keyboard dismissal, accessory placement, and keyboard animation continue to use native platform behavior.
 
 ## Input and interaction
 
@@ -632,7 +633,7 @@ but native sliders do not apply them consistently across platforms.
 | `min` | `Float64` expression | Required | Lower end of the value range |
 | `max` | `Float64` expression | Required | Upper end of the range; must be greater than `min` when rendered |
 | `step` | non-negative `Float64` literal | Optional; `0.0` (continuous) | Positive values quantize interaction; omitted or `0.0` keeps continuous native values |
-| `showStepIndicators` | `Bool` | `true` | Shows native tick marks for stepped sliders; iOS displays them on iOS 26 and later |
+| `showStepIndicators` | `Bool` | `true` | Shows native tick marks on stepped sliders; iOS displays them on iOS 26 and later |
 | `tint` | color expression (`String`) or `String` state | Platform accent | Filled portion of the track |
 | `trackColor` | color expression (`String`) or `String` state | Native platform color | Retained for source compatibility; native track styling takes precedence |
 | `thumbColor` | color expression (`String`) or `String` state | Native platform color | Retained for source compatibility; native thumb styling takes precedence |
@@ -1652,6 +1653,9 @@ the user chooses an item.
 `icon` for an icon-only picker and pass `tint` when its selected icon should
 reflect the current value, such as a task priority. Android presents an
 anchored Material 3 Expressive menu; iOS uses a native menu.
+When a text label is present, it stays visible while the menu is open and uses
+the platform's primary text color. `tint` colors the selected value and picker
+control independently.
 
 `itemIcons` optionally supplies Nexa shared icons or registered `assets.icons`
 aliases for menu rows. Its string

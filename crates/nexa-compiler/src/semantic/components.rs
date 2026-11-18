@@ -1167,6 +1167,12 @@ fn lower_node_raw(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compile
         ast::Node::ComponentInvocation(inv) if inv.name == "KeyboardAware" => {
             keyboard_aware::lower_keyboard_aware_component(inv, cx)
         }
+        ast::Node::ComponentInvocation(inv) if inv.name == "KeyboardToolbar" => {
+            Err(CompileError::new(
+                inv.span,
+                "KeyboardToolbar must be a direct child of KeyboardAware",
+            ))
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "BottomSheet" => {
             bottom_sheet::lower_bottom_sheet_component(inv, cx)
         }

@@ -1,6 +1,6 @@
 # Nexa Agent Review
 
-> **In progress** · 15 reviewed · 1 in progress · 28 pending · iOS + Android · native AOT + DevRuntime
+> **In progress** · 23 reviewed · 1 in progress · 20 pending · iOS + Android · native AOT + DevRuntime
 
 Review shared behavior and appearance across iOS and Android. Build success and sampled device checks do not establish exhaustive parity.
 
@@ -35,10 +35,21 @@ python3 tests/render_component_parity_report.py --check
 - Human verification approved (2026-11-11): the user approved SwitchCases on iOS and Android after fixing the iOS white-on-white label color. Agent Review is approved; active route advances to SliderCases.
 - Human verification approved (2026-11-11): the user approved SliderCases on iOS and Android after adding stepped slider indicators and continuous track-touch updates. Agent Review is approved; active route advances to SegmentedCases.
 - Human verification approved (2026-11-11): the user approved SegmentedCases on iOS and Android. Agent Review is approved; active route advances to PickerCases.
+- Human verification approved (2026-11-11): the user approved PickerCases on iOS and Android after keeping the label visible beside the menu and using primary text color. Agent Review is approved; active route advances to PickerDateCases.
+- Human verification approved (2026-11-15): the user approved PickerDateCases on iOS and Android. Agent Review is approved; active route advances to FormCases.
+- FormCases horizontal inset follow-up (2026-11-15): paired iOS 27.0 and Android API 31 DevRuntime measurements found Android section content at 48dp versus 32pt on iOS. The Compose Section surface added a 16dp inset before its existing 16dp row/header inset, on top of the sample Column padding. FORM_SECTION_HORIZONTAL_INSET is now 0dp, leaving the section content inset intact. Rebuilt both DevRuntime hosts from this checkout; screenshots and accessibility geometry show the row and heading starts aligned at about 32dp/pt. Focused Kotlin section tests pass; human review remains pending.
+- Human verification approved (2026-11-15): the user approved FormCases on iOS and Android after confirming footer and section-label alignment. Agent Review is approved; active route advances to EmptyCases.
+- Human verification approved (2026-11-15): the user approved EmptyCases on iOS and Android. Agent Review is approved; active route advances to ProgressBarCases.
+- Human verification approved (2026-11-15): the user approved ProgressBarCases on iOS and Android. Agent Review is approved; active route advances to ProgressRingCases.
+- Human verification approved (2026-11-15): the user approved ProgressRingCases on iOS and Android. Agent Review is approved; active route advances to RefreshCases.
+- Human verification approved (2026-11-15): the user approved RefreshCases on iOS and Android. Agent Review is approved; active route advances to KeyboardCases.
+- KeyboardCases test-route revision (2026-11-15): an added long Delivery notes editor places the final field below the keyboard's resting area. On iOS 27.0 its accessibility frame moves from y=0.727 to y=0.598 when focused, above the keyboard at y=0.637; Android API 31 DevRuntime visibly scrolls the field above the IME. Agent Review is in progress; human review is pending.
+- KeyboardCases dismiss-button clipping follow-up (2026-11-15): the Done action was trailing content inside KeyboardAware's scroll viewport, so focusing the final field could leave it clipped at the viewport edge. It now sits beside the focus control outside the scrolling form. With the keyboard open, iOS accessibility reports the action fully at y=165pt and the focused field at y=572pt; Android reports the action in the top control area and the focused field above the IME. Human review remains pending.
+- Human verification approved (2026-11-18): the user approved KeyboardCases parity on iOS and Android after the iOS focused-input avoidance and KeyboardToolbar joined the keyboard opening animation. Agent Review is approved; active route advances to IconCases.
 
 ## Route review
 
-Active route: **PickerCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
+Active route: **IconCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
 
 | Route | Human review | Agent Review |
 |---|---|---|
@@ -57,18 +68,18 @@ Active route: **PickerCases**. Human approval also approves Agent Review; Agent 
 | SwitchCases | Approved | Approved |
 | SliderCases | Approved | Approved |
 | SegmentedCases | Approved | Approved |
-| PickerCases | Pending | Pending |
-| PickerDateCases | Pending | Pending |
-| FormCases | Pending | Pending |
-| EmptyCases | Pending | Pending |
-| ProgressBarCases | Pending | Pending |
-| ProgressRingCases | Pending | Pending |
+| PickerCases | Approved | Approved |
+| PickerDateCases | Approved | Approved |
+| FormCases | Approved | Approved |
+| EmptyCases | Approved | Approved |
+| ProgressBarCases | Approved | Approved |
+| ProgressRingCases | Approved | Approved |
 | FastListCases | Pending | Pending |
 | ScrollViewCases | Pending | Pending |
 | HapticCases | Pending | Pending |
 | MarqueeCases | Pending | In progress |
-| RefreshCases | Pending | Pending |
-| KeyboardCases | Pending | Pending |
+| RefreshCases | Approved | Approved |
+| KeyboardCases | Approved | Approved |
 | IconCases | Pending | Pending |
 | ImageCases | Pending | Pending |
 | GradientCases | Pending | Pending |

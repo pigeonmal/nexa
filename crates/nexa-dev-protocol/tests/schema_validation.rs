@@ -31,6 +31,20 @@ fn dev_ir_schema_fixture_matches_rust_protocol_and_native_runtimes() {
         nexa_dev_ir::DEV_IR_FORMAT_VERSION,
         "schema dev_ir_format_version matches Rust DEV_IR_FORMAT_VERSION"
     );
+    for key in ["focused_input_offset", "toolbar", "on_show", "on_hide"] {
+        assert_eq!(
+            schema["keys"]["keyboard_aware"][key], key,
+            "keyboard_aware schema includes {key}"
+        );
+    }
+    assert_eq!(
+        schema["keys"]["keyboard_event_handler"]["parameter"],
+        "parameter"
+    );
+    assert_eq!(
+        schema["keys"]["keyboard_event_handler"]["actions"],
+        "actions"
+    );
 
     // 2. Verify platforms, message kinds, and patch operations
     let platforms = schema["platforms"]

@@ -221,6 +221,9 @@ fn generated_source_and_dependencies(target: &str, module: &Module) -> (String, 
             dependencies.push("io.coil-kt.coil3:coil-compose".to_owned());
             dependencies.push("io.coil-kt.coil3:coil-network-core".to_owned());
         }
+        if features.uses_keyboard_aware {
+            dependencies.push("androidx.core:core".to_owned());
+        }
         if features.uses_coroutines {
             dependencies.push("org.jetbrains.kotlinx:kotlinx-coroutines-android".to_owned());
         }
