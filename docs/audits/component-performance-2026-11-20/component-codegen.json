@@ -1,0 +1,250 @@
+{
+  "baseRevision": "18cedbec",
+  "worktree": "dirty",
+  "metricScope": "Generated source per fixture. Fixtures can include supporting components and assets.",
+  "fixtureSource": "crates/nexa-syntax/src/catalog.rs, with runnable examples for TextReveal, NavigationStack, NavigationLink, NavigationBack, and Content, plus a custom SVG fixture for Icon",
+  "measurementPoint": "After splitting the codegen sections and before completing standalone PickerDate imports",
+  "generatedSourceBytes": {
+    "MinimalText": {
+      "ios": 20702,
+      "android": 34753
+    },
+    "Appearance": {
+      "ios": 21652,
+      "android": 43427
+    },
+    "Column": {
+      "ios": 27065,
+      "android": 39125
+    },
+    "ScrollView": {
+      "ios": 35375,
+      "android": 46976
+    },
+    "Row": {
+      "ios": 22359,
+      "android": 37686
+    },
+    "Stack": {
+      "ios": 22055,
+      "android": 37765
+    },
+    "Form": {
+      "ios": 32014,
+      "android": 42503
+    },
+    "Section": {
+      "ios": 31949,
+      "android": 42543
+    },
+    "Spacer": {
+      "ios": 21844,
+      "android": 37037
+    },
+    "Divider": {
+      "ios": 22181,
+      "android": 37529
+    },
+    "Shape": {
+      "ios": 18482,
+      "android": 25283
+    },
+    "Text": {
+      "ios": 22661,
+      "android": 36580
+    },
+    "TextReveal": {
+      "ios": 44408,
+      "android": 48035
+    },
+    "NumberFlow": {
+      "ios": 28618,
+      "android": 33609
+    },
+    "ContentUnavailable": {
+      "ios": 23431,
+      "android": 40313
+    },
+    "Button": {
+      "ios": 32319,
+      "android": 48615
+    },
+    "TextInput": {
+      "ios": 60665,
+      "android": 72533
+    },
+    "Switch": {
+      "ios": 18361,
+      "android": 38049
+    },
+    "Slider": {
+      "ios": 21695,
+      "android": 26724
+    },
+    "ProgressBar": {
+      "ios": 21742,
+      "android": 27288
+    },
+    "ProgressRing": {
+      "ios": 22659,
+      "android": 27894
+    },
+    "SegmentedControl": {
+      "ios": 23862,
+      "android": 29883
+    },
+    "Picker": {
+      "ios": 23652,
+      "android": 41094
+    },
+    "PickerDate": {
+      "ios": 22407,
+      "android": 107959
+    },
+    "Image": {
+      "ios": 36396,
+      "android": 49200
+    },
+    "Icon": {
+      "ios": 20782,
+      "android": 29396
+    },
+    "LinearGradient": {
+      "ios": 17632,
+      "android": 22209
+    },
+    "Pressable": {
+      "ios": 44237,
+      "android": 43200
+    },
+    "NavigationStack": {
+      "ios": 29671,
+      "android": 52182
+    },
+    "NavigationSplitView": {
+      "ios": 22672,
+      "android": 38083
+    },
+    "NavigationLink": {
+      "ios": 52754,
+      "android": 55853
+    },
+    "NavigationBack": {
+      "ios": 53027,
+      "android": 56160
+    },
+    "Link": {
+      "ios": 21243,
+      "android": 36121
+    },
+    "KeyboardAware": {
+      "ios": 31605,
+      "android": 47367
+    },
+    "KeyboardToolbar": {
+      "ios": 46402,
+      "android": 61124
+    },
+    "BottomSheet": {
+      "ios": 30738,
+      "android": 64896
+    },
+    "Dialog": {
+      "ios": 61355,
+      "android": 70654
+    },
+    "ConfirmationDialog": {
+      "ios": 18157,
+      "android": 50007
+    },
+    "RefreshControl": {
+      "ios": 24280,
+      "android": 38686
+    },
+    "AppBottomBar": {
+      "ios": 28394,
+      "android": 43398
+    },
+    "PagePager": {
+      "ios": 22463,
+      "android": 45356
+    },
+    "Toolbar": {
+      "ios": 32514,
+      "android": 48370
+    },
+    "FastList": {
+      "ios": 78038,
+      "android": 48636
+    },
+    "StatusBar": {
+      "ios": 18035,
+      "android": 25186
+    },
+    "Direction": {
+      "ios": 18062,
+      "android": 23260
+    },
+    "OnAppear": {
+      "ios": 18119,
+      "android": 23515
+    },
+    "OnDisappear": {
+      "ios": 18122,
+      "android": 23565
+    },
+    "OnActive": {
+      "ios": 18536,
+      "android": 24643
+    },
+    "OnInactive": {
+      "ios": 18536,
+      "android": 24643
+    },
+    "OnBackground": {
+      "ios": 18536,
+      "android": 24643
+    },
+    "Content": {
+      "ios": 21607,
+      "android": 34916
+    }
+  },
+  "columnParameterProbes": {
+    "default": {
+      "source": "app ColumnAudit { body { Column { Text(\"Departures\") Text(\"Arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21823,
+        "android": 36660
+      }
+    },
+    "gap": {
+      "source": "app ColumnAudit { body { Column(gap: 12) { Text(\"Departures\") Text(\"Arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21824,
+        "android": 36877
+      }
+    },
+    "alignment": {
+      "source": "app ColumnAudit { body { Column(alignment: Start) { Text(\"Departures\") Text(\"Arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21825,
+        "android": 36647
+      }
+    },
+    "insets": {
+      "source": "app ColumnAudit { body { Column(padding: Insets(horizontal: 16, vertical: 8), margin: Insets(top: 4)) { Text(\"Departures\") Text(\"Arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 27295,
+        "android": 39166
+      }
+    },
+    "parentRelativeWidth": {
+      "source": "app ColumnAudit { body { Column(width: 80%) { Text(\"Departures\") Text(\"Arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 24371,
+        "android": 39159
+      }
+    }
+  }
+}

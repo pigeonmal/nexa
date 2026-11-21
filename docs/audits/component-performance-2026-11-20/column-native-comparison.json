@@ -1,0 +1,190 @@
+{
+  "scope": "AOT Release simulator and emulator layout stress. CPU and memory are whole process. This is a comparison of the tested layout paths.",
+  "baseRevision": "18cedbec",
+  "workload": {
+    "columns": 192,
+    "rowCount": 8,
+    "columnsPerRow": 24,
+    "columnGap": 1,
+    "warmupSeconds": 2,
+    "sampleSeconds": 5,
+    "update": "On each platform frame callback change the first shape width between 8 and 10 logical units for every cell.",
+    "control": "Replace only the BenchCell Column call with centered VStack or centered Compose Column with the same gap. BenchCell has no labeled or safe area content.",
+    "source": "component BenchCell(size: Float64) {\n    body {\n        Column(gap: 1) {\n            Shape(width: size, height: 3, shape: Rounded(1), fill: \"#356EAF\")\n            Shape(width: 5, height: 3, shape: Rounded(1), fill: \"#743568\")\n        }\n    }\n}\ncomponent BenchRow(size: Float64) {\n    body {\n        Row(gap: 3) {\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n        }\n    }\n}\napp ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 3) {\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        }\n    }\n}\n"
+  },
+  "platforms": {
+    "ios": "iPhone 18 Pro Max simulator, iOS 27.0, arm64; display link set to 60 Hz",
+    "android": "emulator-5554, Android 12 API 31; 1080 x 2340; gfxinfo uses the last retained intended-vsync timestamps for completed frames; API duration includes queueing"
+  },
+  "geometryCheck": {
+    "proposal": [
+      200,
+      160
+    ],
+    "intrinsic": [
+      28,
+      52
+    ],
+    "safeAreaRoot": [
+      200,
+      52
+    ],
+    "spacing": 4,
+    "childCount": 2,
+    "inheritedTextAlignment": "trailing in both cases; nested children receive the false safe-area fill flag"
+  },
+  "artifacts": {
+    "native": {
+      "iosSimulatorExecutableBytes": 497656,
+      "iosSimulatorAppBytes": 498420,
+      "androidApkBytes": 743123,
+      "androidAabBytes": 1736403
+    },
+    "nexa": {
+      "iosSimulatorExecutableBytes": 496952,
+      "iosSimulatorAppBytes": 497716,
+      "androidApkBytes": 743123,
+      "androidAabBytes": 1736272
+    },
+    "optimized": {
+      "iosSimulatorExecutableBytes": 497096,
+      "iosSimulatorAppBytes": 497860
+    }
+  },
+  "measurements": {
+    "iosNativeComparison": [
+      {
+        "variant": "nexa",
+        "cpuSeconds": 1.455145,
+        "residentBytesEnd": 188497920,
+        "displayLinkP95Ms": 16.679208318237215,
+        "displayLinkIntervals": 300,
+        "wallSeconds": 5.0162679583299905,
+        "residentBytesStart": 189153280
+      },
+      {
+        "variant": "native",
+        "displayLinkP95Ms": 16.677583334967494,
+        "residentBytesEnd": 186974208,
+        "displayLinkIntervals": 300,
+        "wallSeconds": 5.016649249999318,
+        "cpuSeconds": 1.2841129999999998,
+        "residentBytesStart": 187170816
+      },
+      {
+        "variant": "native",
+        "displayLinkIntervals": 300,
+        "wallSeconds": 5.000002833316103,
+        "cpuSeconds": 1.26844,
+        "displayLinkP95Ms": 16.681791632436216,
+        "residentBytesEnd": 186695680,
+        "residentBytesStart": 186908672
+      },
+      {
+        "variant": "nexa",
+        "residentBytesEnd": 188334080,
+        "wallSeconds": 5.000002666667569,
+        "residentBytesStart": 188530688,
+        "displayLinkIntervals": 299,
+        "displayLinkP95Ms": 16.67754165828228,
+        "cpuSeconds": 1.4442979999999999
+      }
+    ],
+    "iosOptimizationComparison": [
+      {
+        "variant": "optimized",
+        "cpuSeconds": 1.122086,
+        "residentBytesStart": 180027392,
+        "displayLinkIntervals": 300,
+        "residentBytesEnd": 179617792,
+        "displayLinkP95Ms": 16.67795836692676,
+        "wallSeconds": 5.000029875023756
+      },
+      {
+        "variant": "nexa",
+        "cpuSeconds": 1.323937,
+        "displayLinkIntervals": 301,
+        "displayLinkP95Ms": 16.675791703164577,
+        "wallSeconds": 5.016672625031788,
+        "residentBytesEnd": 178814976,
+        "residentBytesStart": 178929664
+      },
+      {
+        "variant": "nexa",
+        "residentBytesStart": 178978816,
+        "residentBytesEnd": 178798592,
+        "wallSeconds": 5.016651583369821,
+        "cpuSeconds": 1.337939,
+        "displayLinkIntervals": 300,
+        "displayLinkP95Ms": 16.677375009749085
+      },
+      {
+        "variant": "optimized",
+        "residentBytesEnd": 179503104,
+        "displayLinkP95Ms": 16.678000043611974,
+        "displayLinkIntervals": 299,
+        "residentBytesStart": 179650560,
+        "cpuSeconds": 1.100891,
+        "wallSeconds": 5.00000779167749
+      }
+    ],
+    "androidNativeComparison": [
+      {
+        "variant": "native",
+        "wallSeconds": 5.029923504,
+        "cpuMillis": 5127,
+        "pssKiBStart": 30038,
+        "pssKiBEnd": 28393,
+        "composeClockIntervals": 148,
+        "composeClockP95Ms": 50.247,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 30.12658348354435,
+          "frameDurationP95Ms": 95.052736
+        }
+      },
+      {
+        "variant": "nexa",
+        "wallSeconds": 5.00548867,
+        "cpuMillis": 4323,
+        "pssKiBStart": 37664,
+        "pssKiBEnd": 27698,
+        "composeClockIntervals": 211,
+        "composeClockP95Ms": 48.346459,
+        "gfxInfoFrameStats": {
+          "records": 118,
+          "lastIntervalFps": 41.538463200000066,
+          "frameDurationP95Ms": 107.265919
+        }
+      },
+      {
+        "variant": "nexa",
+        "wallSeconds": 5.002053086,
+        "cpuMillis": 4683,
+        "pssKiBStart": 34487,
+        "pssKiBEnd": 25277,
+        "composeClockIntervals": 219,
+        "composeClockP95Ms": 43.849458,
+        "gfxInfoFrameStats": {
+          "records": 118,
+          "lastIntervalFps": 40.813955120930295,
+          "frameDurationP95Ms": 98.006408
+        }
+      },
+      {
+        "variant": "native",
+        "wallSeconds": 5.018725003,
+        "cpuMillis": 4300,
+        "pssKiBStart": 34230,
+        "pssKiBEnd": 30201,
+        "composeClockIntervals": 99,
+        "composeClockP95Ms": 123.516666,
+        "gfxInfoFrameStats": {
+          "records": 100,
+          "lastIntervalFps": 19.668874958940428,
+          "frameDurationP95Ms": 287.95877
+        }
+      }
+    ]
+  }
+}

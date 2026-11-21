@@ -1,0 +1,86 @@
+{
+  "setup": "Android 12 emulator, signed minified Release APKs. Eight-second scroll in a 5,000-cell image grid after ART speed compilation. Both variants use direct drawable IDs. Before/after/after/before.",
+  "nxSource": "app ColumnBench {\n    let gallery = ComponentRef<FastList>()\n    body {\n        Column(gap: 4) {\n            Text(\"Album covers\")\n            FastList(count: 5000, axis: Grid(4), rowHeight: 40, showDividers: false, ref: gallery) { index in\n                Image(asset: \"cell_cover\", description: \"\", maxHeight: 36)\n            }\n        }\n    }\n}\n",
+  "signedReleaseApkBytes": {
+    "before": 991135,
+    "after": 991135
+  },
+  "dexBytes": {
+    "before": 1556656,
+    "after": 1548008
+  },
+  "samples": [
+    {
+      "variant": "before",
+      "nameLookups": 0,
+      "lookupMillis": 0,
+      "startupLookups": 0,
+      "cpuMillis": 1585,
+      "wallSeconds": 8.001078379,
+      "nativeFrameCallbacks": 268,
+      "lastItem": 232,
+      "pssKiB": 42418,
+      "gfxInfoFrameStats": {
+        "records": 119,
+        "lastIntervalFps": 32.93018288104411,
+        "frameDurationP95Ms": 124.484132
+      }
+    },
+    {
+      "variant": "after",
+      "nameLookups": 0,
+      "lookupMillis": 0,
+      "startupLookups": 0,
+      "cpuMillis": 1298,
+      "wallSeconds": 8.010395629,
+      "nativeFrameCallbacks": 241,
+      "lastItem": 232,
+      "pssKiB": 41933,
+      "gfxInfoFrameStats": {
+        "records": 115,
+        "lastIntervalFps": 28.148149274074118,
+        "frameDurationP95Ms": 123.743471
+      }
+    },
+    {
+      "variant": "after",
+      "nameLookups": 0,
+      "lookupMillis": 0,
+      "startupLookups": 0,
+      "cpuMillis": 1714,
+      "wallSeconds": 8.013829878,
+      "nativeFrameCallbacks": 295,
+      "lastItem": 232,
+      "pssKiB": 42490,
+      "gfxInfoFrameStats": {
+        "records": 119,
+        "lastIntervalFps": 35.577890870351816,
+        "frameDurationP95Ms": 91.742418
+      }
+    },
+    {
+      "variant": "before",
+      "nameLookups": 0,
+      "lookupMillis": 0,
+      "startupLookups": 0,
+      "cpuMillis": 1535,
+      "wallSeconds": 8.055944796,
+      "nativeFrameCallbacks": 267,
+      "lastItem": 232,
+      "pssKiB": 42808,
+      "gfxInfoFrameStats": {
+        "records": 120,
+        "lastIntervalFps": 31.875001275000052,
+        "frameDurationP95Ms": 108.322831
+      }
+    }
+  ],
+  "navigationMetricsSmoke": {
+    "mode": "signed Android Release",
+    "visibleLabelPixelSize": [
+      469,
+      54
+    ],
+    "navigationIconDependency": "material-icons-core"
+  }
+}

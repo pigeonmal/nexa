@@ -1,0 +1,175 @@
+{
+  "component": "Button",
+  "fixtureSource": "component BenchRow(label: String) {\n    body {\n        Row(gap: 3) {\n            Button(label, size: Small) {}\n            Button(label, size: Small) {}\n            Button(label, size: Small) {}\n            Button(label, size: Small) {}\n        }\n    }\n}\napp ColumnBench {\n    state buttonLabel: String = \"A\"\n    body {\n        Column(gap: 1) {\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n        }\n    }\n}\n",
+  "configuration": "Release AOT",
+  "workload": "40 visible Small buttons in ten rows. All labels alternate between A and B on each app frame callback, followed by measurements after two seconds of warmup.",
+  "android": {
+    "target": "Android API 31 emulator",
+    "candidate": "Reuse the Compose capsule and fixed PaddingValues, reading theme colors only for visible plain labels.",
+    "decision": "Restored the original primitive. The short comparison showed more CPU and slower completed-frame cadence with the candidate. Host builds overlapped the extended samples, so the size of any runtime effect is uncertain.",
+    "notes": "Process CPU includes the app driver. PSS samples are not object-retention evidence. Completed-frame cadence is calculated from the recent valid gfxinfo frame records, not the full sampling window.",
+    "packageBytes": {
+      "before": {
+        "apkBytes": 903995,
+        "aabBytes": 2153252
+      },
+      "after": {
+        "apkBytes": 903995,
+        "aabBytes": 2153403
+      }
+    },
+    "samples": [
+      {
+        "durationSeconds": 5,
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 5.019587629,
+        "cpuMillis": 2033,
+        "pssKiBStart": 35760,
+        "pssKiBEnd": 36477,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 215,
+        "composeClockP95Ms": 62.34625,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 44.810128374683615,
+          "frameDurationP95Ms": 107.084459
+        }
+      },
+      {
+        "durationSeconds": 5,
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 5.008552961,
+        "cpuMillis": 2682,
+        "pssKiBStart": 32431,
+        "pssKiBEnd": 32029,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 219,
+        "composeClockP95Ms": 62.824708,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 44.33121196433128,
+          "frameDurationP95Ms": 88.888648
+        }
+      },
+      {
+        "durationSeconds": 5,
+        "order": 2,
+        "variant": "after",
+        "wallSeconds": 5.036640128,
+        "cpuMillis": 2507,
+        "pssKiBStart": 34123,
+        "pssKiBEnd": 34460,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 200,
+        "composeClockP95Ms": 73.009,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 40.00000160000006,
+          "frameDurationP95Ms": 93.885309
+        }
+      },
+      {
+        "durationSeconds": 5,
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 5.002448087,
+        "cpuMillis": 2480,
+        "pssKiBStart": 36408,
+        "pssKiBEnd": 34898,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 223,
+        "composeClockP95Ms": 51.357958,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 47.919465004026925,
+          "frameDurationP95Ms": 89.603463
+        }
+      },
+      {
+        "durationSeconds": 20,
+        "order": 0,
+        "variant": "after",
+        "wallSeconds": 20.039701385,
+        "cpuMillis": 6371,
+        "pssKiBStart": 33752,
+        "pssKiBEnd": 35314,
+        "pssKiBEveryFiveSeconds": [
+          33282,
+          32662,
+          32338,
+          35314
+        ],
+        "composeClockIntervals": 388,
+        "composeClockP95Ms": 92.129334,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 9.554651965803362,
+          "frameDurationP95Ms": 308.036903
+        }
+      },
+      {
+        "durationSeconds": 20,
+        "order": 1,
+        "variant": "before",
+        "wallSeconds": 20.01622076,
+        "cpuMillis": 11218,
+        "pssKiBStart": 36368,
+        "pssKiBEnd": 35429,
+        "pssKiBEveryFiveSeconds": [
+          40647,
+          31938,
+          35062,
+          35429
+        ],
+        "composeClockIntervals": 596,
+        "composeClockP95Ms": 87.369291,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 38.18181970909097,
+          "frameDurationP95Ms": 93.796498
+        }
+      }
+    ]
+  },
+  "ios": {
+    "target": "iOS 27.0 simulator",
+    "notes": "The native SwiftUI Button and its existing Nexa bounds probe and style are present. CADisplayLink measures callback cadence.",
+    "sample": {
+      "displayLinkP95Ms": 16.675958351697773,
+      "residentBytesEnd": 195035136,
+      "wallSeconds": 15.014328958350234,
+      "residentBytesEveryFiveSeconds": [
+        195084288,
+        195018752,
+        195018752
+      ],
+      "cpuSeconds": 3.765421,
+      "residentBytesStart": 195362816,
+      "displayLinkIntervals": 900
+    },
+    "unsignedIphoneOSRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 4912510,
+      "mainExecutableBytes": 456136,
+      "appBundleBytes": 456918,
+      "bundleOtherBytes": 782
+    }
+  },
+  "optionProbe": {
+    "fixtureSource": "app ButtonOptions {\n    state taps: Int32 = 0\n    state working: Bool = true\n    body {\n        Column(gap: 4) {\n            Button(\"Send\") { taps = taps + 1 }\n            Button(\"Retry\", comment: \"Retry upload\", style: Bordered, size: Small, shape: Rounded(8), tint: \"#A4266D\") { taps = taps + 1 }\n            Button(\"View receipt\", style: Borderless, size: Regular, shape: Capsule) { taps = taps + 1 }\n            Button(\"Save for later\", style: Plain, size: Large, disabled: true, tint: \"#226442\") { taps = taps + 1 }\n            Button(\"Uploading\", style: Borderless, loading: working, tint: \"#A4266D\", accessibilityLabel: \"Uploading attachment\") { taps = taps + 1 }\n            Button(\"\", icon: \"add\", shape: Circle, glass: true, accessibilityLabel: \"Add attachment\") { working = !working }\n        }\n    }\n}\n",
+    "generatedSourceBytes": {
+      "ios": 37331,
+      "android": 56404
+    },
+    "candidateDevRuntimeHosts": {
+      "ios": "compiled",
+      "android": "compiled"
+    }
+  }
+}

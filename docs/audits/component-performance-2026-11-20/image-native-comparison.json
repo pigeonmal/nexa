@@ -1,0 +1,110 @@
+{
+  "fixtureSource": "app ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 4) {\n            Row(gap: 4) {\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n            }\n            Row(gap: 4) {\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n            }\n            Row(gap: 4) {\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n            }\n            Row(gap: 4) {\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n            }\n            Row(gap: 4) {\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n            }\n            Row(gap: 4) {\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n                Stack(width: 36, height: 36, opacity: tileWidth / 12.0) { Image(asset: \"parity_sample\", description: \"Sample\") }\n            }\n        }\n    }\n}\n",
+  "workload": "36 copies of a 1217-byte PNG, with parent opacity alternating on each app frame after warmup.",
+  "ios": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "residentBytesEnd": 184614912,
+        "cpuSeconds": 0.2705040000000001,
+        "residentBytesStart": 185008128,
+        "displayLinkP95Ms": 16.683916677720845,
+        "wallSeconds": 8.013619583332911,
+        "residentBytesEveryFiveSeconds": [
+          184713216
+        ],
+        "displayLinkIntervals": 480
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "displayLinkIntervals": 479,
+        "displayLinkP95Ms": 16.686166694853455,
+        "residentBytesStart": 183762944,
+        "residentBytesEveryFiveSeconds": [
+          183599104
+        ],
+        "residentBytesEnd": 183599104,
+        "wallSeconds": 8.000007083348464,
+        "cpuSeconds": 0.28107099999999996
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "residentBytesEnd": 183533568,
+        "residentBytesStart": 183664640,
+        "residentBytesEveryFiveSeconds": [
+          183533568
+        ],
+        "wallSeconds": 8.0166676666704,
+        "cpuSeconds": 0.23356300000000002,
+        "displayLinkIntervals": 481,
+        "displayLinkP95Ms": 16.684999980498105
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 8.000022791675292,
+        "residentBytesStart": 183730176,
+        "residentBytesEveryFiveSeconds": [
+          183533568
+        ],
+        "displayLinkIntervals": 480,
+        "residentBytesEnd": 183533568,
+        "displayLinkP95Ms": 16.684250032994896,
+        "cpuSeconds": 0.243025
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 18149592,
+      "mainExecutableBytes": 292912,
+      "appBundleBytes": 314372,
+      "bundleOtherBytes": 21460
+    }
+  },
+  "android": {
+    "packagedSample": {
+      "wallSeconds": 13.774305258,
+      "cpuMillis": 1193,
+      "pssKiBStart": 31579,
+      "pssKiBEnd": 33303,
+      "pssKiBEveryFiveSeconds": [
+        33295,
+        33303
+      ],
+      "composeClockIntervals": 105,
+      "composeClockP95Ms": 182.581583,
+      "gfxInfoFrameStats": {
+        "records": 112,
+        "lastIntervalFps": 20.877765552289098,
+        "frameDurationP95Ms": 347.262338
+      }
+    },
+    "apkBytes": 795011,
+    "aabBytes": 1864604,
+    "notes": "Corrected Android sample recorded while host tests and builds were running. Release shrinker confirmed drawable:parity_sample reachable from keep xml file; APK includes the AAPT-processed 991-byte PNG. Initial runs used a removed asset and are excluded from runtime comparison.",
+    "discardedMissingTextureSample": {
+      "wallSeconds": 12.063919924,
+      "cpuMillis": 1196,
+      "pssKiBStart": 27332,
+      "pssKiBEnd": 30666,
+      "pssKiBEveryFiveSeconds": [
+        29302,
+        30270
+      ],
+      "composeClockIntervals": 324,
+      "composeClockP95Ms": 100.3225,
+      "gfxInfoFrameStats": {
+        "records": 117,
+        "lastIntervalFps": 25.77777880888893,
+        "frameDurationP95Ms": 154.438832
+      }
+    }
+  }
+}

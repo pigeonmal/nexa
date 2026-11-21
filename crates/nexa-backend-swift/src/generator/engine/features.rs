@@ -12,6 +12,7 @@ pub(crate) struct Features {
     pub(crate) uses_vertical_list: bool,
     pub(crate) uses_horizontal_list: bool,
     pub(crate) uses_grid_list: bool,
+    pub(crate) uses_masonry_list: bool,
     pub(crate) uses_sectioned_list: bool,
     pub(crate) uses_sticky_header: bool,
     pub(crate) uses_scroll_events: bool,
@@ -28,7 +29,7 @@ pub(crate) struct Features {
     pub(crate) uses_file_async: bool,
     pub(crate) uses_permissions: bool,
     pub(crate) uses_permission_request: bool,
-    pub(crate) expose_permissions_to_dev_runtime: bool,
+    pub(crate) for_dev_runtime: bool,
     pub(crate) used_permissions: HashSet<Permission>,
     pub(crate) dynamic_permission: bool,
     pub(crate) uses_haptic: bool,
@@ -80,6 +81,7 @@ impl Features {
         features.uses_vertical_list = lists.vertical;
         features.uses_horizontal_list = lists.horizontal;
         features.uses_grid_list = lists.grid;
+        features.uses_masonry_list = lists.masonry;
         features.uses_sticky_header = lists.sticky_header;
         features.uses_scroll_events = lists.scroll_events || lists.scroll_events_grid;
 

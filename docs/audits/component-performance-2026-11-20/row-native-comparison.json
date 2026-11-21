@@ -1,0 +1,382 @@
+{
+  "scope": "Release AOT simulator and emulator layout stress. CPU, RSS and PSS describe the whole process.",
+  "baseRevision": "18cedbec",
+  "workload": {
+    "rows": 192,
+    "cellsPerContainer": 16,
+    "containerCount": 12,
+    "rowGap": 1,
+    "warmupSeconds": 2,
+    "sampleSeconds": 5,
+    "update": "Each app frame callback alternates the first child shape width between 8 and 10 logical units.",
+    "control": "Only the BenchCell Row call is replaced with centered HStack or Compose Row at the same gap. Fixture cells contain shapes.",
+    "source": "component BenchCell(size: Float64) {\n    body {\n        Row(gap: 1) {\n            Shape(width: size, height: 3, shape: Rounded(1), fill: \"#356EAF\")\n            Shape(width: 5, height: 3, shape: Rounded(1), fill: \"#743568\")\n        }\n    }\n}\ncomponent BenchRow(size: Float64) {\n    body {\n        Row(gap: 3) {\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n        }\n    }\n}\napp ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 3) {\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        }\n    }\n}\n"
+  },
+  "platforms": {
+    "ios": "iPhone 18 Pro Max simulator, iOS 27.0, arm64; CADisplayLink target 60 Hz",
+    "android": "emulator-5554, Android 12 API 31; 1080 x 2340; ART speed compilation after each install; gfxinfo last retained frame records"
+  },
+  "iosGeometryCheck": {
+    "caseCount": 48,
+    "verticalAlignments": [
+      "top",
+      "center",
+      "bottom"
+    ],
+    "horizontalArrangements": [
+      null,
+      "start",
+      "center",
+      "end"
+    ],
+    "directions": [
+      "leftToRight",
+      "rightToLeft"
+    ],
+    "safeAreaFill": [
+      false,
+      true
+    ],
+    "expectedIntrinsicSize": [
+      60,
+      14
+    ],
+    "expectedFilledSize": [
+      180,
+      14
+    ],
+    "result": "Dimensions and rendered child positions match the original helper in all cases. Child color probes detect leaking root fill or text alignment."
+  },
+  "artifacts": {
+    "native": {
+      "iosSimulatorExecutableBytes": 497656,
+      "iosSimulatorAppBytes": 498412,
+      "androidApkBytes": 743119,
+      "androidAabBytes": 1736534
+    },
+    "nexa": {
+      "iosSimulatorExecutableBytes": 497016,
+      "iosSimulatorAppBytes": 497772,
+      "androidApkBytes": 743119,
+      "androidAabBytes": 1736183
+    },
+    "optimized": {
+      "iosSimulatorExecutableBytes": 496856,
+      "iosSimulatorAppBytes": 497612
+    }
+  },
+  "measurements": {
+    "ios": [
+      {
+        "variant": "nexa",
+        "displayLinkP95Ms": 16.685499984305352,
+        "residentBytesEnd": 181075968,
+        "residentBytesStart": 181436416,
+        "wallSeconds": 5.016664541675709,
+        "cpuSeconds": 1.4284050000000001,
+        "displayLinkIntervals": 300
+      },
+      {
+        "variant": "native",
+        "residentBytesStart": 177356800,
+        "residentBytesEnd": 177192960,
+        "displayLinkP95Ms": 16.68095833156258,
+        "displayLinkIntervals": 300,
+        "cpuSeconds": 1.1014490000000001,
+        "wallSeconds": 5.016659708344378
+      },
+      {
+        "variant": "optimized",
+        "displayLinkIntervals": 300,
+        "wallSeconds": 5.016652874997817,
+        "cpuSeconds": 1.2642690000000003,
+        "residentBytesEnd": 179552256,
+        "residentBytesStart": 179748864,
+        "displayLinkP95Ms": 16.678541665896773
+      },
+      {
+        "variant": "optimized",
+        "cpuSeconds": 1.279274,
+        "residentBytesEnd": 179617792,
+        "wallSeconds": 5.01663125003688,
+        "displayLinkIntervals": 300,
+        "residentBytesStart": 179765248,
+        "displayLinkP95Ms": 16.677249979693443
+      },
+      {
+        "variant": "native",
+        "residentBytesEnd": 177160192,
+        "displayLinkIntervals": 300,
+        "displayLinkP95Ms": 16.675958351697773,
+        "wallSeconds": 5.016611791681498,
+        "cpuSeconds": 1.1235469999999999,
+        "residentBytesStart": 177356800
+      },
+      {
+        "variant": "nexa",
+        "displayLinkP95Ms": 16.677249979693443,
+        "residentBytesEnd": 179814400,
+        "wallSeconds": 5.01663620834006,
+        "displayLinkIntervals": 300,
+        "cpuSeconds": 1.3997639999999998,
+        "residentBytesStart": 180011008
+      }
+    ],
+    "android": [
+      {
+        "variant": "native",
+        "wallSeconds": 5.026871754,
+        "cpuMillis": 3423,
+        "pssKiBStart": 36677,
+        "pssKiBEnd": 27675,
+        "composeClockIntervals": 188,
+        "composeClockP95Ms": 69.818208,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 38.06451765161297,
+          "frameDurationP95Ms": 108.997779
+        }
+      },
+      {
+        "variant": "nexa",
+        "wallSeconds": 5.023554837,
+        "cpuMillis": 3202,
+        "pssKiBStart": 33739,
+        "pssKiBEnd": 29762,
+        "composeClockIntervals": 193,
+        "composeClockP95Ms": 59.758958,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 39.11602366408846,
+          "frameDurationP95Ms": 127.664223
+        }
+      },
+      {
+        "variant": "nexa",
+        "wallSeconds": 5.000712086,
+        "cpuMillis": 3428,
+        "pssKiBStart": 34853,
+        "pssKiBEnd": 32089,
+        "composeClockIntervals": 188,
+        "composeClockP95Ms": 57.570083,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 35.223882005970204,
+          "frameDurationP95Ms": 139.579072
+        }
+      },
+      {
+        "variant": "native",
+        "wallSeconds": 5.008992545,
+        "cpuMillis": 3628,
+        "pssKiBStart": 34257,
+        "pssKiBEnd": 30875,
+        "composeClockIntervals": 193,
+        "composeClockP95Ms": 68.612125,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 38.47826240869571,
+          "frameDurationP95Ms": 128.845075
+        }
+      }
+    ]
+  },
+  "parameterProbes": {
+    "default": {
+      "source": "app RowAudit { body { Row { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22326,
+        "android": 37508
+      }
+    },
+    "gap": {
+      "source": "app RowAudit { body { Row(gap: 12) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22327,
+        "android": 37725
+      }
+    },
+    "margin": {
+      "source": "app RowAudit { body { Row(margin: Insets(leading: 4, vertical: 8)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 27746,
+        "android": 39804
+      }
+    },
+    "alignment": {
+      "source": "app RowAudit { body { Row(alignment: End) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22326,
+        "android": 37498
+      }
+    },
+    "horizontalArrangement": {
+      "source": "app RowAudit { body { Row(horizontalArrangement: Center) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22358,
+        "android": 37607
+      }
+    },
+    "padding": {
+      "source": "app RowAudit { body { Row(padding: Insets(horizontal: 12, bottom: 4)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 27748,
+        "android": 39806
+      }
+    },
+    "width": {
+      "source": "app RowAudit { body { Row(width: 80%) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 24874,
+        "android": 39863
+      }
+    },
+    "height": {
+      "source": "app RowAudit { body { Row(height: screenHeightFraction(0.1)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22487,
+        "android": 38041
+      }
+    },
+    "minWidth": {
+      "source": "app RowAudit { body { Row(minWidth: 80) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22384,
+        "android": 37595
+      }
+    },
+    "maxWidth": {
+      "source": "app RowAudit { body { Row(maxWidth: 100%) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 24875,
+        "android": 39864
+      }
+    },
+    "minHeight": {
+      "source": "app RowAudit { body { Row(minHeight: 32) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22385,
+        "android": 37596
+      }
+    },
+    "maxHeight": {
+      "source": "app RowAudit { body { Row(maxHeight: 40) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22412,
+        "android": 37596
+      }
+    },
+    "background": {
+      "source": "app RowAudit { body { Row(background: \"#E8F0FF\") { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22428,
+        "android": 37772
+      }
+    },
+    "cornerRadius": {
+      "source": "app RowAudit { body { Row(cornerRadius: 8) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22388,
+        "android": 37845
+      }
+    },
+    "cornerRadiusBottom": {
+      "source": "app RowAudit { body { Row(cornerRadiusBottom: 12) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22482,
+        "android": 37911
+      }
+    },
+    "border": {
+      "source": "app RowAudit { body { Row(borderColor: \"#345678\", borderWidth: 2) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22481,
+        "android": 38064
+      }
+    },
+    "opacity": {
+      "source": "app RowAudit { body { Row(opacity: 0.75) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22376,
+        "android": 38024
+      }
+    },
+    "scale": {
+      "source": "app RowAudit { body { Row(scale: 0.9) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22360,
+        "android": 37974
+      }
+    },
+    "scaleY": {
+      "source": "app RowAudit { body { Row(scaleY: 0.9) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22369,
+        "android": 37974
+      }
+    },
+    "rotation": {
+      "source": "app RowAudit { body { Row(rotation: 12) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22372,
+        "android": 37973
+      }
+    },
+    "offsetY": {
+      "source": "app RowAudit { body { Row(offsetY: 3) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22364,
+        "android": 37997
+      }
+    },
+    "shadow": {
+      "source": "app RowAudit { body { Row(shadow: Shadow(8, 4, 6, \"#00000070\")) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22454,
+        "android": 38653
+      }
+    },
+    "blur": {
+      "source": "app RowAudit { body { Row(blur: 2) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22359,
+        "android": 37806
+      }
+    },
+    "clip": {
+      "source": "app RowAudit { body { Row(clip: Rounded(14)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22389,
+        "android": 37846
+      }
+    },
+    "zIndex": {
+      "source": "app RowAudit { body { Row(zIndex: 1) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22353,
+        "android": 37721
+      }
+    },
+    "glass": {
+      "source": "app RowAudit { body { Row(glass: Glass(shape: \"capsule\", tint: \"#DDEBFF\")) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 25498,
+        "android": 38738
+      }
+    },
+    "animation": {
+      "source": "app RowAudit { body { Row(animation: EaseInOut) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 25927,
+        "android": 38084
+      }
+    },
+    "marquee": {
+      "source": "app RowAudit { body { Row(width: 100, animation: Marquee(speed: 32, gap: 24, edgeFade: 8)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 40792,
+        "android": 51475
+      }
+    }
+  }
+}

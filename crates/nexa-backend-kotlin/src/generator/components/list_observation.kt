@@ -51,3 +51,30 @@ internal inline fun <Item> nexaLeadingVisibleDataItemIndex(
     val visibleFallback = if (reverseLayout) maximumVisibleIndex else firstDataIndex
     return if (visibleFallback >= 0) visibleFallback else fallback
 }
+
+// nexa-codegen: nexaListEndIsVisible
+internal inline fun <Item> nexaListEndIsVisible(
+    visibleItems: List<Item>,
+    finalItemIndex: Int,
+    hasStickyHeader: Boolean,
+    viewportStartOffset: Int,
+    viewportEndOffset: Int,
+    itemIndex: (Item) -> Int,
+    itemOffset: (Item) -> Int,
+    itemSize: (Item) -> Int,
+): Boolean {
+    // Most layouts put the final item near the end. Traversal order does not
+    // affect the result, including for pinned headers and staggered grids.
+    for (position in visibleItems.lastIndex downTo 0) {
+        val item = visibleItems[position]
+        if (itemIndex(item) < finalItemIndex) continue
+        val start = itemOffset(item)
+        val end = start + itemSize(item)
+        if (end <= viewportStartOffset || start >= viewportEndOffset) continue
+        if (!hasStickyHeader) return true
+        val header = visibleItems.firstOrNull { itemIndex(it) == 0 } ?: return true
+        val headerStart = itemOffset(header)
+        if (end <= headerStart || start >= headerStart + itemSize(header)) return true
+    }
+    return false
+}

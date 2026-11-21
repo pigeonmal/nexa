@@ -636,7 +636,7 @@ pub(crate) fn append_visual_effects(
     opacity: Option<f32>,
     effects: &nexa_ir::ViewEffects,
 ) {
-    if let Some(opacity) = opacity {
+    if let Some(opacity) = opacity.filter(|opacity| *opacity != 1.0) {
         append_modifier(
             out,
             depth,

@@ -30,7 +30,7 @@ fn ios_dev_runtime_reserves_end_reached_before_deferring_actions() {
     assert!(
         runtime.contains("@State private var endReachedGate = NexaDevListEndReachedGate()")
             && runtime.contains("endReachedGate.reset()")
-            && runtime.contains("private var gatedOnEndReached: ((Int) -> Void)?")
+            && runtime.contains("private var gatedOnEndReached: (() -> Void)?")
             && runtime.matches("onEndReached: gatedOnEndReached").count() >= 5,
         "native and SwiftUI list callbacks should share a per-view once-per-count gate"
     );
@@ -79,7 +79,7 @@ fn ios_dev_runtime_reserves_end_reached_before_deferring_actions() {
     );
     assert!(
         observer.contains(
-            "if shouldReportEndReached && endReachedGate.complete(count: count) {\n                    onEndReached?(visibleIndex)\n                }"
+            "if shouldReportEndReached && endReachedGate.complete(count: count) {\n                    onEndReached?()\n                }"
         )
             && !observer.contains("didReachEnd"),
         "the deferred callback should only run for a committed reservation and must not rely on deferred @State deduplication"
@@ -114,7 +114,8 @@ fn android_dev_runtime_keeps_scroll_observer_stable_across_recomposition() {
     let runtime = include_str!("../../../runtime/android/NexaDevRenderer.kt");
     assert!(
         runtime.contains("import androidx.compose.runtime.rememberUpdatedState")
-            && runtime.contains("val currentObserveScroll = rememberUpdatedState(observeScroll)"),
+            && runtime.contains("val currentPosition = rememberUpdatedState(onPosition)")
+            && runtime.contains("val currentEndReached = rememberUpdatedState(onEndReached)"),
         "the Android DevRuntime should publish the latest callback without replacing its list observer"
     );
     assert_eq!(
@@ -125,16 +126,17 @@ fn android_dev_runtime_keeps_scroll_observer_stable_across_recomposition() {
         "callback identities must not restart snapshotFlow and replay the current row as a scroll"
     );
     assert!(
-        runtime.contains("LaunchedEffect(listState, count)")
+        runtime.contains("LaunchedEffect(listState, count, watchesPosition, watchesEnd, settledOnly, trackMotion)")
             && runtime.contains("NexaDevScrollSnapshot(")
-            && runtime.contains("isScrollInProgress = listState.isScrollInProgress")
+            && runtime.contains("val moving = (trackMotion || settledOnly) && listState.isScrollInProgress")
             && runtime.contains("snapshot.leadingPosition")
-            && runtime.contains("snapshot.visibleItemCount")
             && runtime.contains("snapshot.reachedEnd")
             && runtime.contains("snapshot.isScrollInProgress")
-            && runtime.contains("currentObserveScroll.value(\n                                            nexaDevLeadingVisibleDataItemIndex(")
+            && runtime.contains("if (settledOnly && moving)")
+            && runtime.contains("if (!watchesPosition && !watchesEnd) return")
+            && runtime.contains("}.first { it }")
             && runtime.contains("val callbackCount = if (isScrollInProgress || previousScrollWasInProgress)")
-            && runtime.contains("repeat(callbackCount) { callbackIndex ->")
+            && runtime.contains("repeat(callbackCount) {")
             && runtime.contains("scrollWasInProgress[0] = isScrollInProgress"),
         "Android grid and list observers should synthesize callbacks for each crossed row while remaining scoped to list/count changes"
     );
@@ -458,7 +460,7 @@ app ScrollCallbacks {
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&kotlin_module);
     assert!(kotlin.contains("snapshotFlow {"), "{kotlin}");
     assert!(
-        kotlin.contains("distinctUntilChanged().collect { firstVisiblePosition ->"),
+        kotlin.contains("}.collect { firstVisiblePosition ->"),
         "{kotlin}"
     );
     assert!(
@@ -477,7 +479,8 @@ app ScrollCallbacks {
     );
     assert!(kotlin.contains("else if (target != "), "{kotlin}");
     assert!(kotlin.contains("= -1"), "{kotlin}");
-    assert!(kotlin.contains("finalItemVisible"), "{kotlin}");
+    assert!(kotlin.contains("}.first { it }"), "{kotlin}");
+    assert!(kotlin.contains("nexaListEndIsVisible("), "{kotlin}");
     assert!(kotlin.contains("nexaEndReached"), "{kotlin}");
     assert!(
         kotlin.contains("fun leadingVisibleDataItemIndex(): Int"),
@@ -496,11 +499,16 @@ app ScrollCallbacks {
         "reverse Android callbacks should choose the last in-viewport layout item, after filtering prefetched rows\n{kotlin}"
     );
     assert!(
-        kotlin.contains("item.index >= nexaListCount1 + 0 - 1 && item.offset < layoutInfo.viewportEndOffset && item.offset + item.size > layoutInfo.viewportStartOffset"),
+        kotlin.contains("layoutInfo.visibleItemsInfo, nexaListCount1 + 0 - 1, false,")
+            && kotlin
+                .contains("if (end <= viewportStartOffset || start >= viewportEndOffset) continue"),
         "Android end detection without a sticky header should still require the final item to intersect the viewport\n{kotlin}"
     );
     assert!(
-        kotlin.contains("item.index >= nexaListCount0 + 1 - 1 && item.offset < layoutInfo.viewportEndOffset && item.offset + item.size > layoutInfo.viewportStartOffset && (stickyHeader == null"),
+        kotlin.contains("layoutInfo.visibleItemsInfo, nexaListCount0 + 1 - 1, true,")
+            && kotlin.contains(
+                "if (end <= headerStart || start >= headerStart + itemSize(header)) return true"
+            ),
         "Android end detection should only count an in-viewport final row that is not obscured by the pinned header\n{kotlin}"
     );
     assert!(

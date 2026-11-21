@@ -1,0 +1,181 @@
+{
+  "fixtureSource": "component EmptyCard(title: String) {\n    body {\n        Stack(width: 196, height: 196) {\n            ContentUnavailable(title: title, description: \"Try another filter\", icon: \"inbox\")\n        }\n    }\n}\napp ColumnBench {\n    state buttonLabel: String = \"A\"\n    body {\n        Column(gap: 4) {\n            Row(gap: 4) {\n                EmptyCard(title: buttonLabel)\n                EmptyCard(title: buttonLabel)\n            }\n            Row(gap: 4) {\n                EmptyCard(title: buttonLabel)\n                EmptyCard(title: buttonLabel)\n            }\n            Row(gap: 4) {\n                EmptyCard(title: buttonLabel)\n                EmptyCard(title: buttonLabel)\n            }\n        }\n    }\n}\n",
+  "workload": "Six default empty-state cards alternate their title on every app frame after a two-second warmup. The described icon and description remain stable.",
+  "ios": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "displayLinkP95Ms": 16.678541665896773,
+        "displayLinkIntervals": 480,
+        "residentBytesEnd": 200982528,
+        "cpuSeconds": 1.277052,
+        "residentBytesStart": 202260480,
+        "residentBytesEveryFiveSeconds": [
+          201031680
+        ],
+        "wallSeconds": 8.012588874960784
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "residentBytesStart": 201687040,
+        "cpuSeconds": 1.3059359999999998,
+        "residentBytesEnd": 201474048,
+        "displayLinkIntervals": 480,
+        "wallSeconds": 8.01468079170445,
+        "residentBytesEveryFiveSeconds": [
+          201474048
+        ],
+        "displayLinkP95Ms": 16.675958351697773
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "residentBytesEveryFiveSeconds": [
+          201506816
+        ],
+        "residentBytesStart": 201768960,
+        "displayLinkP95Ms": 16.67645835550502,
+        "cpuSeconds": 1.5000930000000001,
+        "residentBytesEnd": 191512576,
+        "wallSeconds": 8.012904041679576,
+        "displayLinkIntervals": 480
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "cpuSeconds": 1.5506769999999999,
+        "residentBytesStart": 200982528,
+        "displayLinkIntervals": 480,
+        "residentBytesEnd": 199868416,
+        "residentBytesEveryFiveSeconds": [
+          199852032
+        ],
+        "wallSeconds": 8.014927666634321,
+        "displayLinkP95Ms": 16.67699997778982
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 11253745,
+      "mainExecutableBytes": 408640,
+      "appBundleBytes": 409492,
+      "bundleOtherBytes": 852
+    }
+  },
+  "android": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 6.921413921,
+        "cpuMillis": 1586,
+        "pssKiBStart": 28929,
+        "pssKiBEnd": 34159,
+        "pssKiBEveryFiveSeconds": [
+          34120
+        ],
+        "composeClockIntervals": 111,
+        "composeClockP95Ms": 115.760959,
+        "gfxInfoFrameStats": {
+          "records": 116,
+          "lastIntervalFps": 19.43662049577468,
+          "frameDurationP95Ms": 260.604752
+        }
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 6.005755545,
+        "cpuMillis": 879,
+        "pssKiBStart": 28957,
+        "pssKiBEnd": 37083,
+        "pssKiBEveryFiveSeconds": [
+          35667
+        ],
+        "composeClockIntervals": 179,
+        "composeClockP95Ms": 99.221708,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 30.386267309871293,
+          "frameDurationP95Ms": 170.091408
+        }
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "wallSeconds": 6.003489004,
+        "cpuMillis": 923,
+        "pssKiBStart": 28813,
+        "pssKiBEnd": 36066,
+        "pssKiBEveryFiveSeconds": [
+          35055
+        ],
+        "composeClockIntervals": 157,
+        "composeClockP95Ms": 103.165375,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 26.943397304150988,
+          "frameDurationP95Ms": 145.898262
+        }
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 6.00928217,
+        "cpuMillis": 945,
+        "pssKiBStart": 28786,
+        "pssKiBEnd": 36437,
+        "pssKiBEveryFiveSeconds": [
+          35377
+        ],
+        "composeClockIntervals": 167,
+        "composeClockP95Ms": 100.049209,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 28.29268405853663,
+          "frameDurationP95Ms": 145.950866
+        }
+      }
+    ],
+    "packageBytes": {
+      "before": {
+        "apkBytes": 827135,
+        "aabBytes": 1939574
+      },
+      "after": {
+        "apkBytes": 827135,
+        "aabBytes": 1939297
+      }
+    },
+    "notes": "First baseline sample ran longer than requested and had substantially slower frame delivery. Earlier workspace tests overlapped some captures.",
+    "enduranceSample": {
+      "wallSeconds": 35.007963476,
+      "cpuMillis": 9941,
+      "pssKiBStart": 28779,
+      "pssKiBEnd": 35886,
+      "pssKiBEveryFiveSeconds": [
+        36877,
+        43740,
+        50152,
+        55136,
+        36454,
+        36538,
+        35886
+      ],
+      "composeClockIntervals": 1063,
+      "composeClockP95Ms": 95.453625,
+      "gfxInfoFrameStats": {
+        "records": 114,
+        "lastIntervalFps": 36.847827560869625,
+        "frameDurationP95Ms": 95.665958
+      }
+    },
+    "enduranceNotes": "Host builds overlapped this run. The sample is used for its PSS trend only."
+  }
+}

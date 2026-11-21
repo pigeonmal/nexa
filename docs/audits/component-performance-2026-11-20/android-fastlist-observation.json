@@ -1,0 +1,159 @@
+{
+  "setup": "Android 12 emulator, signed minified Release APKs. Identical 5,000-row list fixtures. Jump to the end and wait for its callback, then scroll through the middle for eight seconds at 600 pixels per second. Repeat before/after/after/before and after/before/before/after.",
+  "nxSource": "app ColumnBench {\n    state hits: Int32 = 0\n    body {\n        Column(gap: 4) {\n            Text(\"Reached end \\(hits)\")\n            FastList(count: 5000, rowHeight: 8, hideVerticalScrollbar: true) { index in\n                Spacer(height: 8)\n            }.onEndReached { hits = hits + 1 }\n        }\n    }\n}\n",
+  "instrumentation": "from pathlib import Path\nimport shutil,sys\nprobe,source=map(Path,sys.argv[1:3])\ntarget=probe/sys.argv[3]/'android'\nshutil.copytree(source,target,dirs_exist_ok=True)\npath=target/'app/src/main/java/dev/nexa/listobs/NexaGenerated.kt'\ncode=path.read_text()\nneedle='                    val nexaListState0 = rememberLazyListState()\\n'\nassert needle in code\ncode=code.replace(needle,needle+'''                    LaunchedEffect(nexaListState0) {\n                        kotlinx.coroutines.delay(1800)\n                        nexaListState0.scrollToItem(nexaListCount0 - 1)\n                        kotlinx.coroutines.withTimeout(5000) {\n                            while (nexa_hits == 0) kotlinx.coroutines.delay(10)\n                        }\n                        nexaListState0.scrollToItem(2500)\n                        kotlinx.coroutines.delay(250)\n                        val firstScans = nexaViewportChecks\n                        val firstCpu = android.os.Process.getElapsedCpuTime()\n                        val start = android.os.SystemClock.elapsedRealtimeNanos()\n                        var last = start\n                        var callbacks = 0\n                        nexaListState0.scroll {\n                            while (last - start < 8_000_000_000L) {\n                                androidx.compose.runtime.withFrameNanos { }\n                                val now = android.os.SystemClock.elapsedRealtimeNanos()\n                                scrollBy(((now - last) * 0.0000006).toFloat())\n                                last = now\n                                callbacks++\n                            }\n                        }\n                        android.util.Log.i(\"NexaListBench\", org.json.JSONObject()\n                            .put(\"watchChecks\", nexaViewportChecks - firstScans)\n                            .put(\"cpuMillis\", android.os.Process.getElapsedCpuTime() - firstCpu)\n                            .put(\"wallSeconds\", (last - start) / 1e9)\n                            .put(\"nativeFrameCallbacks\", callbacks)\n                            .put(\"lastItem\", nexaListState0.firstVisibleItemIndex)\n                            .put(\"endCallbacks\", nexa_hits).toString())\n                    }\n''')\nif 'snapshotFlow { run { val layoutInfo' in code:\n    code=code.replace('snapshotFlow { run { val layoutInfo','snapshotFlow { nexaViewportChecks++; run { val layoutInfo',1)\nelse:\n    needle='snapshotFlow {\\n                                val layoutInfo'\n    assert needle in code\n    code=code.replace(needle,'snapshotFlow {\\n                                nexaViewportChecks++\\n                                val layoutInfo',1)\npath.write_text(code+'\\nprivate var nexaViewportChecks = 0\\n')\n",
+  "releaseSamples": [
+    {
+      "batch": 1,
+      "run": 0,
+      "variant": "before",
+      "counters": {
+        "watchChecks": 239,
+        "cpuMillis": 1085,
+        "wallSeconds": 8.007989587,
+        "nativeFrameCallbacks": 233,
+        "lastItem": 2718,
+        "endCallbacks": 1,
+        "gfxInfoFrameStats": {
+          "records": 116,
+          "lastIntervalFps": 27.38095347619052,
+          "frameDurationP95Ms": 102.512656
+        }
+      }
+    },
+    {
+      "batch": 1,
+      "run": 1,
+      "variant": "after",
+      "counters": {
+        "watchChecks": 0,
+        "cpuMillis": 1910,
+        "wallSeconds": 8.00659092,
+        "nativeFrameCallbacks": 264,
+        "lastItem": 2718,
+        "endCallbacks": 1,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 31.636460535966215,
+          "frameDurationP95Ms": 110.896837
+        }
+      }
+    },
+    {
+      "batch": 1,
+      "run": 2,
+      "variant": "after",
+      "counters": {
+        "watchChecks": 0,
+        "cpuMillis": 1951,
+        "wallSeconds": 8.078106879,
+        "nativeFrameCallbacks": 266,
+        "lastItem": 2720,
+        "endCallbacks": 1,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 33.36448731588791,
+          "frameDurationP95Ms": 138.384725
+        }
+      }
+    },
+    {
+      "batch": 1,
+      "run": 3,
+      "variant": "before",
+      "counters": {
+        "watchChecks": 281,
+        "cpuMillis": 2066,
+        "wallSeconds": 8.005862629,
+        "nativeFrameCallbacks": 275,
+        "lastItem": 2718,
+        "endCallbacks": 1,
+        "gfxInfoFrameStats": {
+          "records": 115,
+          "lastIntervalFps": 31.520738588018485,
+          "frameDurationP95Ms": 97.001347
+        }
+      }
+    },
+    {
+      "batch": 2,
+      "run": 0,
+      "variant": "after",
+      "counters": {
+        "watchChecks": 0,
+        "cpuMillis": 1863,
+        "wallSeconds": 8.007781337,
+        "nativeFrameCallbacks": 248,
+        "lastItem": 2718,
+        "endCallbacks": 1,
+        "gfxInfoFrameStats": {
+          "records": 116,
+          "lastIntervalFps": 31.081082324324374,
+          "frameDurationP95Ms": 98.122292
+        }
+      }
+    },
+    {
+      "batch": 2,
+      "run": 1,
+      "variant": "before",
+      "counters": {
+        "watchChecks": 286,
+        "cpuMillis": 2331,
+        "wallSeconds": 8.047805587,
+        "nativeFrameCallbacks": 280,
+        "lastItem": 2719,
+        "endCallbacks": 1,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 38.06451765161297,
+          "frameDurationP95Ms": 90.833696
+        }
+      }
+    },
+    {
+      "batch": 2,
+      "run": 2,
+      "variant": "before",
+      "counters": {
+        "watchChecks": 487,
+        "cpuMillis": 2560,
+        "wallSeconds": 8.006794003,
+        "nativeFrameCallbacks": 481,
+        "lastItem": 2718,
+        "endCallbacks": 1,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 60.0000024000001,
+          "frameDurationP95Ms": 21.038682
+        }
+      }
+    },
+    {
+      "batch": 2,
+      "run": 3,
+      "variant": "after",
+      "counters": {
+        "watchChecks": 0,
+        "cpuMillis": 2569,
+        "wallSeconds": 8.014714629,
+        "nativeFrameCallbacks": 481,
+        "lastItem": 2718,
+        "endCallbacks": 1,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 60.0000024000001,
+          "frameDurationP95Ms": 9.058066
+        }
+      }
+    }
+  ],
+  "signedApkBytes": {
+    "before": 956543,
+    "after": 956543
+  },
+  "limits": [
+    "The probe counts end-predicate evaluations after the first callback. It measures process CPU and recent gfxinfo frames separately.",
+    "The baseline varies substantially in delivered frame cadence across emulator runs. These samples establish discontinued viewport work and preserved callback delivery, with overlapping CPU and frame timings."
+  ]
+}

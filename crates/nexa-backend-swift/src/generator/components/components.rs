@@ -242,49 +242,49 @@ pub(crate) fn render_node(
                 // dimensioned Nexa spacers a truly fixed footprint.
                 out.line_at(depth, format_args!("Color.clear"));
             }
-            let mut frame_width = "nil".to_owned();
-            let mut frame_height = "nil".to_owned();
+            let mut frame_width = None;
+            let mut frame_height = None;
             let mut relative = Vec::new();
             for (axis, dimension) in [("width", *width), ("height", *height)] {
                 let Some(dimension) = dimension else { continue };
                 match dimension {
                     Dimension::Fixed(value) => {
                         if axis == "width" {
-                            frame_width = number(value);
+                            frame_width = Some(number(value));
                         } else {
-                            frame_height = number(value);
+                            frame_height = Some(number(value));
                         }
                     }
                     Dimension::ScreenWidthFraction(fraction) if axis == "width" => {
-                        frame_width = format!(
+                        frame_width = Some(format!(
                             "nexaWindowMetrics.viewportSize.width * {}",
                             number(fraction)
-                        );
+                        ));
                     }
                     Dimension::ScreenHeightFraction(fraction) if axis == "height" => {
-                        frame_height = format!(
+                        frame_height = Some(format!(
                             "nexaWindowMetrics.viewportSize.height * {}",
                             number(fraction)
-                        );
+                        ));
                     }
-                    Dimension::Fill if axis == "width" => frame_width = ".infinity".to_owned(),
-                    Dimension::Fill if axis == "height" => frame_height = ".infinity".to_owned(),
                     Dimension::ParentFraction(fraction) => {
                         relative.push(format!("{axis}: {}", number(fraction)))
                     }
                     _ => {}
                 }
             }
-            if frame_width != "nil" || frame_height != "nil" {
-                if frame_width == ".infinity" {
+            if let (Some(w), Some(h)) = (&frame_width, &frame_height) {
+                out.push_str(&format!(".frame(width: {w}, height: {h})"));
+            } else {
+                if matches!(width, Some(Dimension::Fill)) {
                     out.push_str(".frame(maxWidth: .infinity)");
-                } else if frame_width != "nil" {
-                    out.push_str(&format!(".frame(width: {frame_width})"));
+                } else if let Some(w) = frame_width {
+                    out.push_str(&format!(".frame(width: {w})"));
                 }
-                if frame_height == ".infinity" {
+                if matches!(height, Some(Dimension::Fill)) {
                     out.push_str(".frame(maxHeight: .infinity)");
-                } else if frame_height != "nil" {
-                    out.push_str(&format!(".frame(height: {frame_height})"));
+                } else if let Some(h) = frame_height {
+                    out.push_str(&format!(".frame(height: {h})"));
                 }
             }
             if !relative.is_empty() {
@@ -294,14 +294,20 @@ pub(crate) fn render_node(
                 ));
             }
         }
-        Node::Divider { color, thickness } => out.line_at(
-            depth,
-            format_args!(
-                "NexaDividerPrimitive(color: {}, thickness: {})",
-                colors::expression(*color),
-                number(*thickness),
-            ),
-        ),
+        Node::Divider { color, thickness } => {
+            if *thickness > 0.0 {
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "NexaDividerPrimitive(color: {}, thickness: {})",
+                        colors::expression(*color),
+                        number(*thickness),
+                    ),
+                );
+            } else {
+                out.line_at(depth, format_args!("EmptyView()"));
+            }
+        }
         Node::Shape {
             shape,
             width,
@@ -310,6 +316,7 @@ pub(crate) fn render_node(
             width_expression,
             height_expression,
             animation,
+            ..
         } => {
             let shape = match shape {
                 nexa_ir::ButtonShape::Capsule => "Capsule()".to_owned(),

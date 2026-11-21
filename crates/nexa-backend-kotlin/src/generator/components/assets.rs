@@ -1,12 +1,9 @@
-use crate::generator::engine::features::Features;
-use crate::generator::engine::imports::ImportSet;
-/// Emits the small, feature-gated drawable resolver used by generated images.
-///
-/// Asset names stay source-level strings so projects can provide platform
-/// resources without changing generated Kotlin. Resolution is remembered per
-/// composition and falls back to a transparent painter when an optional asset
-/// is not present, keeping generated projects buildable before assets are added.
-use nexa_codegen::SourceWriter;
+use std::collections::BTreeSet;
+
+use crate::generator::{
+    engine::{features::Features, imports::ImportSet},
+    utils::kotlin_string,
+};
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let uses_assets =
@@ -20,31 +17,41 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(uses_assets, "androidx.compose.ui.graphics.painter.Painter");
     imports.add(uses_assets, "androidx.compose.ui.res.painterResource");
     imports.add(
-        uses_assets || features.uses_remote_image,
+        features.uses_remote_image,
         "androidx.compose.ui.platform.LocalContext",
     );
 }
 
-pub(crate) fn render(out: &mut SourceWriter) {
-    out.push_str(
-        r#"
+pub(crate) fn drawable_id(name: &str, known_drawables: &BTreeSet<String>) -> String {
+    if known_drawables.contains(name) {
+        format!("R.drawable.`{name}`")
+    } else {
+        format!("nexaDrawableId({})", kotlin_string(name))
+    }
+}
+
+pub(crate) const DRAWABLE_PRIMITIVES: &str = r#"
+// nexa-codegen: nexaDrawableId
 @Composable
-internal fun nexaDrawablePainter(name: String): Painter {
-    val context = LocalContext.current
-    val resourceId = remember(context, name) {
+internal fun nexaDrawableId(name: String): Int {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(context, name) {
         context.resources.getIdentifier(
             name,
             "drawable",
             context.packageName,
         )
     }
+}
+
+// nexa-codegen: nexaDrawablePainter
+@Composable
+internal fun nexaDrawablePainter(resourceId: Int): Painter {
     return if (resourceId == 0) {
-        ColorPainter(Color.Transparent)
+        remember { ColorPainter(Color.Transparent) }
     } else {
         painterResource(resourceId)
     }
 }
 
-"#,
-    );
-}
+"#;

@@ -23,6 +23,17 @@ pub(crate) fn render_node(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    render_node_with_linear_parent(node, module, features, depth, out, false);
+}
+
+pub(crate) fn render_node_with_linear_parent(
+    node: &Node,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+    linear_parent: bool,
+) {
     let scope = RenderScope { module, features };
     match node {
         Node::ViewInsets {
@@ -230,26 +241,52 @@ pub(crate) fn render_node(
             );
         }
         Node::Spacer { width, height } => {
+            if width.is_none() && height.is_none() {
+                let modifier = if linear_parent {
+                    "Modifier.weight(1f)"
+                } else {
+                    "Modifier"
+                };
+                out.line_at(depth, format_args!("Spacer(modifier = {modifier})"));
+                return;
+            }
+            let exact_size = |axis, dimension| match dimension {
+                Some(Dimension::Fixed(value)) => {
+                    Some(format!("{}.dp", crate::generator::utils::number(value)))
+                }
+                Some(Dimension::ScreenWidthFraction(fraction)) if axis == "width" => Some(format!(
+                    "(LocalNexaWindowMetrics.current.viewportWidthDp * {}f).dp",
+                    crate::generator::utils::number(fraction)
+                )),
+                Some(Dimension::ScreenHeightFraction(fraction)) if axis == "height" => {
+                    Some(format!(
+                        "(LocalNexaWindowMetrics.current.viewportHeightDp * {}f).dp",
+                        crate::generator::utils::number(fraction)
+                    ))
+                }
+                _ => None,
+            };
+            let resolved_width = exact_size("width", *width);
+            let resolved_height = exact_size("height", *height);
+            if let (Some(w), Some(h)) = (&resolved_width, &resolved_height) {
+                out.line_at(
+                    depth,
+                    format_args!("Spacer(modifier = Modifier.size(width = {w}, height = {h}))"),
+                );
+                return;
+            }
             let mut modifiers = Vec::new();
             let mut relative = Vec::new();
-            for (axis, dimension) in [("width", *width), ("height", *height)] {
+            for (axis, dimension, exact) in [
+                ("width", *width, resolved_width),
+                ("height", *height, resolved_height),
+            ] {
+                if let Some(value) = exact {
+                    modifiers.push(format!(".{axis}({value})"));
+                    continue;
+                }
                 let Some(dimension) = dimension else { continue };
                 match dimension {
-                    Dimension::Fixed(value) => modifiers.push(format!(
-                        ".{axis}({}.dp)",
-                        crate::generator::utils::number(value)
-                    )),
-                    Dimension::ScreenWidthFraction(fraction) if axis == "width" => {
-                        modifiers.push(format!(
-                            ".width((LocalNexaWindowMetrics.current.viewportWidthDp * {}f).dp)",
-                            crate::generator::utils::number(fraction)
-                        ))
-                    }
-                    Dimension::ScreenHeightFraction(fraction) if axis == "height" => modifiers
-                        .push(format!(
-                            ".height((LocalNexaWindowMetrics.current.viewportHeightDp * {}f).dp)",
-                            crate::generator::utils::number(fraction)
-                        )),
                     Dimension::Fill => modifiers.push(format!(
                         ".fillMax{}()",
                         if axis == "width" { "Width" } else { "Height" }
@@ -267,21 +304,25 @@ pub(crate) fn render_node(
                     relative.join(", ")
                 ));
             }
-            let modifier = if width.is_none() && height.is_none() {
-                "Modifier.weight(1f)".to_owned()
-            } else {
-                format!("Modifier{}", modifiers.join(""))
-            };
-            out.line_at(depth, format_args!("Spacer(modifier = {modifier})"));
+            out.line_at(
+                depth,
+                format_args!("Spacer(modifier = Modifier{})", modifiers.join("")),
+            );
         }
-        Node::Divider { color, thickness } => out.line_at(
-            depth,
-            format_args!(
-                "NexaDividerPrimitive(color = {}, thickness = {}.dp)",
-                crate::generator::colors::expression(*color),
-                super::super::engine::utils::number(*thickness)
-            ),
-        ),
+        Node::Divider { color, thickness } => {
+            if *thickness > 0.0 {
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "NexaDividerPrimitive(color = {}, thickness = {}.dp)",
+                        crate::generator::colors::expression(*color),
+                        super::super::engine::utils::number(*thickness)
+                    ),
+                );
+            } else {
+                out.line_at(depth, format_args!("Unit"));
+            }
+        }
         Node::Shape {
             shape,
             width,
@@ -289,125 +330,22 @@ pub(crate) fn render_node(
             fill,
             width_expression,
             height_expression,
+            measurement,
             animation,
-        } => {
-            let native_shape = match shape {
-                nexa_ir::ButtonShape::Capsule => {
-                    "androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)".to_owned()
-                }
-                nexa_ir::ButtonShape::Circle => {
-                    "androidx.compose.foundation.shape.CircleShape".to_owned()
-                }
-                nexa_ir::ButtonShape::Rounded(radius) => format!(
-                    "androidx.compose.foundation.shape.RoundedCornerShape({}.dp)",
-                    crate::generator::utils::number(*radius)
-                ),
-            };
-            let static_width = format!("{}.dp", crate::generator::utils::number(*width));
-            let static_height = format!("{}.dp", crate::generator::utils::number(*height));
-            let animated_width = match (width_expression, animation) {
-                (Some(expression), Some(animation)) => {
-                    let variable = format!("nexaShapeWidthState{}", out.next_id());
-                    let target = format!(
-                        "({}).dp.coerceAtLeast(0.dp)",
-                        crate::generator::engine::expressions::expression(expression)
-                    );
-                    out.line_at(
-                        depth,
-                        format_args!(
-                            "val {variable} = androidx.compose.animation.core.animateDpAsState(targetValue = {target}, animationSpec = {}, label = \"Nexa shape width\")",
-                            super::controls::kotlin_animation(*animation),
-                        ),
-                    );
-                    Some(variable)
-                }
-                _ => None,
-            };
-            let animated_height = match (height_expression, animation) {
-                (Some(expression), Some(animation)) => {
-                    let variable = format!("nexaShapeHeightState{}", out.next_id());
-                    let target = format!(
-                        "({}).dp.coerceAtLeast(0.dp)",
-                        crate::generator::engine::expressions::expression(expression)
-                    );
-                    out.line_at(
-                        depth,
-                        format_args!(
-                            "val {variable} = androidx.compose.animation.core.animateDpAsState(targetValue = {target}, animationSpec = {}, label = \"Nexa shape height\")",
-                            super::controls::kotlin_animation(*animation),
-                        ),
-                    );
-                    Some(variable)
-                }
-                _ => None,
-            };
-
-            if animated_width.is_some() || animated_height.is_some() {
-                let width = animated_width.map_or_else(
-                    || {
-                        format!(
-                            "({static_width}.roundToPx()).coerceIn(constraints.minWidth, constraints.maxWidth)"
-                        )
-                    },
-                    |state| {
-                        format!(
-                            "({state}.value.roundToPx()).coerceIn(constraints.minWidth, constraints.maxWidth)"
-                        )
-                    },
-                );
-                let height = animated_height.map_or_else(
-                    || {
-                        format!(
-                            "({static_height}.roundToPx()).coerceIn(constraints.minHeight, constraints.maxHeight)"
-                        )
-                    },
-                    |state| {
-                        format!(
-                            "({state}.value.roundToPx()).coerceIn(constraints.minHeight, constraints.maxHeight)"
-                        )
-                    },
-                );
-                out.line_at(
-                    depth,
-                    format_args!(
-                        "androidx.compose.ui.layout.Layout(content = {{}}, modifier = Modifier.background({}, shape = {})) {{ _, constraints ->",
-                        crate::generator::colors::expression(*fill),
-                        native_shape,
-                    ),
-                );
-                out.line_at(depth + 1, format_args!("val widthPx = {width}"));
-                out.line_at(depth + 1, format_args!("val heightPx = {height}"));
-                out.line_at(depth + 1, format_args!("layout(widthPx, heightPx) {{}}"));
-                out.line_at(depth, format_args!("}}"));
-            } else {
-                let width = width_expression.as_ref().map_or_else(
-                    || static_width,
-                    |expression| {
-                        format!(
-                            "({}).dp.coerceAtLeast(0.dp)",
-                            crate::generator::engine::expressions::expression(expression)
-                        )
-                    },
-                );
-                let height = height_expression.as_ref().map_or_else(
-                    || static_height,
-                    |expression| {
-                        format!(
-                            "({}).dp.coerceAtLeast(0.dp)",
-                            crate::generator::engine::expressions::expression(expression)
-                        )
-                    },
-                );
-                out.line_at(
-                    depth,
-                    format_args!(
-                        "Spacer(modifier = Modifier.width({width}).height({height}).background({}, shape = {}))",
-                        crate::generator::colors::expression(*fill),
-                        native_shape,
-                    ),
-                );
-            }
-        }
+        } => super::shapes::render(
+            *shape,
+            *fill,
+            super::shapes::ShapeDimensions {
+                width: *width,
+                height: *height,
+                width_expression: width_expression.as_ref(),
+                height_expression: height_expression.as_ref(),
+                measurement: *measurement,
+            },
+            *animation,
+            depth,
+            out,
+        ),
         Node::Button {
             label,
             accessibility_label,
@@ -554,6 +492,7 @@ pub(crate) fn render_node(
             *max_height,
             *fill_max_size,
             shared_element.as_ref(),
+            &features.known_drawables,
             depth,
             out,
         ),
@@ -790,6 +729,7 @@ pub(crate) fn render_node(
                     features,
                     depth,
                     out,
+                    linear_parent,
                 },
             );
         }
@@ -811,6 +751,7 @@ pub(crate) fn render_node(
                     features,
                     depth,
                     out,
+                    linear_parent,
                 },
             );
         }
@@ -958,7 +899,7 @@ pub(crate) fn render_node_in_row(
                 out,
             )
         }
-        _ => render_node(node, module, features, depth, out),
+        _ => render_node_with_linear_parent(node, module, features, depth, out, true),
     }
 }
 
@@ -1091,9 +1032,20 @@ pub(crate) fn render_children(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    render_children_with_linear_parent(children, module, features, depth, out, false);
+}
+
+pub(crate) fn render_children_with_linear_parent(
+    children: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+    linear_parent: bool,
+) {
     match children {
         [] => {}
-        [node] => render_node(node, module, features, depth, out),
+        [node] => render_node_with_linear_parent(node, module, features, depth, out, linear_parent),
         _ => layout::render_layout(
             LayoutKind::Column,
             0.0,

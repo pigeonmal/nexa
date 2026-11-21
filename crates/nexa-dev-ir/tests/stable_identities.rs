@@ -350,6 +350,7 @@ fn shape_primitive_has_a_stable_dev_identity_and_typed_payload() {
                 }),
                 width_expression: None,
                 height_expression: None,
+                measurement: nexa_ir::ShapeMeasurement::None,
                 animation: None,
             }],
             Type::Numeric(NumericType::Int32),

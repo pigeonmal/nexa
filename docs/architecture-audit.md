@@ -23,6 +23,45 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v556` | Shares one Android marquee observer per active host lifecycle. |
+| `build-v555` | Shares Android marquee motion and accessibility listeners while marquees are mounted. |
+| `build-v554` | Reuses Android DevRuntime toolbar projections across recompositions and shares unchanged module nodes. |
+| `build-v553` | Passes typed button presentation to Android DevRuntime forms and confirmation dialogs without copying nodes. |
+| `build-v552` | Uses one iOS window root and shared viewport and safe-area environment values in both renderers. |
+| `build-v551` | Shares the native iOS window probe across AOT and DevRuntime and removes unused window environment values. |
+| `build-v550` | Adds the core Material icon dependency to Android navigation builds that use the generated back arrow. |
+| `build-v549` | Shares window-metrics reachability across AOT backends and omits the unused Compose provider. |
+| `build-v548` | Omits the iOS AOT window probe for apps without metrics or safe-area consumers. |
+| `build-v547` | Delivers Android DevRuntime list end callbacks without querying the leading row. |
+| `build-v546` | Preserves lexical scope for FastList callbacks in both DevRuntimes and removes callback-only position state on iOS. |
+| `build-v545` | Skips iOS FastList scroll-position observation when its callbacks and binding are absent. |
+| `build-v544` | Emits Android resource IDs for staged AOT images and retains resource names only for dynamic lookups. |
+| `build-v543` | Stops Android FastList end observation after delivery, shares viewport geometry, and keys DevRuntime conditional branches independently. |
+| `build-v542` | Bounds concurrent iOS file image reads and decodes and drops unused queued requests. |
+| `build-v541` | Sizes iOS fit thumbnails to the display and shares encoded input across concurrent decode sizes. |
+| `build-v540` | Shares concurrent iOS image loads and cancels load work when its last view leaves. |
+| `build-v539` | Virtualizes iOS Masonry geometry, scopes its native support to Masonry, and emits FastList scroll helpers for standalone UIKit list axes. |
+| `build-v538` | Defers pure Shape dimension reads into Compose measurement and shares measured geometry with DevRuntime. |
+| `build-v537` | Folds layout and text effects in shared IR, drops identity SwiftUI modifiers, and preserves explicitly arranged or marquee layouts during flattening. |
+| `build-v536` | Skips intrinsic width measurement for constrained Swift multiline editors, mounts Android keyboard effects only when needed, and imports Compose Modifier for standalone fields. |
+| `build-v535` | Reuses ContentUnavailable title styling on Android and the shared title label across SwiftUI availability paths. |
+| `build-v534` | Skips unconstrained Swift fit-image frames and preserves referenced Android images during Release resource shrinking. |
+| `build-v533` | Reuses the Swift font icon renderer for component slots and skips unused base glyph conversion for layered Android icons. |
+| `build-v532` | Shares Android Link intent dispatch between AOT and DevRuntime and skips allocating a scheme set on hot reload link activation. |
+| `build-v531` | Enumerates Swift Picker options by index and caches the Compose Picker chevron geometry across draws. |
+| `build-v530` | Pins Android Slider apps to the same Material 3 version as DevRuntime and starts editing observers only when the app supplies a callback. |
+| `build-v529` | Reuses the installed UIKit segment titles and avoids a second Compose selection lookup during SegmentedControl updates. |
+| `build-v528` | Keeps Swift ProgressBar native determinate rendering free of custom track animation state and Reduce Motion subscriptions. |
+| `build-v527` | Keeps ProgressRing's repeating animation state and lifecycle work inside the Swift indeterminate arc. |
+| `build-v526` | Shares the Swift Switch state transition between tap targets and removes redundant DevRuntime state reads and empty change dispatch. |
+| `build-v525` | Removes unused tap interaction sources and haptic lookups from hot reload Pressable rendering, and evaluates the long-press duration only when used. |
+| `build-v524` | Combines Compose Shape sizing, centers circles in rectangular frames, skips inactive Swift Shape animations, and preserves the semantics import required by shared Android icon and header helpers. |
+| `build-v523` | Omits the native view and color work for zero-thickness dividers in app screens on both backends. |
+| `build-v522` | Resolves Compose Spacer weight in Row and Column scopes and carries it through a single unanimated conditional child. |
+| `build-v521` | Emits a single native sizing modifier for two resolved Spacer dimensions, skips unused Android window metric lookups, and includes the shared focus import in Android hot reload hosts. |
+| `build-v520` | Swift Rows reuse a single native stack and apply the width frame only for explicit horizontal arrangement or safe area fill. |
+| `build-v519` | Emits standalone date pickers on both targets without carrying the Android calendar into PagePager. Swift Columns apply the safe area width modifiers only when the parent requests it. |
+| `build-v518` | Keeps the Android keyboard transition probe out of layout under propagated minimum constraints and omits it when no show/hide callback is used. |
 | `build-v517` | Resolves text font families from packaged font metadata and emits static iOS, Android, and DevRuntime face lookups. |
 | `build-v516` | Keeps iOS keyed FastList row identity lazy through a typed random-access collection instead of allocating an identity wrapper and `AnyHashable` for every source row during parent updates. |
 | `build-v515` | Removes Android Marquee's draw-time StateFlow invalidation; typed child values and measured geometry drive animation resets outside the drawing phase. |

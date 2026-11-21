@@ -1,0 +1,183 @@
+{
+  "fixtureSource": "app ColumnBench {\n    state buttonLabel: String = \"A\"\n    body {\n        Column(gap: 4) {\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n            Picker(items: [\"A\", \"B\", \"C\"], selected: buttonLabel, label: \"Filter\")\n        }\n    }\n}\n",
+  "workload": "12 closed labeled Pickers with three options each. The shared selected value alternates between two choices every app frame after two seconds of warmup.",
+  "ios": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "residentBytesStart": 200884224,
+        "residentBytesEveryFiveSeconds": [
+          200343552
+        ],
+        "wallSeconds": 8.000026458350476,
+        "cpuSeconds": 1.01118,
+        "displayLinkP95Ms": 16.681041684933007,
+        "displayLinkIntervals": 480,
+        "residentBytesEnd": 200097792
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 8.000036916695535,
+        "residentBytesEveryFiveSeconds": [
+          199426048
+        ],
+        "residentBytesEnd": 199426048,
+        "displayLinkIntervals": 480,
+        "cpuSeconds": 1.36797,
+        "displayLinkP95Ms": 16.68687496567145,
+        "residentBytesStart": 199557120
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "displayLinkP95Ms": 16.68708334909752,
+        "displayLinkIntervals": 480,
+        "cpuSeconds": 1.2983080000000002,
+        "residentBytesEnd": 199409664,
+        "wallSeconds": 8.016598041635007,
+        "residentBytesEveryFiveSeconds": [
+          199409664
+        ],
+        "residentBytesStart": 199589888
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "cpuSeconds": 1.422565,
+        "wallSeconds": 8.016621749964543,
+        "residentBytesStart": 199589888,
+        "residentBytesEveryFiveSeconds": [
+          199442432
+        ],
+        "residentBytesEnd": 199442432,
+        "displayLinkIntervals": 480,
+        "displayLinkP95Ms": 16.6906249942258
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 18233671,
+      "mainExecutableBytes": 404632,
+      "appBundleBytes": 405481,
+      "bundleOtherBytes": 849
+    },
+    "interaction": "AOT XCTest opened the labeled picker, verified the label was still present, selected an icon-bearing option, and observed the new selected value."
+  },
+  "android": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 6.004928128,
+        "cpuMillis": 1415,
+        "pssKiBStart": 32039,
+        "pssKiBEnd": 55158,
+        "pssKiBEveryFiveSeconds": [
+          51302
+        ],
+        "composeClockIntervals": 172,
+        "composeClockP95Ms": 102.079959,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 28.320001132800044,
+          "frameDurationP95Ms": 178.672271
+        }
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 6.055138004,
+        "cpuMillis": 1220,
+        "pssKiBStart": 32652,
+        "pssKiBEnd": 54145,
+        "pssKiBEveryFiveSeconds": [
+          50641
+        ],
+        "composeClockIntervals": 162,
+        "composeClockP95Ms": 102.14075,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 26.44444546108646,
+          "frameDurationP95Ms": 134.796929
+        }
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "wallSeconds": 6.002361004,
+        "cpuMillis": 1272,
+        "pssKiBStart": 32441,
+        "pssKiBEnd": 54566,
+        "pssKiBEveryFiveSeconds": [
+          51074
+        ],
+        "composeClockIntervals": 169,
+        "composeClockP95Ms": 98.829917,
+        "gfxInfoFrameStats": {
+          "records": 118,
+          "lastIntervalFps": 28.306452745161337,
+          "frameDurationP95Ms": 138.234139
+        }
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 6.020582879,
+        "cpuMillis": 1353,
+        "pssKiBStart": 33009,
+        "pssKiBEnd": 57246,
+        "pssKiBEveryFiveSeconds": [
+          53526
+        ],
+        "composeClockIntervals": 180,
+        "composeClockP95Ms": 103.346709,
+        "gfxInfoFrameStats": {
+          "records": 113,
+          "lastIntervalFps": 29.090910254545502,
+          "frameDurationP95Ms": 141.377743
+        }
+      }
+    ],
+    "packageBytes": {
+      "before": {
+        "apkBytes": 992883,
+        "aabBytes": 2389488
+      },
+      "after": {
+        "apkBytes": 992883,
+        "aabBytes": 2391132
+      }
+    },
+    "enduranceSample": {
+      "wallSeconds": 45.110219022,
+      "cpuMillis": 20732,
+      "pssKiBStart": 31292,
+      "pssKiBEnd": 35974,
+      "pssKiBEveryFiveSeconds": [
+        58318,
+        35720,
+        38991,
+        35563,
+        37623,
+        37991,
+        36507,
+        37246,
+        35974
+      ],
+      "composeClockIntervals": 1160,
+      "composeClockP95Ms": 97.152375,
+      "gfxInfoFrameStats": {
+        "records": 115,
+        "lastIntervalFps": 10.805687636018975,
+        "frameDurationP95Ms": 157.296628
+      }
+    },
+    "enduranceNotes": "Host build and iOS XCTest overlapped this run. Use the sample for its PSS trend only."
+  }
+}

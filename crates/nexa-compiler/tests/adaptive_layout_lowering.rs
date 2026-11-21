@@ -628,7 +628,7 @@ fn fast_list_content_is_edge_to_edge_without_explicit_safe_area_padding() {
         .module;
     let kotlin = KotlinBackend.generate(&module);
     assert!(!kotlin.contains("nexaSafeAreaContentPadding"));
-    assert!(kotlin.contains("NexaSafeAreaProvider {"));
+    assert!(!kotlin.contains("NexaSafeAreaProvider {"));
     assert!(kotlin.contains("bottom = if (vertical) endpoint.bottom else 0.dp"));
 }
 

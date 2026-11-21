@@ -1,0 +1,158 @@
+{
+  "fixtureSource": "app ColumnBench {\n    state buttonLabel: String = \"A\"\n    body {\n        Column(gap: 4) {\n            TextInput(value: buttonLabel, placeholder: \"Filter 1\")\n            TextInput(value: buttonLabel, placeholder: \"Filter 2\")\n            TextInput(value: buttonLabel, placeholder: \"Filter 3\")\n            TextInput(value: buttonLabel, placeholder: \"Filter 4\")\n            TextInput(value: buttonLabel, placeholder: \"Filter 5\")\n            TextInput(value: buttonLabel, placeholder: \"Filter 6\")\n            TextInput(value: buttonLabel, placeholder: \"Filter 7\", multiline: true, minLines: 2)\n            TextInput(value: buttonLabel, placeholder: \"Filter 8\", multiline: true, minLines: 2)\n            TextInput(value: buttonLabel, placeholder: \"Filter 9\", multiline: true, minLines: 2)\n            TextInput(value: buttonLabel, placeholder: \"Filter 10\", multiline: true, minLines: 2)\n            TextInput(value: buttonLabel, placeholder: \"Filter 11\", multiline: true, minLines: 2)\n            TextInput(value: buttonLabel, placeholder: \"Filter 12\", multiline: true, minLines: 2)\n        }\n    }\n}\n",
+  "workload": "Six single-line and six multiline editors alternate between two bound text values from app frame callbacks. No software keyboard or direct edits during measurements.",
+  "ios": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "cpuSeconds": 2.511336,
+        "residentBytesStart": 185548800,
+        "wallSeconds": 8.016396083345171,
+        "residentBytesEnd": 183451648,
+        "residentBytesEveryFiveSeconds": [
+          183484416
+        ],
+        "displayLinkP95Ms": 16.686791670508683,
+        "displayLinkIntervals": 480
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "residentBytesEveryFiveSeconds": [
+          182616064
+        ],
+        "displayLinkIntervals": 479,
+        "wallSeconds": 8.000005375011824,
+        "cpuSeconds": 2.33766,
+        "displayLinkP95Ms": 16.685125010553747,
+        "residentBytesEnd": 182616064,
+        "residentBytesStart": 182779904
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "displayLinkIntervals": 480,
+        "displayLinkP95Ms": 16.687750001437962,
+        "wallSeconds": 8.016301374998875,
+        "residentBytesStart": 182796288,
+        "cpuSeconds": 2.3615720000000002,
+        "residentBytesEnd": 174505984,
+        "residentBytesEveryFiveSeconds": [
+          174686208
+        ]
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "displayLinkIntervals": 481,
+        "wallSeconds": 8.016648541670293,
+        "displayLinkP95Ms": 16.68291667010635,
+        "residentBytesEnd": 184729600,
+        "residentBytesStart": 184893440,
+        "cpuSeconds": 2.4034579999999997,
+        "residentBytesEveryFiveSeconds": [
+          184729600
+        ]
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 25313986,
+      "mainExecutableBytes": 422112,
+      "appBundleBytes": 423086,
+      "bundleOtherBytes": 974
+    }
+  },
+  "android": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 6.006634045,
+        "cpuMillis": 1350,
+        "pssKiBStart": 32870,
+        "pssKiBEnd": 31513,
+        "pssKiBEveryFiveSeconds": [
+          53400
+        ],
+        "composeClockIntervals": 203,
+        "composeClockP95Ms": 82.068375,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 32.477065519266105,
+          "frameDurationP95Ms": 88.691237
+        }
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 6.036615462,
+        "cpuMillis": 1394,
+        "pssKiBStart": 33854,
+        "pssKiBEnd": 33302,
+        "pssKiBEveryFiveSeconds": [
+          55128
+        ],
+        "composeClockIntervals": 211,
+        "composeClockP95Ms": 77.878125,
+        "gfxInfoFrameStats": {
+          "records": 118,
+          "lastIntervalFps": 34.581282171428626,
+          "frameDurationP95Ms": 94.1512
+        }
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "wallSeconds": 6.000435546,
+        "cpuMillis": 1553,
+        "pssKiBStart": 32803,
+        "pssKiBEnd": 34042,
+        "pssKiBEveryFiveSeconds": [
+          55125
+        ],
+        "composeClockIntervals": 227,
+        "composeClockP95Ms": 66.96725,
+        "gfxInfoFrameStats": {
+          "records": 116,
+          "lastIntervalFps": 34.328359582089604,
+          "frameDurationP95Ms": 88.077833
+        }
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 6.048960838,
+        "cpuMillis": 1857,
+        "pssKiBStart": 32855,
+        "pssKiBEnd": 34760,
+        "pssKiBEveryFiveSeconds": [
+          55059
+        ],
+        "composeClockIntervals": 233,
+        "composeClockP95Ms": 63.856292,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 39.3220354711865,
+          "frameDurationP95Ms": 76.670226
+        }
+      }
+    ],
+    "packageBytes": {
+      "before": {
+        "apkBytes": 1129903,
+        "aabBytes": 2804754
+      },
+      "after": {
+        "apkBytes": 1129903,
+        "aabBytes": 2804091
+      }
+    },
+    "baseline": "The original standalone Android build failed on missing Modifier; the comparison baseline manually adds only that import in the scratch generated file."
+  }
+}

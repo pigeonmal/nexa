@@ -21,9 +21,7 @@ private struct NexaMarqueeHostedContent<Content: View>: View {
             .environment(\.isEnabled, environment.isEnabled)
             .environment(\.displayScale, environment.displayScale)
             .environment(\.nexaWindowMetrics, environment.nexaWindowMetrics)
-            .environment(\.nexaViewportSize, environment.nexaViewportSize)
             .environment(\.nexaVisualSafeAreaInsets, environment.nexaVisualSafeAreaInsets)
-            .environment(\.nexaWindowSafeAreaInsets, environment.nexaWindowSafeAreaInsets)
             .environment(\.nexaSafeAreaRootFillsWidth, false)
             .ignoresSafeArea(.container, edges: .all)
     }

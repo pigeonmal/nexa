@@ -92,6 +92,7 @@ internal object NexaDevKeys {
     const val CONTENT = "content"
     const val AXIS = "axis"
     const val STYLE = "style"
+    const val SHAPE_MEASUREMENT = "measurement"
 
     // Pressable fields
     const val DRAG_PARAMETERS = "drag_parameters"

@@ -1,0 +1,32 @@
+{
+  "format": 2,
+  "tool": "nexa audit",
+  "performance": {"dependencyResolutionMicros": 1566, "compilerMicros": 5710},
+  "entry": "/tmp/nexa-audit-date/App.nx",
+  "targets": [
+    {
+      "target": "android",
+      "app": "DateAudit",
+      "codegenMicros": 17600,
+      "generatedSourceBytes": 92676,
+      "capabilities": {
+        "remoteImage": false,
+        "network": false,
+        "path": false,
+        "file": false,
+        "fileAsync": false,
+        "storage": false,
+        "secureStorage": false
+      },
+      "dependencies": ["androidx.activity:activity-compose", "androidx.compose.material3:material3", "androidx.compose.ui:ui"],
+      "nativePlugins": [],
+      "permissions": {"app": [], "plugins": []},
+      "optimizations": null
+    }
+  ],
+  "warnings": [],
+  "releaseMeasurements": {
+      "ios": {"status": "not_requested", "reason": null, "sdk": "iphoneos", "configuration": "Release", "nativeBuildMicros": null, "mainExecutableBytes": null, "appBundleBytes": null, "bundleOtherBytes": null},
+      "android": {"status": "measured", "reason": null, "configuration": "Release", "gradleVersion": "Gradle 9.4.1", "nativeBuildMicros": 51042676, "minificationEnabled": true, "resourceShrinkingEnabled": true, "apkBytes": 1534643, "aabBytes": 3665902, "apkEntryCount": 81, "dexCompressedBytes": 1192450, "dexUncompressedBytes": 2321224, "resourcesCompressedBytes": 215868, "resourcesUncompressedBytes": 215868, "assetsCompressedBytes": 6337, "assetsUncompressedBytes": 6337, "nativeLibrariesCompressedBytes": 37392, "nativeLibrariesUncompressedBytes": 37392, "nativeLibrariesByAbi": [{"abi": "arm64-v8a", "compressedBytes": 10096, "uncompressedBytes": 10096}, {"abi": "armeabi-v7a", "compressedBytes": 7252, "uncompressedBytes": 7252}, {"abi": "x86", "compressedBytes": 9284, "uncompressedBytes": 9284}, {"abi": "x86_64", "compressedBytes": 10760, "uncompressedBytes": 10760}], "nativeLibraries": [{"path": "lib/x86_64/libandroidx.graphics.path.so", "compressedBytes": 10760, "uncompressedBytes": 10760}, {"path": "lib/arm64-v8a/libandroidx.graphics.path.so", "compressedBytes": 10096, "uncompressedBytes": 10096}, {"path": "lib/x86/libandroidx.graphics.path.so", "compressedBytes": 9284, "uncompressedBytes": 9284}, {"path": "lib/armeabi-v7a/libandroidx.graphics.path.so", "compressedBytes": 7252, "uncompressedBytes": 7252}], "otherCompressedBytes": 33336, "r8MappingBytes": 32539450, "r8UsageReportBytes": 4245267, "resourceShrinkerReportBytes": 28274}
+    }
+}

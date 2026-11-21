@@ -1005,7 +1005,8 @@ fn validate_font_family_references(
                 let family = match node {
                     nexa_ir::Node::Text { style, .. } => style.font_family.as_deref(),
                     nexa_ir::Node::TextInput { font_family, .. } => font_family.as_deref(),
-                    nexa_ir::Node::FontIcon { font_family, .. } => Some(font_family.as_str()),
+                    // Custom icon fonts belong to the icon asset pipeline, not
+                    // the catalog of font families used by text components.
                     _ => None,
                 };
                 if let Some(family) = family {
@@ -1853,20 +1854,26 @@ fn generate_android(
     let plugin_requires_network = plugins
         .iter()
         .any(|plugin| plugin.artifacts.requires_network);
+    let project_images = assets::project_images(source_root)?;
+    let known_drawables = if dev_session.is_some() {
+        std::collections::BTreeSet::new()
+    } else {
+        project_images
+            .iter()
+            .map(|image| image.name.clone())
+            .collect()
+    };
     let (mut sources, mut project_features) = if dev_session.is_some() {
         KotlinBackend.generate_for_dev_units_with_font_catalog_and_project_features(
             module,
             generation.font_catalog.clone(),
         )
-    } else if plugin_requires_network {
-        KotlinBackend.generate_units_with_network_and_font_catalog_and_project_features(
-            module,
-            generation.font_catalog.clone(),
-        )
     } else {
-        KotlinBackend.generate_units_with_font_catalog_and_project_features(
+        KotlinBackend.generate_project_units(
             module,
             generation.font_catalog.clone(),
+            known_drawables.clone(),
+            plugin_requires_network,
         )
     };
     if !module.widgets.is_empty() {
@@ -1926,7 +1933,8 @@ fn generate_android(
     let resources = plugins::stage_android_plugin_resources(root, plugins)?;
     copy_config_icons(root, app_name, generation.config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
-    assets::copy_android_project_images(source_root, root)?;
+    assets::copy_android_project_images(&project_images, root)?;
+    assets::write_android_image_keep_rules(root, &package, module, &known_drawables)?;
     assets::copy_android_project_fonts(source_root, root)?;
     assets::copy_android_localizations(source_root, root, module)?;
     // Every generated file needs the package declaration, and plugin bindings
@@ -3010,6 +3018,164 @@ mod tests {
     }
 
     #[test]
+    fn generated_svg_icon_fonts_are_not_validated_as_text_font_families() {
+        let project = TestProject::new("nexa-svg-icon-font-validation");
+        let fixture_fonts = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/component-parity/assets/fonts");
+        std::fs::create_dir_all(project.join("assets/fonts"))
+            .expect("create temporary project font directory");
+        std::fs::copy(
+            fixture_fonts.join("gilroy_regular.ttf"),
+            project.join("assets/fonts/gilroy_regular.ttf"),
+        )
+        .expect("copy the discovered text font");
+        let svg = project.join("assets/icons/Brand/heart.svg");
+        std::fs::create_dir_all(svg.parent().expect("SVG parent"))
+            .expect("create custom icon set directory");
+        std::fs::write(
+            &svg,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 21 3 12a5 5 0 0 1 9-5 5 5 0 0 1 9 5z"/></svg>"##,
+        )
+        .expect("write the custom SVG icon");
+        let entry = project.write_app(
+            r##"app IconFontValidation { body {
+                Text("Assigned task", fontFamily: "Gilroy")
+                Icon(Brand: "heart", description: "Save task", size: 24)
+            } }"##,
+        );
+
+        let module = nexa_compiler::compile_file(&entry)
+            .expect("compile the text and auto-converted SVG icon");
+        let catalog = super::assets::load_font_catalog(project.path(), &[])
+            .expect("discover only project text fonts");
+        super::validate_font_family_references(&module, &catalog)
+            .expect("generated icon font names are resolved through the icon pipeline");
+    }
+
+    #[test]
+    fn discovered_text_font_family_uses_deterministic_weight_fallback_on_both_backends() {
+        let project = TestProject::new("nexa-text-font-weight-fallback");
+        let fixture_fonts = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/component-parity/assets/fonts");
+        std::fs::create_dir_all(project.join("assets/fonts"))
+            .expect("create temporary project font directory");
+        for filename in ["gilroy_regular.ttf", "gilroy_semibold.ttf"] {
+            std::fs::copy(
+                fixture_fonts.join(filename),
+                project.join("assets/fonts").join(filename),
+            )
+            .expect("copy the parity font face");
+        }
+        let entry = project.write_app(
+            r##"app TextFontFallbackProbe { body {
+                Text("Normal face", fontFamily: "Gilroy", fontWeight: Normal)
+                Text("Medium fallback", fontFamily: "Gilroy", fontWeight: Medium)
+                Text("Semibold face", fontFamily: "Gilroy", fontWeight: Semibold)
+                Text("Bold fallback", fontFamily: "Gilroy", fontWeight: Bold)
+            } }"##,
+        );
+        let catalog = super::assets::load_font_catalog(project.path(), &[])
+            .expect("discover font families from embedded font metadata");
+        assert_eq!(
+            catalog
+                .resolve("Gilroy", nexa_ir::FontWeight::Medium)
+                .expect("resolve the closest face for Medium")
+                .weight,
+            nexa_ir::FontWeight::Normal,
+            "the shared fallback prefers Regular for a missing Medium face"
+        );
+        assert_eq!(
+            catalog
+                .resolve("Gilroy", nexa_ir::FontWeight::Bold)
+                .expect("resolve the closest face for Bold")
+                .weight,
+            nexa_ir::FontWeight::Semibold,
+            "the shared fallback prefers Semibold for a missing Bold face"
+        );
+
+        let compilations =
+            compile_file_with_warnings_for_targets(&entry, &[Target::Swift, Target::Kotlin])
+                .expect("compile font-family samples for both native targets");
+        let swift = SwiftBackend
+            .generate_units_with_font_catalog_and_project_features(
+                &compilations[0].module,
+                catalog.clone(),
+            )
+            .0
+            .units
+            .into_iter()
+            .map(|unit| unit.contents)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let kotlin = KotlinBackend
+            .generate_units_with_font_catalog_and_project_features(&compilations[1].module, catalog)
+            .0
+            .units
+            .into_iter()
+            .map(|unit| unit.contents)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(swift.contains(".custom(\"Gilroy-Regular\""));
+        assert!(swift.contains(".custom(\"Gilroy-Semibold\""));
+        assert!(kotlin.contains("R.font.gilroy_regular, weight = FontWeight.Normal"));
+        assert!(kotlin.contains("R.font.gilroy_semibold, weight = FontWeight.SemiBold"));
+    }
+
+    #[test]
+    fn text_input_only_aot_keeps_locale_and_layout_helpers_without_icon_dependency() {
+        let project = TestProject::new("nexa-text-input-only-aot");
+        let entry = project.write_app(
+            r##"app TextInputOnly { state query: String = "" body {
+                Column(width: Fill, height: Fill, gap: 16, padding: 16) {
+                    TextInput(value: query, placeholder: "Search tasks", clearable: true)
+                }
+            } }"##,
+        );
+        let compilations =
+            compile_file_with_warnings_for_targets(&entry, &[Target::Swift, Target::Kotlin])
+                .expect("compile a TextInput-only app for both native targets");
+
+        let swift = SwiftBackend
+            .generate_units(&compilations[0].module)
+            .units
+            .into_iter()
+            .map(|unit| unit.contents)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (kotlin_sources, kotlin_features) =
+            KotlinBackend.generate_units_with_project_features(&compilations[1].module);
+        let kotlin = kotlin_sources
+            .units
+            .into_iter()
+            .map(|unit| unit.contents)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(swift.contains("static func localizedString("));
+        assert!(swift.contains("NexaLocale.localizedString(key:"));
+        assert!(
+            kotlin.contains("internal val LocalNexaTextAlignment ="),
+            "layout/text references in generated Kotlin: {}",
+            kotlin
+                .lines()
+                .filter(|line| {
+                    line.contains("NexaColumnPrimitive")
+                        || line.contains("TextInput")
+                        || line.contains("query")
+                        || line.contains("LocalNexaTextAlignment")
+                        || line.contains("LocalNexaLayoutOverflowAlignment")
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        assert!(kotlin.contains("internal val LocalNexaLayoutOverflowAlignment ="));
+        assert!(!kotlin.contains("internal fun NexaTextPrimitive("));
+        assert!(!kotlin.contains("androidx.compose.material.icons.Icons"));
+        assert!(!kotlin_features.uses_system_icons);
+    }
+
+    #[test]
     fn android_plugin_network_bridge_reuses_the_configured_app_client() {
         let source = kotlin_network_plugin_bridge_source("com.mazica.android");
 
@@ -3417,7 +3583,9 @@ mod tests {
         let icon_project = TestProject::new("nexa-dev-runtime-custom-icons");
         let entry = icon_project.write_app(
             r##"app FontRuntimeProbe { body {
-                Text("Assigned", fontFamily: "Gilroy", fontWeight: Semibold)
+                Text("Regular fallback", fontFamily: "Gilroy", fontWeight: Medium)
+                Text("Exact face", fontFamily: "Gilroy", fontWeight: Semibold)
+                Text("Semibold fallback", fontFamily: "Gilroy", fontWeight: Bold)
                 Icon(Brand: "heart", description: "Brand", size: 24, color: "#000000")
             } }"##,
         );
@@ -3446,13 +3614,61 @@ mod tests {
         );
 
         assert!(swift.contains("case (\"gilroy\", \"Semibold\"): return \"Gilroy-Semibold\""));
+        assert!(swift.contains("case (\"gilroy\", \"Medium\"): return \"Gilroy-Regular\""));
+        assert!(swift.contains("case (\"gilroy\", \"Bold\"): return \"Gilroy-Semibold\""));
         assert!(swift.contains("fontFamily: family"));
         assert!(kotlin.contains("\"gilroy\" to FontWeight.SemiBold ->"));
+        assert!(kotlin.contains(
+            "\"gilroy\" to FontWeight.Medium -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.gilroy_regular, weight = FontWeight.Normal))"
+        ));
+        assert!(kotlin.contains(
+            "\"gilroy\" to FontWeight.Bold -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.gilroy_semibold, weight = FontWeight.SemiBold))"
+        ));
         assert!(kotlin.contains("R.font.gilroy_semibold"));
         assert!(kotlin.contains("nexaDevIconFontFamily(family)"));
         assert!(!kotlin.contains("__NEXA_ANDROID_FONT_FAMILY_CASES__"));
         assert!(!kotlin.contains("getIdentifier("));
         assert!(!kotlin.contains("assets.open("));
+    }
+
+    #[test]
+    fn dev_runtime_icon_decoders_follow_typed_ir_icon_serialization() {
+        let system = serde_json::to_value(nexa_ir::IconSpec::system(
+            nexa_ir::SystemIcon::shared("search").expect("catalog icon"),
+        ))
+        .expect("serialize typed system icon");
+        assert_eq!(system["source"]["System"]["shared"], "search");
+        assert!(system["size"].is_null());
+
+        let custom = serde_json::to_value(nexa_ir::IconSpec {
+            source: nexa_ir::IconSource::FontGlyph {
+                font_family: "Brand_heart".to_owned(),
+                font_resource: "brand_heart".to_owned(),
+                glyph: 0xE000,
+                layers: vec![nexa_ir::IconGlyphLayer {
+                    glyph: 0xF0000,
+                    rgba: [225, 29, 72, 255],
+                }],
+            },
+            description: None,
+            size: None,
+            color: None,
+        })
+        .expect("serialize typed font icon with its SVG layer");
+        assert_eq!(custom["source"]["FontGlyph"]["font_family"], "Brand_heart");
+        assert_eq!(custom["source"]["FontGlyph"]["glyph"], 0xE000);
+        assert_eq!(custom["source"]["FontGlyph"]["layers"][0]["glyph"], 0xF0000);
+        assert_eq!(custom["source"]["FontGlyph"]["layers"][0]["rgba"][0], 225);
+
+        let swift = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+        let kotlin = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+        assert!(swift.contains("source[\"FontGlyph\"]"));
+        assert!(swift.contains("source[\"System\"]"));
+        assert!(swift.contains("(icon[\"size\"] as? NSNumber)"));
+        assert!(kotlin.contains("source.optJSONObject(\"FontGlyph\")"));
+        assert!(kotlin.contains("source.optJSONObject(\"System\")"));
+        assert!(kotlin.contains("selection.has(\"size\") && !selection.isNull(\"size\")"));
+        assert!(kotlin.contains("nexaDevIconLayers(fontGlyph.optJSONArray(\"layers\"))"));
     }
 
     #[test]
@@ -3469,7 +3685,7 @@ mod tests {
         let fonts = project.join("assets/fonts");
         std::fs::create_dir_all(&fonts).expect("create font assets");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/component-parity/assets/fonts/Mazicon.ttf");
+            .join("../../examples/component-parity/assets/fonts/mazicon.ttf");
         std::fs::copy(&fixture, fonts.join("Mazicon.ttf")).expect("copy prebuilt icon font");
         std::fs::write(fonts.join("Mazicon.icons.json"), r#"{"play":61696}"#)
             .expect("write font icon map");

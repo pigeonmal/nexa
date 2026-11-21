@@ -1,0 +1,17 @@
+app Bookmarks {
+    let gallery = ComponentRef<FastList>()
+    body {
+        Column(gap: 8) {
+            Button("Jump to recent bookmarks") {
+                gallery.scrollToIndex(index: 4000, animated: false)
+            }
+            FastList(count: 5000, axis: Masonry(3), gap: 8, ref: gallery) {
+                index in
+                Column(gap: 4, padding: 8) {
+                    Text("Bookmark \(index)")
+                    if index % 3 == 0 { Text("Includes notes and a saved excerpt.") }
+                }
+            }
+        }
+    }
+}

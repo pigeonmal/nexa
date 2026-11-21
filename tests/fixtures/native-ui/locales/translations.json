@@ -2,22 +2,22 @@
   "format": 1,
   "sourceLanguage": "en",
   "strings": {
-    "Library group {section}": {
-      "source": "Library group {section}",
+    "Bookmark {index}": {
+      "source": "Bookmark {index}",
       "arguments": [
-        "section"
+        "index"
       ],
       "argument_types": [
         "Int32"
       ],
       "translations": {}
     },
-    "Saved track": {
-      "source": "Saved track",
+    "Includes notes and a saved excerpt.": {
+      "source": "Includes notes and a saved excerpt.",
       "translations": {}
     },
-    "Select": {
-      "source": "Select",
+    "Jump to recent bookmarks": {
+      "source": "Jump to recent bookmarks",
       "translations": {}
     }
   }

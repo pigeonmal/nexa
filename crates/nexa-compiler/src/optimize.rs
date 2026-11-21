@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap, HashSet},
-    rc::Rc,
     time::Instant,
 };
 
@@ -10,8 +9,10 @@ use nexa_ir::walk::{
 };
 use nexa_ir::{
     Action, ArithmeticOp, BinaryOp, CollectionUtilityKind, Expr, Function, LayoutKind, Module,
-    Node, NumericType, ViewStyle,
+    Node, NumericType, ViewEffects, ViewStyle,
 };
+
+use crate::Target;
 
 /// Summary of the optimizations applied to a typed IR module.
 #[derive(Clone, Debug, Default)]
@@ -67,12 +68,12 @@ pub(crate) fn function_optimization_facts(
     facts
 }
 
-#[derive(Clone, Default)]
-struct OptimizationRecorder(Option<Rc<RefCell<OptimizationReport>>>);
+#[derive(Default)]
+struct OptimizationRecorder(Option<RefCell<OptimizationReport>>);
 
 impl OptimizationRecorder {
     fn new(enabled: bool) -> Self {
-        Self(enabled.then(|| Rc::new(RefCell::new(OptimizationReport::default()))))
+        Self(enabled.then(|| RefCell::new(OptimizationReport::default())))
     }
 
     fn constant_fold(&self, kind: &'static str) {
@@ -117,10 +118,7 @@ impl OptimizationRecorder {
 
     fn finish(self) -> Option<OptimizationReport> {
         self.0.map(|report| {
-            let Ok(report) = report.try_borrow() else {
-                return OptimizationReport::default();
-            };
-            let mut report = report.clone();
+            let mut report = report.into_inner();
             for names in report.removed_items.values_mut() {
                 names.sort();
                 names.dedup();
@@ -175,6 +173,7 @@ fn optimize_with_recorder(
     unchanged_screens: Option<&[usize]>,
     cached_screen_facts: Option<&HashMap<String, HashSet<String>>>,
 ) {
+    let mut folder = IrOptimizer { recorder };
     let profile = cached_functions.is_some();
     let before = recorder
         .is_enabled()
@@ -185,67 +184,54 @@ fn optimize_with_recorder(
             continue;
         }
         for local in &mut function.locals {
-            local.initial = fold_expression(
-                std::mem::replace(&mut local.initial, Expr::Bool(false)),
-                recorder,
-            );
+            local.initial =
+                folder.fold_expr(std::mem::replace(&mut local.initial, Expr::Bool(false)));
         }
-        function.body = fold_expression(
-            std::mem::replace(&mut function.body, Expr::Bool(false)),
-            recorder,
-        );
+        function.body = folder.fold_expr(std::mem::replace(&mut function.body, Expr::Bool(false)));
         function.body_actions = function
             .body_actions
             .take()
-            .map(|actions| optimize_actions(actions, recorder));
+            .map(|actions| folder.fold_actions(actions));
         prune_unused_function_locals(function);
     }
     log_profile_elapsed("function bodies", functions_started);
     let tree_started = profile.then(Instant::now);
     if unchanged_screens.is_none() {
         for task in &mut module.background_tasks {
-            task.actions = optimize_actions(std::mem::take(&mut task.actions), recorder);
+            task.actions = folder.fold_actions(std::mem::take(&mut task.actions));
         }
         module.states.iter_mut().for_each(|state| {
-            optimize_state_expressions(state, recorder);
+            folder.fold_state_initial(state);
         });
         module.globals.iter_mut().for_each(|state| {
-            optimize_state_expressions(state, recorder);
+            folder.fold_state_initial(state);
         });
         // Both backends wrap a multi-node app body in an implicit
         // `Column { spacing: 0 }` before rendering it, so two adjacent
         // zero-spaced plain columns at the top level merge into exactly that
         // wrapper and the wrapper disappears with them.
-        let optimized_body = optimize_nodes(std::mem::take(&mut module.body), recorder);
-        let simplified_body_layouts = subsumed_layout_count(
-            &optimized_body,
-            LayoutKind::Column,
-            0.0,
-            &ViewStyle::default(),
-        );
+        let optimized_body = folder.fold_nodes(std::mem::take(&mut module.body));
         module.body = hoist_nested_layouts(
             optimized_body,
             LayoutKind::Column,
             0.0,
             &ViewStyle::default(),
+            recorder,
         );
-        for _ in 0..simplified_body_layouts {
-            recorder.simplified_layout();
-        }
         if let Some(actions) = &mut module.on_appear {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
+            *actions = folder.fold_actions(std::mem::take(actions));
         }
         if let Some(actions) = &mut module.on_disappear {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
+            *actions = folder.fold_actions(std::mem::take(actions));
         }
         if let Some(actions) = &mut module.on_active {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
+            *actions = folder.fold_actions(std::mem::take(actions));
         }
         if let Some(actions) = &mut module.on_inactive {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
+            *actions = folder.fold_actions(std::mem::take(actions));
         }
         if let Some(actions) = &mut module.on_background {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
+            *actions = folder.fold_actions(std::mem::take(actions));
         }
     }
     for (index, screen) in module.screens.iter_mut().enumerate() {
@@ -253,61 +239,56 @@ fn optimize_with_recorder(
             continue;
         }
         for state in &mut screen.states {
-            optimize_state_expressions(state, recorder);
+            folder.fold_state_initial(state);
         }
-        screen.body = optimize_nodes(std::mem::take(&mut screen.body), recorder);
+        screen.body = folder.fold_nodes(std::mem::take(&mut screen.body));
         if let Some(actions) = &mut screen.on_appear {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
+            *actions = folder.fold_actions(std::mem::take(actions));
         }
         if let Some(actions) = &mut screen.on_disappear {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
+            *actions = folder.fold_actions(std::mem::take(actions));
         }
     }
     if unchanged_screens.is_none() {
         for widget in &mut module.widgets {
-            widget.entry_provider = fold_expression(
-                std::mem::replace(&mut widget.entry_provider, Expr::Bool(false)),
-                recorder,
-            );
+            widget.entry_provider = folder.fold_expr(std::mem::replace(
+                &mut widget.entry_provider,
+                Expr::Bool(false),
+            ));
             if let Some(placeholder) = &mut widget.placeholder_provider {
-                *placeholder =
-                    fold_expression(std::mem::replace(placeholder, Expr::Bool(false)), recorder);
+                *placeholder = folder.fold_expr(std::mem::replace(placeholder, Expr::Bool(false)));
             }
             if let Some(configuration) = &mut widget.configuration {
-                configuration.default = fold_expression(
-                    std::mem::replace(&mut configuration.default, Expr::Bool(false)),
-                    recorder,
-                );
+                configuration.default = folder.fold_expr(std::mem::replace(
+                    &mut configuration.default,
+                    Expr::Bool(false),
+                ));
             }
-            widget.body = optimize_nodes(std::mem::take(&mut widget.body), recorder);
+            widget.body = folder.fold_nodes(std::mem::take(&mut widget.body));
         }
     }
     if unchanged_screens.is_none() {
         for component in &mut module.components {
-            component.body = optimize_nodes(std::mem::take(&mut component.body), recorder);
+            component.body = folder.fold_nodes(std::mem::take(&mut component.body));
             for method in &mut component.ref_methods {
-                method.body = fold_expression(
-                    std::mem::replace(&mut method.body, Expr::Bool(false)),
-                    recorder,
-                );
+                method.body =
+                    folder.fold_expr(std::mem::replace(&mut method.body, Expr::Bool(false)));
                 if let Some(actions) = &mut method.body_actions {
-                    *actions = optimize_actions(std::mem::take(actions), recorder);
+                    *actions = folder.fold_actions(std::mem::take(actions));
                 }
                 for local in &mut method.locals {
-                    local.initial = fold_expression(
-                        std::mem::replace(&mut local.initial, Expr::Bool(false)),
-                        recorder,
-                    );
+                    local.initial =
+                        folder.fold_expr(std::mem::replace(&mut local.initial, Expr::Bool(false)));
                 }
             }
             if let Some(actions) = &mut component.on_appear {
-                *actions = optimize_actions(std::mem::take(actions), recorder);
+                *actions = folder.fold_actions(std::mem::take(actions));
             }
             if let Some(actions) = &mut component.on_disappear {
-                *actions = optimize_actions(std::mem::take(actions), recorder);
+                *actions = folder.fold_actions(std::mem::take(actions));
             }
             for state in &mut component.states {
-                optimize_state_expressions(state, recorder);
+                folder.fold_state_initial(state);
             }
         }
     }
@@ -427,13 +408,6 @@ impl OptimizationInventory {
             recorder.removed("plugins", name.clone());
         }
     }
-}
-
-fn optimize_state_expressions(state: &mut nexa_ir::State, recorder: &OptimizationRecorder) {
-    state.initial = fold_expression(
-        std::mem::replace(&mut state.initial, Expr::Bool(false)),
-        recorder,
-    );
 }
 
 fn mark_animated_presentation_reads(module: &mut Module, unchanged_screens: Option<&[usize]>) {
@@ -1759,11 +1733,26 @@ fn collect_expression_state_references(expression: &Expr, used: &mut HashSet<Str
     collect_expression_state_names(expression, used);
 }
 
-struct IrOptimizer {
-    recorder: OptimizationRecorder,
+struct IrOptimizer<'a> {
+    recorder: &'a OptimizationRecorder,
 }
 
-impl IrFolder for IrOptimizer {
+impl IrOptimizer<'_> {
+    fn fold_state_initial(&mut self, state: &mut nexa_ir::State) {
+        state.initial = self.fold_expr(std::mem::replace(&mut state.initial, Expr::Bool(false)));
+    }
+
+    fn fold_color(&mut self, color: nexa_ir::ColorExpression) -> nexa_ir::ColorExpression {
+        match color {
+            nexa_ir::ColorExpression::Dynamic(expression) => {
+                nexa_ir::ColorExpression::Dynamic(Box::new(self.fold_expr(*expression)))
+            }
+            other => other,
+        }
+    }
+}
+
+impl IrFolder for IrOptimizer<'_> {
     fn fold_node(&mut self, node: Node) -> Option<Node> {
         match node {
             Node::Layout {
@@ -1772,12 +1761,9 @@ impl IrFolder for IrOptimizer {
                 style,
                 children,
             } => {
+                let style = self.fold_view_style(style);
                 let children = self.fold_nodes(children);
-                let simplified_layouts = subsumed_layout_count(&children, kind, gap, &style);
-                let children = hoist_nested_layouts(children, kind, gap, &style);
-                for _ in 0..simplified_layouts {
-                    self.recorder.simplified_layout();
-                }
+                let children = hoist_nested_layouts(children, kind, gap, &style, self.recorder);
                 if children.len() == 1 && gap == 0.0 && is_plain_style(&style) {
                     self.recorder.simplified_layout();
                     return children.into_iter().next();
@@ -1801,11 +1787,10 @@ impl IrFolder for IrOptimizer {
                 title: self.fold_expr(title),
                 icon,
                 description: description.map(|value| self.fold_expr(value)),
-                title_color: title_color.map(|value| fold_color_expression(value, &self.recorder)),
-                description_color: description_color
-                    .map(|value| fold_color_expression(value, &self.recorder)),
-                icon_tint: icon_tint.map(|value| fold_color_expression(value, &self.recorder)),
-                background: background.map(|value| fold_color_expression(value, &self.recorder)),
+                title_color: title_color.map(|value| self.fold_color(value)),
+                description_color: description_color.map(|value| self.fold_color(value)),
+                icon_tint: icon_tint.map(|value| self.fold_color(value)),
+                background: background.map(|value| self.fold_color(value)),
             }),
             Node::Button {
                 label,
@@ -1940,20 +1925,61 @@ impl IrFolder for IrOptimizer {
 
     fn fold_expr(&mut self, expr: Expr) -> Expr {
         let folded = fold_expr_children(expr, self);
-        fold_expression_rules(folded, &self.recorder)
+        fold_expression_rules(folded, self.recorder)
     }
 }
 
-fn fold_color_expression(
-    color: nexa_ir::ColorExpression,
-    recorder: &OptimizationRecorder,
-) -> nexa_ir::ColorExpression {
-    match color {
-        nexa_ir::ColorExpression::Dynamic(expression) => {
-            nexa_ir::ColorExpression::Dynamic(Box::new(fold_expression(*expression, recorder)))
-        }
-        other => other,
+/// Normalize typed effects before either AOT or the incremental DevRuntime
+/// cache can take ownership of a component body.
+pub(crate) fn normalize_view_effects(effects: &mut ViewEffects, target: Target) {
+    if !effects.has_modifiers() {
+        return;
     }
+    let recorder = OptimizationRecorder::default();
+    IrOptimizer {
+        recorder: &recorder,
+    }
+    .fold_view_effects(effects);
+
+    // Compose's layers affect redraw isolation even at identity values.
+    // Preserve the authored modifier topology there and in portable IR.
+    if target != Target::Swift {
+        return;
+    }
+    if is_numeric_value(effects.opacity_expression.as_deref(), 1.0) {
+        effects.opacity_expression = None;
+    }
+    let is_identity_scale = |value: Option<f32>, expression: Option<&Expr>| match expression {
+        Some(expression) => is_numeric_value(Some(expression), 1.0),
+        None => value.is_none_or(|scale| scale == 1.0),
+    };
+    if is_identity_scale(effects.scale, effects.scale_expression.as_deref())
+        && is_identity_scale(effects.scale_y, effects.scale_y_expression.as_deref())
+    {
+        effects.scale = None;
+        effects.scale_expression = None;
+        effects.scale_y = None;
+        effects.scale_y_expression = None;
+    }
+    if is_numeric_value(effects.offset_y_expression.as_deref(), 0.0) {
+        effects.offset_y_expression = None;
+    }
+    if effects.rotation == Some(0.0) {
+        effects.rotation = None;
+    }
+    if effects.blur == Some(0.0) {
+        effects.blur = None;
+    }
+}
+
+fn is_numeric_value(expression: Option<&Expr>, value: f64) -> bool {
+    expression
+        .and_then(numeric_constant)
+        .and_then(|(raw, ty)| match ty {
+            NumericType::Float32 => raw.parse::<f32>().ok().map(f64::from),
+            _ => raw.parse::<f64>().ok(),
+        })
+        == Some(value)
 }
 
 fn collapse_nodes(nodes: Vec<Node>) -> Option<Node> {
@@ -1977,7 +2003,10 @@ fn collapse_nodes(nodes: Vec<Node>) -> Option<Node> {
 /// is only invisible when the layout they are moving out of was itself
 /// invisible.
 fn is_plain_style(style: &ViewStyle) -> bool {
-    style.alignment.is_none() && !style.has_modifiers()
+    style.alignment.is_none()
+        && style.horizontal_arrangement.is_none()
+        && style.marquee.is_none()
+        && !style.has_modifiers()
 }
 
 /// Hoists any child layout that `parent` exactly subsumes.
@@ -1997,71 +2026,27 @@ fn hoist_nested_layouts(
     kind: LayoutKind,
     spacing: f32,
     style: &ViewStyle,
+    recorder: &OptimizationRecorder,
 ) -> Vec<Node> {
     if !is_plain_style(style) {
         return children;
     }
     let mut hoisted: Vec<Node> = Vec::with_capacity(children.len());
     for child in children {
-        match subsumed_layout_children(&child, kind, spacing) {
-            Some(inner) => hoisted.extend(inner.iter().cloned()),
-            None => hoisted.push(child),
+        match child {
+            Node::Layout {
+                kind: child_kind,
+                gap,
+                style,
+                children,
+            } if child_kind == kind && gap == spacing && is_plain_style(&style) => {
+                recorder.simplified_layout();
+                hoisted.extend(children);
+            }
+            child => hoisted.push(child),
         }
     }
     hoisted
-}
-
-fn subsumed_layout_count(
-    children: &[Node],
-    kind: LayoutKind,
-    spacing: f32,
-    parent_style: &ViewStyle,
-) -> usize {
-    if !is_plain_style(parent_style) {
-        return 0;
-    }
-    children
-        .iter()
-        .filter(|child| subsumed_layout_children(child, kind, spacing).is_some())
-        .count()
-}
-
-/// The grandchildren a parent layout takes over, when it takes any.
-fn subsumed_layout_children(node: &Node, kind: LayoutKind, spacing: f32) -> Option<&[Node]> {
-    let Node::Layout {
-        kind: child_kind,
-        gap: child_spacing,
-        style,
-        children,
-    } = node
-    else {
-        return None;
-    };
-    if *child_kind != kind || *child_spacing != spacing || !is_plain_style(style) {
-        return None;
-    }
-    Some(children)
-}
-
-fn fold_expression(expression: Expr, recorder: &OptimizationRecorder) -> Expr {
-    IrOptimizer {
-        recorder: recorder.clone(),
-    }
-    .fold_expr(expression)
-}
-
-fn optimize_nodes(nodes: Vec<Node>, recorder: &OptimizationRecorder) -> Vec<Node> {
-    IrOptimizer {
-        recorder: recorder.clone(),
-    }
-    .fold_nodes(nodes)
-}
-
-fn optimize_actions(actions: Vec<Action>, recorder: &OptimizationRecorder) -> Vec<Action> {
-    IrOptimizer {
-        recorder: recorder.clone(),
-    }
-    .fold_actions(actions)
 }
 
 fn fold_expression_rules(expression: Expr, recorder: &OptimizationRecorder) -> Expr {

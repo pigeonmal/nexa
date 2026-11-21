@@ -1,0 +1,449 @@
+{
+  "scope": "Release AOT simulator and emulator stress. CPU, RSS, and PSS describe the whole process.",
+  "baseRevision": "18cedbec",
+  "workload": {
+    "stacks": 192,
+    "cellsPerContainer": 16,
+    "containerCount": 12,
+    "warmupSeconds": 2,
+    "sampleSeconds": 5,
+    "update": "Each app frame callback alternates the first child shape width between 8 and 10 logical units.",
+    "control": "Only the BenchCell Stack call is replaced with centered ZStack or Compose Box. All cells contain overlapping shapes.",
+    "candidate": "Swift Stack conditionally applies the infinity-width frame and environment reset only when it receives a safe area fill request.",
+    "source": "component BenchCell(size: Float64) {\n    body {\n        Stack {\n            Shape(width: size, height: 3, shape: Rounded(1), fill: \"#356EAF\")\n            Shape(width: 5, height: 3, shape: Rounded(1), fill: \"#743568\")\n        }\n    }\n}\ncomponent BenchRow(size: Float64) {\n    body {\n        Row(gap: 3) {\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n        }\n    }\n}\napp ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 3) {\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        }\n    }\n}\n"
+  },
+  "platforms": {
+    "ios": "iPhone 18 Pro Max simulator, iOS 27.0, arm64; CADisplayLink target 60 Hz",
+    "android": "emulator-5554, Android 12 API 31; 1080 x 2340; ART speed compilation after each install; most recent gfxinfo frame records"
+  },
+  "iosCandidateGeometry": {
+    "caseCount": 36,
+    "alignments": [
+      "topLeading",
+      "top",
+      "topTrailing",
+      "leading",
+      "center",
+      "trailing",
+      "bottomLeading",
+      "bottom",
+      "bottomTrailing"
+    ],
+    "directions": [
+      "leftToRight",
+      "rightToLeft"
+    ],
+    "safeAreaFill": [
+      false,
+      true
+    ],
+    "expectedIntrinsicSize": [
+      31,
+      14
+    ],
+    "expectedFilledSize": [
+      180,
+      14
+    ],
+    "result": "Equal dimensions and child pixels in all cases. The child color probe detects leaking root fill."
+  },
+  "artifacts": {
+    "native": {
+      "iosSimulatorExecutableBytes": 538072,
+      "iosSimulatorAppBytes": 538834,
+      "androidApkBytes": 743123,
+      "androidAabBytes": 1739227
+    },
+    "nexa": {
+      "iosSimulatorExecutableBytes": 541336,
+      "iosSimulatorAppBytes": 542098,
+      "androidApkBytes": 759507,
+      "androidAabBytes": 1740668
+    },
+    "optimized": {
+      "iosSimulatorExecutableBytes": 541448,
+      "iosSimulatorAppBytes": 542210
+    }
+  },
+  "androidApkEntryLayout": {
+    "native": {
+      "compressedEntryBytes": 698832,
+      "compressedDexBytes": 552388,
+      "firstArm64LibraryDataOffset": 557056,
+      "firstArm64LibraryExtraBytes": 393
+    },
+    "nexa": {
+      "compressedEntryBytes": 699480,
+      "compressedDexBytes": 553086,
+      "firstArm64LibraryDataOffset": 573440,
+      "firstArm64LibraryExtraBytes": 16130
+    }
+  },
+  "measurements": {
+    "ios": [
+      {
+        "variant": "nexa",
+        "cpuSeconds": 1.677016,
+        "residentBytesEnd": 181010432,
+        "wallSeconds": 5.011212249984965,
+        "residentBytesEveryFiveSeconds": [],
+        "displayLinkP95Ms": 16.676291648764163,
+        "displayLinkIntervals": 300,
+        "residentBytesStart": 181059584
+      },
+      {
+        "variant": "native",
+        "residentBytesStart": 179601408,
+        "residentBytesEnd": 179470336,
+        "cpuSeconds": 1.6580749999999997,
+        "wallSeconds": 5.016656541673001,
+        "residentBytesEveryFiveSeconds": [],
+        "displayLinkIntervals": 300,
+        "displayLinkP95Ms": 16.678041662089527
+      },
+      {
+        "variant": "optimized",
+        "residentBytesEveryFiveSeconds": [],
+        "displayLinkP95Ms": 16.676208353601396,
+        "cpuSeconds": 1.657217,
+        "displayLinkIntervals": 301,
+        "residentBytesStart": 180781056,
+        "wallSeconds": 5.016678749991115,
+        "residentBytesEnd": 180535296
+      },
+      {
+        "variant": "optimized",
+        "cpuSeconds": 1.69,
+        "residentBytesEnd": 180518912,
+        "wallSeconds": 5.016642666654661,
+        "residentBytesEveryFiveSeconds": [],
+        "displayLinkIntervals": 300,
+        "residentBytesStart": 180617216,
+        "displayLinkP95Ms": 16.672416706569493
+      },
+      {
+        "variant": "native",
+        "displayLinkIntervals": 300,
+        "displayLinkP95Ms": 16.67570834979415,
+        "residentBytesStart": 179568640,
+        "residentBytesEnd": 179372032,
+        "wallSeconds": 5.000020791660063,
+        "residentBytesEveryFiveSeconds": [],
+        "cpuSeconds": 1.5511499999999998
+      },
+      {
+        "variant": "nexa",
+        "displayLinkP95Ms": 16.674708342179656,
+        "residentBytesEnd": 179798016,
+        "wallSeconds": 5.016663999995217,
+        "cpuSeconds": 1.50202,
+        "residentBytesStart": 179978240,
+        "displayLinkIntervals": 301,
+        "residentBytesEveryFiveSeconds": []
+      }
+    ],
+    "android": [
+      {
+        "variant": "native",
+        "wallSeconds": 5.007753879,
+        "cpuMillis": 3446,
+        "pssKiBStart": 37230,
+        "pssKiBEnd": 29179,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 190,
+        "composeClockP95Ms": 59.241041,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 38.387098309677484,
+          "frameDurationP95Ms": 109.58901
+        }
+      },
+      {
+        "variant": "nexa",
+        "wallSeconds": 5.019870837,
+        "cpuMillis": 3275,
+        "pssKiBStart": 33214,
+        "pssKiBEnd": 29232,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 182,
+        "composeClockP95Ms": 59.680166,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 36.243656272081274,
+          "frameDurationP95Ms": 134.957874
+        }
+      },
+      {
+        "variant": "nexa",
+        "wallSeconds": 5.006949295,
+        "cpuMillis": 3354,
+        "pssKiBStart": 34148,
+        "pssKiBEnd": 31401,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 199,
+        "composeClockP95Ms": 66.719375,
+        "gfxInfoFrameStats": {
+          "records": 118,
+          "lastIntervalFps": 40.11428731885721,
+          "frameDurationP95Ms": 113.90301
+        }
+      },
+      {
+        "variant": "native",
+        "wallSeconds": 5.015146795,
+        "cpuMillis": 3311,
+        "pssKiBStart": 36945,
+        "pssKiBEnd": 27357,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 187,
+        "composeClockP95Ms": 62.190208,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 37.0680643099477,
+          "frameDurationP95Ms": 110.473557
+        }
+      }
+    ]
+  },
+  "retention": {
+    "seconds": 45,
+    "intervalSeconds": 5,
+    "nexaSamples": {
+      "ios": {
+        "residentBytesEnd": 179994624,
+        "cpuSeconds": 14.795516,
+        "displayLinkP95Ms": 16.682458284776658,
+        "residentBytesEveryFiveSeconds": [
+          180092928,
+          179994624,
+          179994624,
+          179994624,
+          179994624,
+          179994624,
+          179961856,
+          179961856,
+          179961856
+        ],
+        "displayLinkIntervals": 2700,
+        "wallSeconds": 45.00001141667599,
+        "residentBytesStart": 181010432
+      },
+      "android": {
+        "wallSeconds": 45.009633939,
+        "cpuMillis": 31867,
+        "pssKiBStart": 35031,
+        "pssKiBEnd": 31292,
+        "pssKiBEveryFiveSeconds": [
+          33125,
+          30305,
+          29881,
+          30961,
+          33661,
+          30101,
+          32213,
+          27760,
+          31292
+        ],
+        "composeClockIntervals": 1763,
+        "composeClockP95Ms": 61.243625,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 37.3822004481676,
+          "frameDurationP95Ms": 115.166208
+        }
+      }
+    },
+    "scope": "Both simulators ran concurrently for the process memory sampling. CPU and frame data from this run are excluded from native comparisons."
+  },
+  "parameterProbes": {
+    "default": {
+      "source": "app StackAudit { body { Stack { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21944,
+        "android": 36865
+      }
+    },
+    "margin": {
+      "source": "app StackAudit { body { Stack(margin: Insets(leading: 4, vertical: 8)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 27380,
+        "android": 39301
+      }
+    },
+    "alignment": {
+      "source": "app StackAudit { body { Stack(alignment: End) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21952,
+        "android": 36868
+      }
+    },
+    "padding": {
+      "source": "app StackAudit { body { Stack(padding: Insets(horizontal: 12, bottom: 4)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 27382,
+        "android": 39303
+      }
+    },
+    "width": {
+      "source": "app StackAudit { body { Stack(width: 80%) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 24492,
+        "android": 39364
+      }
+    },
+    "height": {
+      "source": "app StackAudit { body { Stack(height: screenHeightFraction(0.1)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22104,
+        "android": 37542
+      }
+    },
+    "minWidth": {
+      "source": "app StackAudit { body { Stack(minWidth: 80) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22001,
+        "android": 37096
+      }
+    },
+    "maxWidth": {
+      "source": "app StackAudit { body { Stack(maxWidth: 100%) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 24493,
+        "android": 39365
+      }
+    },
+    "minHeight": {
+      "source": "app StackAudit { body { Stack(minHeight: 32) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22002,
+        "android": 37097
+      }
+    },
+    "maxHeight": {
+      "source": "app StackAudit { body { Stack(maxHeight: 40) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22029,
+        "android": 37097
+      }
+    },
+    "background": {
+      "source": "app StackAudit { body { Stack(background: \"#E8F0FF\") { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22046,
+        "android": 37273
+      }
+    },
+    "cornerRadius": {
+      "source": "app StackAudit { body { Stack(cornerRadius: 8) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22006,
+        "android": 37346
+      }
+    },
+    "cornerRadiusBottom": {
+      "source": "app StackAudit { body { Stack(cornerRadiusBottom: 12) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22100,
+        "android": 37412
+      }
+    },
+    "border": {
+      "source": "app StackAudit { body { Stack(borderColor: \"#345678\", borderWidth: 2) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22099,
+        "android": 37565
+      }
+    },
+    "opacity": {
+      "source": "app StackAudit { body { Stack(opacity: 0.75) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21994,
+        "android": 37525
+      }
+    },
+    "scale": {
+      "source": "app StackAudit { body { Stack(scale: 0.9) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21978,
+        "android": 37475
+      }
+    },
+    "scaleY": {
+      "source": "app StackAudit { body { Stack(scaleY: 0.9) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21987,
+        "android": 37475
+      }
+    },
+    "rotation": {
+      "source": "app StackAudit { body { Stack(rotation: 12) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21990,
+        "android": 37474
+      }
+    },
+    "offsetY": {
+      "source": "app StackAudit { body { Stack(offsetY: 3) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21982,
+        "android": 37498
+      }
+    },
+    "shadow": {
+      "source": "app StackAudit { body { Stack(shadow: Shadow(8, 4, 6, \"#00000070\")) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22072,
+        "android": 38154
+      }
+    },
+    "blur": {
+      "source": "app StackAudit { body { Stack(blur: 2) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21977,
+        "android": 37307
+      }
+    },
+    "clip": {
+      "source": "app StackAudit { body { Stack(clip: Rounded(14)) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 22007,
+        "android": 37347
+      }
+    },
+    "zIndex": {
+      "source": "app StackAudit { body { Stack(zIndex: 1) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 21971,
+        "android": 37222
+      }
+    },
+    "glass": {
+      "source": "app StackAudit { body { Stack(glass: Glass(shape: \"capsule\", tint: \"#DDEBFF\")) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 25116,
+        "android": 38239
+      }
+    },
+    "animation": {
+      "source": "app StackAudit { body { Stack(animation: EaseInOut) { Text(\"Airport departures\") Text(\"Airport arrivals\") } } }",
+      "generatedSourceBytes": {
+        "ios": 25544,
+        "android": 37585
+      }
+    }
+  },
+  "iosCompositorCapture": {
+    "status": "unsupported on the selected simulator",
+    "attempts": [
+      {
+        "template": "Animation Hitches",
+        "error": "Hitches is not supported on this platform."
+      },
+      {
+        "template": "Time Profiler",
+        "instrument": "Core Animation FPS",
+        "error": "The graphics instruments do not support the current device"
+      }
+    ]
+  }
+}

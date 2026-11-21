@@ -43,7 +43,11 @@ pub(crate) struct TextInputProps<'a> {
     pub(crate) on_change: Option<&'a TextInputChange>,
 }
 
-pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+pub(crate) fn imports(
+    features: &Features,
+    include_all_shared_primitives: bool,
+    imports: &mut ImportSet,
+) {
     imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
     imports.add(true, "androidx.compose.foundation.layout.size");
     imports.add(features.uses_text_input, "androidx.compose.ui.unit.sp");
@@ -61,7 +65,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.text.KeyboardActions",
     );
     imports.add(
-        features.uses_text_input,
+        features.uses_text_input || include_all_shared_primitives,
         "androidx.compose.ui.focus.focusRequester",
     );
     imports.add(
@@ -89,9 +93,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.ui.text.input.ImeAction",
     );
     imports.add(
-        features.uses_text_input_autofill
-            || features.uses_focus
-            || features.uses_text_input_searchable,
+        features.uses_text_input || features.uses_focus,
         "androidx.compose.ui.Modifier",
     );
     imports.add(

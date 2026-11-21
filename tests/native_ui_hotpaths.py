@@ -171,6 +171,16 @@ private fun checkScrollObservation() {
             val expected = reference(items, 17, header, reverse, start, end)
             check(observed(items, 17, header, reverse, start, end) == expected)
         }
+        val finalIndex = random.nextInt(0, 40)
+        for (sticky in listOf(false, true)) {
+            val pinned = if (sticky) items.firstOrNull { it.index == 0 } else null
+            val expected = items.any { item ->
+                item.index >= finalIndex && item.offset < end && item.offset + item.size > start &&
+                    (pinned == null || item.offset + item.size <= pinned.offset || item.offset >= pinned.offset + pinned.size)
+            }
+            check(nexaListEndIsVisible(items, finalIndex, sticky, start, end,
+                itemIndex = { it.index }, itemOffset = { it.offset }, itemSize = { it.size }) == expected)
+        }
     }
     val items = (0 until 40).map { Item(it, it * 56 - 112, 56) }
     var checksum = 0
@@ -190,7 +200,7 @@ private fun checkScrollObservation() {
         val optimizedBytes = bean.getThreadAllocatedBytes(thread) - before
         println("scroll allocations: reference=$referenceBytes optimized=$optimizedBytes iterations=20000 checksum=$checksum")
     }
-    println("native Kotlin scroll observation: 4000 reference comparisons passed")
+    println("native Kotlin scroll observation: 6000 reference comparisons passed")
 }
 
 

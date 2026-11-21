@@ -1,0 +1,871 @@
+{
+  "scope": "AOT Release fixture of 192 rounded shapes with changing widths. CPU, PSS and RSS are whole-process metrics.",
+  "baseRevision": "18cedbec",
+  "benchmark": {
+    "source": "component BenchCell(size: Float64) {\n    body {\n        Row(gap: 1) {\n            Shape(width: size, height: 3, shape: Rounded(1), fill: \"#356EAF\")\n            \n        }\n    }\n}\ncomponent BenchRow(size: Float64) {\n    body {\n        Row(gap: 3) {\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n        }\n    }\n}\napp ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 3) {\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        }\n    }\n}\n",
+    "warmupSeconds": 2,
+    "sampleSeconds": 5,
+    "update": "Alternate each shape width between 8 and 10 logical units on each app frame callback.",
+    "androidComparison": "Change only the rounded shape call from two separate native dimension modifiers to one Compose size modifier.",
+    "iosReference": "AOT emits a concrete SwiftUI RoundedRectangle, color fill, and single frame. No alternate wrapper is needed for the native baseline."
+  },
+  "platforms": {
+    "ios": "iPhone 18 Pro Max simulator, iOS 27.0; CADisplayLink target 60 Hz",
+    "android": "emulator-5554, Android 12 API 31; ART speed compilation after each install; cadence from retained gfxinfo frame records"
+  },
+  "measurements": {
+    "ios": [
+      {
+        "variant": "nativeSwiftUI",
+        "wallSeconds": 5.014326958335005,
+        "residentBytesEnd": 179650560,
+        "residentBytesEveryFiveSeconds": [],
+        "residentBytesStart": 180273152,
+        "displayLinkP95Ms": 16.690458345692605,
+        "displayLinkIntervals": 300,
+        "cpuSeconds": 0.567075
+      },
+      {
+        "variant": "nativeSwiftUI",
+        "residentBytesEnd": 177405952,
+        "residentBytesStart": 178323456,
+        "displayLinkP95Ms": 16.681208333466202,
+        "wallSeconds": 5.0000101666664705,
+        "cpuSeconds": 0.7064800000000001,
+        "displayLinkIntervals": 300,
+        "residentBytesEveryFiveSeconds": []
+      }
+    ],
+    "android": [
+      {
+        "variant": "after",
+        "wallSeconds": 5.00362442,
+        "cpuMillis": 3102,
+        "pssKiBStart": 37248,
+        "pssKiBEnd": 30472,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 185,
+        "composeClockP95Ms": 62.376833,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 36.43979203350791,
+          "frameDurationP95Ms": 107.197775
+        }
+      },
+      {
+        "variant": "before",
+        "wallSeconds": 5.00077667,
+        "cpuMillis": 3545,
+        "pssKiBStart": 33730,
+        "pssKiBEnd": 29220,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 182,
+        "composeClockP95Ms": 52.298625,
+        "gfxInfoFrameStats": {
+          "records": 118,
+          "lastIntervalFps": 36.000001440000055,
+          "frameDurationP95Ms": 98.449758
+        }
+      },
+      {
+        "variant": "before",
+        "wallSeconds": 5.033570086,
+        "cpuMillis": 3178,
+        "pssKiBStart": 33913,
+        "pssKiBEnd": 31954,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 177,
+        "composeClockP95Ms": 69.5815,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 35.939087731979754,
+          "frameDurationP95Ms": 112.854751
+        }
+      },
+      {
+        "variant": "after",
+        "wallSeconds": 5.032614253,
+        "cpuMillis": 3065,
+        "pssKiBStart": 31605,
+        "pssKiBEnd": 28430,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 192,
+        "composeClockP95Ms": 55.937167,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 37.860964081283484,
+          "frameDurationP95Ms": 141.185153
+        }
+      }
+    ]
+  },
+  "artifacts": {
+    "iosNativeSwiftUI": {
+      "executableBytes": 514536,
+      "simulatorAppBundleBytes": 515298
+    },
+    "androidBefore": {
+      "apkBytes": 743123,
+      "aabBytes": 1739146
+    },
+    "androidAfter": {
+      "apkBytes": 743123,
+      "aabBytes": 1738830
+    }
+  },
+  "memoryEndurance": {
+    "seconds": 45,
+    "intervalSeconds": 5,
+    "scope": "Each platform ran concurrently. Long samples inform memory observations only.",
+    "ios": {
+      "residentBytesEnd": 172867584,
+      "residentBytesEveryFiveSeconds": [
+        173015040,
+        172916736,
+        172916736,
+        172818432,
+        172818432,
+        172818432,
+        172818432,
+        172818432,
+        172818432
+      ],
+      "displayLinkP95Ms": 16.75624999916181,
+      "displayLinkIntervals": 2700,
+      "cpuSeconds": 11.389662,
+      "wallSeconds": 45.00001812499249,
+      "residentBytesStart": 173080576
+    },
+    "android": {
+      "wallSeconds": 45.039208689,
+      "cpuMillis": 29529,
+      "pssKiBStart": 29399,
+      "pssKiBEnd": 27065,
+      "pssKiBEveryFiveSeconds": [
+        26756,
+        25912,
+        27528,
+        27720,
+        28012,
+        27607,
+        28757,
+        28637,
+        27065
+      ],
+      "composeClockIntervals": 1751,
+      "composeClockP95Ms": 53.836958,
+      "gfxInfoFrameStats": {
+        "records": 120,
+        "lastIntervalFps": 37.3822004481676,
+        "frameDurationP95Ms": 120.887956
+      }
+    }
+  },
+  "circleGeometry": {
+    "cases": [
+      {
+        "frame": [
+          40,
+          16
+        ],
+        "inkBounds": [
+          12,
+          0,
+          16,
+          16
+        ]
+      },
+      {
+        "frame": [
+          16,
+          40
+        ],
+        "inkBounds": [
+          0,
+          12,
+          16,
+          16
+        ]
+      },
+      {
+        "frame": [
+          25,
+          25
+        ],
+        "inkBounds": [
+          0,
+          0,
+          25,
+          25
+        ]
+      }
+    ],
+    "boundsEncoding": "x, y, width, height in arbitrary equal units",
+    "swiftVerification": "Native Circle().path(in:).boundingRect measured on the iOS simulator.",
+    "composeVerification": "Emitted helper evaluated with Compose 1.12.1 geometry, both directions. Zero-size outline bounds verified separately."
+  },
+  "parameterProbes": [
+    {
+      "shape": "Circle",
+      "fillKind": "literal",
+      "sizeKind": "fixed",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: 40, height: 16, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17142,
+          "android": 21483
+        },
+        "after": {
+          "ios": 17142,
+          "android": 22324
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "literal",
+      "sizeKind": "widthState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: w, height: 16, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17217,
+          "android": 22155
+        },
+        "after": {
+          "ios": 17217,
+          "android": 22996
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "literal",
+      "sizeKind": "heightState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: 40, height: h, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17217,
+          "android": 22155
+        },
+        "after": {
+          "ios": 17217,
+          "android": 22996
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "literal",
+      "sizeKind": "twoStates",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: w, height: h, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17291,
+          "android": 22247
+        },
+        "after": {
+          "ios": 17291,
+          "android": 23088
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "literal",
+      "sizeKind": "tweenWidth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: w, height: 16, fill: \"#356EAF80\", animation: Tween(duration: 0.2, easing: Linear)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17266,
+          "android": 23177
+        },
+        "after": {
+          "ios": 17266,
+          "android": 24009
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "literal",
+      "sizeKind": "springBoth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: w, height: h, fill: \"#356EAF80\", animation: Spring(response: 0.35, damping: 0.8)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17527,
+          "android": 23343
+        },
+        "after": {
+          "ios": 17527,
+          "android": 24175
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "adaptive",
+      "sizeKind": "fixed",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: 40, height: 16, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17307,
+          "android": 21740
+        },
+        "after": {
+          "ios": 17307,
+          "android": 22581
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "adaptive",
+      "sizeKind": "widthState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: w, height: 16, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17382,
+          "android": 22412
+        },
+        "after": {
+          "ios": 17382,
+          "android": 23253
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "adaptive",
+      "sizeKind": "heightState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: 40, height: h, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17382,
+          "android": 22412
+        },
+        "after": {
+          "ios": 17382,
+          "android": 23253
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "adaptive",
+      "sizeKind": "twoStates",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: w, height: h, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17456,
+          "android": 22504
+        },
+        "after": {
+          "ios": 17456,
+          "android": 23345
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "adaptive",
+      "sizeKind": "tweenWidth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: w, height: 16, fill: Theme.Accent, animation: Tween(duration: 0.2, easing: Linear)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17431,
+          "android": 23434
+        },
+        "after": {
+          "ios": 17431,
+          "android": 24266
+        }
+      }
+    },
+    {
+      "shape": "Circle",
+      "fillKind": "adaptive",
+      "sizeKind": "springBoth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Circle, width: w, height: h, fill: Theme.Accent, animation: Spring(response: 0.35, damping: 0.8)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17692,
+          "android": 23600
+        },
+        "after": {
+          "ios": 17692,
+          "android": 24432
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "literal",
+      "sizeKind": "fixed",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: 40, height: 16, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17143,
+          "android": 21504
+        },
+        "after": {
+          "ios": 17143,
+          "android": 21492
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "literal",
+      "sizeKind": "widthState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: w, height: 16, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17218,
+          "android": 22176
+        },
+        "after": {
+          "ios": 17218,
+          "android": 22164
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "literal",
+      "sizeKind": "heightState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: 40, height: h, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17218,
+          "android": 22176
+        },
+        "after": {
+          "ios": 17218,
+          "android": 22164
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "literal",
+      "sizeKind": "twoStates",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: w, height: h, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17292,
+          "android": 22268
+        },
+        "after": {
+          "ios": 17292,
+          "android": 22256
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "literal",
+      "sizeKind": "tweenWidth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: w, height: 16, fill: \"#356EAF80\", animation: Tween(duration: 0.2, easing: Linear)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17267,
+          "android": 23198
+        },
+        "after": {
+          "ios": 17267,
+          "android": 23177
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "literal",
+      "sizeKind": "springBoth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: w, height: h, fill: \"#356EAF80\", animation: Spring(response: 0.35, damping: 0.8)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17528,
+          "android": 23364
+        },
+        "after": {
+          "ios": 17528,
+          "android": 23343
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "adaptive",
+      "sizeKind": "fixed",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: 40, height: 16, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17308,
+          "android": 21761
+        },
+        "after": {
+          "ios": 17308,
+          "android": 21749
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "adaptive",
+      "sizeKind": "widthState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: w, height: 16, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17383,
+          "android": 22433
+        },
+        "after": {
+          "ios": 17383,
+          "android": 22421
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "adaptive",
+      "sizeKind": "heightState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: 40, height: h, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17383,
+          "android": 22433
+        },
+        "after": {
+          "ios": 17383,
+          "android": 22421
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "adaptive",
+      "sizeKind": "twoStates",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: w, height: h, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17457,
+          "android": 22525
+        },
+        "after": {
+          "ios": 17457,
+          "android": 22513
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "adaptive",
+      "sizeKind": "tweenWidth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: w, height: 16, fill: Theme.Accent, animation: Tween(duration: 0.2, easing: Linear)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17432,
+          "android": 23455
+        },
+        "after": {
+          "ios": 17432,
+          "android": 23434
+        }
+      }
+    },
+    {
+      "shape": "Capsule",
+      "fillKind": "adaptive",
+      "sizeKind": "springBoth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Capsule, width: w, height: h, fill: Theme.Accent, animation: Spring(response: 0.35, damping: 0.8)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17693,
+          "android": 23621
+        },
+        "after": {
+          "ios": 17693,
+          "android": 23600
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "literal",
+      "sizeKind": "fixed",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: 40, height: 16, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17169,
+          "android": 21498
+        },
+        "after": {
+          "ios": 17169,
+          "android": 21507
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "literal",
+      "sizeKind": "widthState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: w, height: 16, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17244,
+          "android": 22170
+        },
+        "after": {
+          "ios": 17244,
+          "android": 22179
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "literal",
+      "sizeKind": "heightState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: 40, height: h, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17244,
+          "android": 22170
+        },
+        "after": {
+          "ios": 17244,
+          "android": 22179
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "literal",
+      "sizeKind": "twoStates",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: w, height: h, fill: \"#356EAF80\") } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17318,
+          "android": 22262
+        },
+        "after": {
+          "ios": 17318,
+          "android": 22271
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "literal",
+      "sizeKind": "tweenWidth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: w, height: 16, fill: \"#356EAF80\", animation: Tween(duration: 0.2, easing: Linear)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17293,
+          "android": 23192
+        },
+        "after": {
+          "ios": 17293,
+          "android": 23192
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "literal",
+      "sizeKind": "springBoth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: w, height: h, fill: \"#356EAF80\", animation: Spring(response: 0.35, damping: 0.8)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17554,
+          "android": 23358
+        },
+        "after": {
+          "ios": 17554,
+          "android": 23358
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "adaptive",
+      "sizeKind": "fixed",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: 40, height: 16, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17334,
+          "android": 21755
+        },
+        "after": {
+          "ios": 17334,
+          "android": 21764
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "adaptive",
+      "sizeKind": "widthState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: w, height: 16, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17409,
+          "android": 22427
+        },
+        "after": {
+          "ios": 17409,
+          "android": 22436
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "adaptive",
+      "sizeKind": "heightState",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: 40, height: h, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17409,
+          "android": 22427
+        },
+        "after": {
+          "ios": 17409,
+          "android": 22436
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "adaptive",
+      "sizeKind": "twoStates",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: w, height: h, fill: Theme.Accent) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17483,
+          "android": 22519
+        },
+        "after": {
+          "ios": 17483,
+          "android": 22528
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "adaptive",
+      "sizeKind": "tweenWidth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: w, height: 16, fill: Theme.Accent, animation: Tween(duration: 0.2, easing: Linear)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17458,
+          "android": 23449
+        },
+        "after": {
+          "ios": 17458,
+          "android": 23449
+        }
+      }
+    },
+    {
+      "shape": "Rounded(2.5)",
+      "fillKind": "adaptive",
+      "sizeKind": "springBoth",
+      "fixture": "app ShapeProbe { theme { color Accent(light: \"#356EAF\", dark: \"#AACDEE\") }  state w: Float64 = 40.0\n state h: Float64 = 16.0\n body { Shape(shape: Rounded(2.5), width: w, height: h, fill: Theme.Accent, animation: Spring(response: 0.35, damping: 0.8)) } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 17719,
+          "android": 23615
+        },
+        "after": {
+          "ios": 17719,
+          "android": 23615
+        }
+      }
+    }
+  ],
+  "mixedSmokeFixture": "app ShapeAudit {\n    state width: Float64 = 40.0\n    state height: Float64 = 16.0\n    body {\n        Column(gap: 8) {\n            Shape(shape: Circle, width: 40, height: 16, fill: \"#356EAF\")\n            Shape(shape: Capsule, width: 40, height: 16, fill: \"#356EAF80\")\n            Shape(shape: Rounded(4), width: width, height: 16, fill: \"#356EAF\")\n            Shape(shape: Circle, width: width, height: height, fill: \"#356EAF\", animation: Tween(duration: 0.2, easing: Linear))\n            Button(\"Resize shapes\") { width = 16.0; height = 40.0 }\n        }\n    }\n}\n",
+  "mixedSmokeRelease": {
+    "androidBefore": {
+      "status": "failed",
+      "diagnostic": "Unresolved reference 'clearAndSetSemantics'"
+    },
+    "androidAfter": {
+      "status": "measured",
+      "reason": null,
+      "configuration": "Release",
+      "gradleVersion": "Gradle 9.4.1",
+      "nativeBuildMicros": 50482891,
+      "minificationEnabled": true,
+      "resourceShrinkingEnabled": true,
+      "apkBytes": 896235,
+      "aabBytes": 2156660,
+      "apkEntryCount": 79,
+      "dexCompressedBytes": 697346,
+      "dexUncompressedBytes": 1386900,
+      "resourcesCompressedBytes": 85776,
+      "resourcesUncompressedBytes": 85776,
+      "assetsCompressedBytes": 4809,
+      "assetsUncompressedBytes": 4809,
+      "nativeLibrariesCompressedBytes": 37392,
+      "nativeLibrariesUncompressedBytes": 37392,
+      "nativeLibrariesByAbi": [
+        {
+          "abi": "arm64-v8a",
+          "compressedBytes": 10096,
+          "uncompressedBytes": 10096
+        },
+        {
+          "abi": "armeabi-v7a",
+          "compressedBytes": 7252,
+          "uncompressedBytes": 7252
+        },
+        {
+          "abi": "x86",
+          "compressedBytes": 9284,
+          "uncompressedBytes": 9284
+        },
+        {
+          "abi": "x86_64",
+          "compressedBytes": 10760,
+          "uncompressedBytes": 10760
+        }
+      ],
+      "nativeLibraries": [
+        {
+          "path": "lib/x86_64/libandroidx.graphics.path.so",
+          "compressedBytes": 10760,
+          "uncompressedBytes": 10760
+        },
+        {
+          "path": "lib/arm64-v8a/libandroidx.graphics.path.so",
+          "compressedBytes": 10096,
+          "uncompressedBytes": 10096
+        },
+        {
+          "path": "lib/x86/libandroidx.graphics.path.so",
+          "compressedBytes": 9284,
+          "uncompressedBytes": 9284
+        },
+        {
+          "path": "lib/armeabi-v7a/libandroidx.graphics.path.so",
+          "compressedBytes": 7252,
+          "uncompressedBytes": 7252
+        }
+      ],
+      "otherCompressedBytes": 33332,
+      "r8MappingBytes": 17250429,
+      "r8UsageReportBytes": 3113820,
+      "resourceShrinkerReportBytes": 24344
+    },
+    "ios": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 16343461,
+      "mainExecutableBytes": 438832,
+      "appBundleBytes": 439671,
+      "bundleOtherBytes": 839
+    }
+  }
+}

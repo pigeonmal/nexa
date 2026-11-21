@@ -1,0 +1,164 @@
+{
+  "fixtureSource": "app ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 1) {\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n            Slider(value: tileWidth, min: 0.0, max: 12.0)\n        }\n    }\n}\n",
+  "workload": "14 continuous sliders bound to the same Float64, alternated between 8 and 10 in a 0 to 12 range every app frame after two seconds of warmup.",
+  "ios": {
+    "sample": {
+      "displayLinkP95Ms": 16.681916662491858,
+      "residentBytesStart": 184778752,
+      "cpuSeconds": 3.060319,
+      "wallSeconds": 12.015505083312746,
+      "residentBytesEnd": 183894016,
+      "residentBytesEveryFiveSeconds": [
+        184008704,
+        183894016
+      ],
+      "displayLinkIntervals": 720
+    },
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 10278800,
+      "mainExecutableBytes": 299656,
+      "appBundleBytes": 300438,
+      "bundleOtherBytes": 782
+    }
+  },
+  "discardedAlphaPrototype": {
+    "sample": {
+      "wallSeconds": 12.064502632,
+      "cpuMillis": 1543,
+      "pssKiBStart": 28075,
+      "pssKiBEnd": 41529,
+      "pssKiBEveryFiveSeconds": [
+        34137,
+        39613
+      ],
+      "composeClockIntervals": 310,
+      "composeClockP95Ms": 101.488542,
+      "gfxInfoFrameStats": {
+        "records": 118,
+        "lastIntervalFps": 25.342900446626988,
+        "frameDurationP95Ms": 156.43145
+      }
+    },
+    "apkBytes": 808659,
+    "aabBytes": 1917745,
+    "before": "The original standalone Release build failed. The pinned Material 3 version does not accept the generated SliderState constructor or Slider overload. No runtime or package delta is available.",
+    "enduranceSample": {
+      "wallSeconds": 45.006920273,
+      "cpuMillis": 8557,
+      "pssKiBStart": 27526,
+      "pssKiBEnd": 27846,
+      "pssKiBEveryFiveSeconds": [
+        33575,
+        39803,
+        45574,
+        51378,
+        29285,
+        28220,
+        29576,
+        28568,
+        27846
+      ],
+      "composeClockIntervals": 1211,
+      "composeClockP95Ms": 98.534959,
+      "gfxInfoFrameStats": {
+        "records": 116,
+        "lastIntervalFps": 26.136364681818225,
+        "frameDurationP95Ms": 144.429888
+      }
+    },
+    "decision": "The controlled-value overload compiled on Material 3 alpha but failed in the beta DevRuntime host. These results describe the discarded experiment."
+  },
+  "android": {
+    "material3Version": "1.5.0-beta01",
+    "notes": "Original standalone build failed with alpha. For the controlled beta baseline, only the generated Gradle Material dependency was changed in the scratch fixture. Workspace builds overlapped the short samples.",
+    "packageBytes": {
+      "before": {
+        "apkBytes": 808663,
+        "aabBytes": 1907566
+      },
+      "after": {
+        "apkBytes": 808663,
+        "aabBytes": 1906435
+      }
+    },
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 6.035668504,
+        "cpuMillis": 575,
+        "pssKiBStart": 27470,
+        "pssKiBEnd": 35315,
+        "pssKiBEveryFiveSeconds": [
+          33911
+        ],
+        "composeClockIntervals": 148,
+        "composeClockP95Ms": 100.618041,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 25.106383982978763,
+          "frameDurationP95Ms": 91.308264
+        }
+      },
+      {
+        "order": 1,
+        "variant": "beta-after",
+        "wallSeconds": 6.024812962,
+        "cpuMillis": 622,
+        "pssKiBStart": 27474,
+        "pssKiBEnd": 35296,
+        "pssKiBEveryFiveSeconds": [
+          34036
+        ],
+        "composeClockIntervals": 150,
+        "composeClockP95Ms": 100.467125,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 25.195670818003897,
+          "frameDurationP95Ms": 103.819814
+        }
+      },
+      {
+        "order": 2,
+        "variant": "beta-after",
+        "wallSeconds": 6.022684338,
+        "cpuMillis": 1237,
+        "pssKiBStart": 27382,
+        "pssKiBEnd": 35146,
+        "pssKiBEveryFiveSeconds": [
+          33794
+        ],
+        "composeClockIntervals": 149,
+        "composeClockP95Ms": 100.387625,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 23.918919875675712,
+          "frameDurationP95Ms": 315.159504
+        }
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 6.034607462,
+        "cpuMillis": 1386,
+        "pssKiBStart": 27503,
+        "pssKiBEnd": 35091,
+        "pssKiBEveryFiveSeconds": [
+          34291
+        ],
+        "composeClockIntervals": 145,
+        "composeClockP95Ms": 104.238709,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 22.894737757894774,
+          "frameDurationP95Ms": 230.456938
+        }
+      }
+    ]
+  }
+}

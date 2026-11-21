@@ -1318,6 +1318,22 @@
       "source": "Full-size pressable",
       "translations": {}
     },
+    "Gilroy Bold request · Semibold fallback": {
+      "source": "Gilroy Bold request · Semibold fallback",
+      "translations": {}
+    },
+    "Gilroy Medium request · Regular fallback": {
+      "source": "Gilroy Medium request · Regular fallback",
+      "translations": {}
+    },
+    "Gilroy Regular · Normal": {
+      "source": "Gilroy Regular · Normal",
+      "translations": {}
+    },
+    "Gilroy Semibold · exact face": {
+      "source": "Gilroy Semibold · exact face",
+      "translations": {}
+    },
     "Gilroy custom face": {
       "source": "Gilroy custom face",
       "translations": {}
@@ -1749,6 +1765,10 @@
       "source": "Maximum width wraps this longer label onto multiple lines",
       "translations": {}
     },
+    "Mazicon uses a named TTF sidecar; Brand is generated from SVG.": {
+      "source": "Mazicon uses a named TTF sidecar; Brand is generated from SVG.",
+      "translations": {}
+    },
     "Media and navigation": {
       "source": "Media and navigation",
       "translations": {}
@@ -1908,6 +1928,10 @@
       "source": "New message",
       "translations": {}
     },
+    "Newest": {
+      "source": "Newest",
+      "translations": {}
+    },
     "Next": {
       "source": "Next",
       "translations": {}
@@ -1930,6 +1954,10 @@
     },
     "No progress": {
       "source": "No progress",
+      "translations": {}
+    },
+    "No saved favorites": {
+      "source": "No saved favorites",
       "translations": {}
     },
     "No saved tasks": {
@@ -2164,6 +2192,10 @@
       "source": "Plain",
       "translations": {}
     },
+    "Play audio": {
+      "source": "Play audio",
+      "translations": {}
+    },
     "Playback position: {revealPosition} s": {
       "source": "Playback position: {revealPosition} s",
       "arguments": [
@@ -2172,6 +2204,10 @@
       "argument_types": [
         "Float64"
       ],
+      "translations": {}
+    },
+    "Popular": {
+      "source": "Popular",
       "translations": {}
     },
     "Presentation and environment": {
@@ -2419,8 +2455,16 @@
       "source": "Save",
       "translations": {}
     },
+    "Save favorite": {
+      "source": "Save favorite",
+      "translations": {}
+    },
     "Save keeps this sheet open. Close dismisses it.": {
       "source": "Save keeps this sheet open. Close dismisses it.",
+      "translations": {}
+    },
+    "Save one to see it here.": {
+      "source": "Save one to see it here.",
       "translations": {}
     },
     "Save your favorite albums": {
@@ -2435,6 +2479,10 @@
       "argument_types": [
         "Int32"
       ],
+      "translations": {}
+    },
+    "Saved": {
+      "source": "Saved",
       "translations": {}
     },
     "Scale": {
@@ -3023,6 +3071,10 @@
     },
     "System appearance surface": {
       "source": "System appearance surface",
+      "translations": {}
+    },
+    "System, font, and SVG icons": {
+      "source": "System, font, and SVG icons",
       "translations": {}
     },
     "Tall": {

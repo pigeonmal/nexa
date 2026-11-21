@@ -109,9 +109,18 @@ graph TD
 3. **Typed Intermediate Representation (`nexa-ir`)**:
    - Platform-independent representation of layout trees, reactive states, and business logic.
    - Strictly typed: primitives (`Int`, `Double`, `Bool`, `String`), enums, structs, collections, and generic containers (`Result<T, E>`).
+   - Folds style expressions for layouts, scroll views, and text through the same pass for AOT and DevRuntime. Swift skips native modifiers for unit scale and zero offset, rotation, and blur, and skips the compositing wrapper for constant full opacity. Compose keeps the authored layer boundaries for redraw isolation.
+   - Retains dynamic effects, explicit arrangement, and marquee ownership. Both backends consume the simplified tree and keep nonidentity styles on their existing native paths.
+   - Marks pure Shape dimension reads for native measurement. Compose resolves those reads in layout, and AOT and DevRuntime share the same measured primitive for explicit shape animations. Dimensions that evaluate calls retain their authored evaluation order.
+   - iOS Masonry stores estimated card runs and measured overrides, then creates UIKit layout attributes on demand. AOT emits the masonry layout only when the app reaches that axis.
 4. **Native Code Emission (`nexa-backend-swift` & `nexa-backend-kotlin`)**:
    - Emits native Swift (SwiftUI) and Kotlin (Jetpack Compose) source.
    - Enforces zero type erasure and unboxed reactive state containers.
+   - iOS AOT and DevRuntime share an in-flight image loader. Overlapping views of the same URL share one read and reuse a decode that meets their resolution. Height-constrained fit images use the display scale and oriented metadata to size the decode.
+   - The iOS loader bounds simultaneous local file reads and decodes. It drops queued requests when their last view leaves and releases active slots after native work exits. AOT emits the loader only for file or remote images.
+   - Android AOT binds staged image assets and remote placeholders to drawable resource IDs during generation. DevRuntime and names supplied by native resources use the same Compose painter through name lookup.
+   - Android FastList observes end visibility until delivery for the current item count. DevRuntime mounts position and end observers only for configured behavior. Both paths use the same typed viewport checks.
+   - Android DevRuntime keys native conditional content by the selected branch. Distinct branches own separate native state, and edits within a branch retain its identity.
 
 ---
 

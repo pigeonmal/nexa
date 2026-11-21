@@ -1,0 +1,572 @@
+{
+  "scope": "AOT Release layout stress and native geometry checks. CPU and memory values are whole-process metrics.",
+  "baseRevision": "18cedbec",
+  "workload": {
+    "dividers": 192,
+    "warmupSeconds": 2,
+    "sampleSeconds": 5,
+    "thickness": 2,
+    "update": "On each app frame callback the host alternates the cell width between 8 and 10 logical units. For the benchmark the generated parent width is driven by the size parameter in both variants.",
+    "source": "component BenchCell(size: Float64) {\n    body {\n        Column(width: 10) {\n            Divider(color: \"#356EAF\", thickness: 2)\n        }\n    }\n}\ncomponent BenchRow(size: Float64) {\n    body {\n        Row(gap: 3) {\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n        }\n    }\n}\napp ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 3) {\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        }\n    }\n}\n",
+    "candidate": "Swift candidate uses one frame with an in-primitive visibility guard. Compose candidate replaces the empty Box with Spacer under the same sizing and color modifiers. Neither experimental drawing variant was adopted."
+  },
+  "platforms": {
+    "ios": "iPhone 18 Pro Max simulator, iOS 27.0; CADisplayLink target 60 Hz",
+    "android": "emulator-5554, Android 12 API 31; ART speed compilation per installation; most recent gfxinfo frame records"
+  },
+  "artifacts": {
+    "original": {
+      "iosSimulatorExecutableBytes": 535512,
+      "iosSimulatorAppBytes": 536278,
+      "androidApkBytes": 743127,
+      "androidAabBytes": 1738268
+    },
+    "candidate": {
+      "iosSimulatorExecutableBytes": 518936,
+      "iosSimulatorAppBytes": 519702,
+      "androidApkBytes": 743127,
+      "androidAabBytes": 1737905
+    }
+  },
+  "pairedMeasurements": {
+    "ios": [
+      {
+        "variant": "original",
+        "residentBytesEveryFiveSeconds": [],
+        "displayLinkIntervals": 299,
+        "displayLinkP95Ms": 18.156000005546957,
+        "residentBytesStart": 177471488,
+        "residentBytesEnd": 175505408,
+        "cpuSeconds": 0.698662,
+        "wallSeconds": 5.0156962083419785
+      },
+      {
+        "variant": "candidate",
+        "wallSeconds": 5.000021625019144,
+        "residentBytesStart": 177995776,
+        "displayLinkIntervals": 299,
+        "residentBytesEveryFiveSeconds": [],
+        "cpuSeconds": 0.959482,
+        "displayLinkP95Ms": 16.68291667010635,
+        "residentBytesEnd": 178012160
+      },
+      {
+        "variant": "candidate",
+        "displayLinkP95Ms": 16.692791716195643,
+        "residentBytesEveryFiveSeconds": [],
+        "displayLinkIntervals": 300,
+        "wallSeconds": 5.016643583308905,
+        "cpuSeconds": 1.042795,
+        "residentBytesEnd": 178618368,
+        "residentBytesStart": 178733056
+      },
+      {
+        "variant": "original",
+        "residentBytesEveryFiveSeconds": [],
+        "displayLinkIntervals": 300,
+        "displayLinkP95Ms": 16.68183336732909,
+        "wallSeconds": 5.000021833344363,
+        "cpuSeconds": 1.016279,
+        "residentBytesStart": 176308224,
+        "residentBytesEnd": 176177152
+      }
+    ],
+    "android": [
+      {
+        "variant": "candidate",
+        "wallSeconds": 5.020923379,
+        "cpuMillis": 2750,
+        "pssKiBStart": 35703,
+        "pssKiBEnd": 25912,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 193,
+        "composeClockP95Ms": 65.543208,
+        "gfxInfoFrameStats": {
+          "records": 118,
+          "lastIntervalFps": 38.571430114285775,
+          "frameDurationP95Ms": 111.764672
+        }
+      },
+      {
+        "variant": "original",
+        "wallSeconds": 5.00466192,
+        "cpuMillis": 2931,
+        "pssKiBStart": 33630,
+        "pssKiBEnd": 30378,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 175,
+        "composeClockP95Ms": 60.165459,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 33.23943794929583,
+          "frameDurationP95Ms": 161.339129
+        }
+      },
+      {
+        "variant": "original",
+        "wallSeconds": 5.004852128,
+        "cpuMillis": 3222,
+        "pssKiBStart": 27000,
+        "pssKiBEnd": 29694,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 200,
+        "composeClockP95Ms": 55.049,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 41.162792344186116,
+          "frameDurationP95Ms": 88.521892
+        }
+      },
+      {
+        "variant": "candidate",
+        "wallSeconds": 5.000102545,
+        "cpuMillis": 3176,
+        "pssKiBStart": 39291,
+        "pssKiBEnd": 29893,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 174,
+        "composeClockP95Ms": 64.224167,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 36.428572885714345,
+          "frameDurationP95Ms": 124.204195
+        }
+      }
+    ]
+  },
+  "retention": {
+    "durationSeconds": 45,
+    "intervalSeconds": 5,
+    "scope": "Original positive-thickness fixture. Both devices ran concurrently with workspace compilation. Process memory is reported independently from comparison timings.",
+    "samples": {
+      "ios": {
+        "residentBytesStart": 176521216,
+        "cpuSeconds": 9.563203,
+        "displayLinkP95Ms": 17.944416671525687,
+        "residentBytesEveryFiveSeconds": [
+          170295296,
+          170229760,
+          170229760,
+          170229760,
+          155418624,
+          139132928,
+          139149312,
+          139165696,
+          139165696
+        ],
+        "residentBytesEnd": 139231232,
+        "wallSeconds": 45.00158991664648,
+        "displayLinkIntervals": 2688
+      },
+      "android": {
+        "wallSeconds": 45.010990106,
+        "cpuMillis": 20959,
+        "pssKiBStart": 31220,
+        "pssKiBEnd": 28336,
+        "pssKiBEveryFiveSeconds": [
+          27694,
+          28270,
+          26746,
+          27630,
+          29326,
+          29070,
+          26038,
+          27822,
+          28336
+        ],
+        "composeClockIntervals": 1483,
+        "composeClockP95Ms": 81.71125,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 37.46031895873022,
+          "frameDurationP95Ms": 105.932995
+        }
+      }
+    }
+  },
+  "zeroThickness": {
+    "source": "app HiddenDivider {\n    body { Divider(color: \"#356EAF\", thickness: 0) }\n}\n",
+    "beforeSchema": "build-v520",
+    "afterSchema": "build-v523",
+    "beforeGeneratedSourceBytes": {
+      "ios": 17395,
+      "android": 21745
+    },
+    "afterGeneratedSourceBytes": {
+      "ios": 17040,
+      "android": 21252
+    },
+    "afterReleaseSizes": {
+      "ios": {
+        "status": "measured",
+        "reason": null,
+        "sdk": "iphoneos",
+        "configuration": "Release",
+        "xcodeVersion": "Xcode 27.2; Build version 27B52",
+        "nativeBuildMicros": 7004745,
+        "mainExecutableBytes": 180080,
+        "appBundleBytes": 180864,
+        "bundleOtherBytes": 784
+      },
+      "android": {
+        "status": "measured",
+        "reason": null,
+        "configuration": "Release",
+        "gradleVersion": "Gradle 9.4.1",
+        "nativeBuildMicros": 43985031,
+        "minificationEnabled": true,
+        "resourceShrinkingEnabled": true,
+        "apkBytes": 734935,
+        "aabBytes": 1703516,
+        "apkEntryCount": 79,
+        "dexCompressedBytes": 541229,
+        "dexUncompressedBytes": 1091280,
+        "resourcesCompressedBytes": 71932,
+        "resourcesUncompressedBytes": 71932,
+        "assetsCompressedBytes": 3067,
+        "assetsUncompressedBytes": 3067,
+        "nativeLibrariesCompressedBytes": 37392,
+        "nativeLibrariesUncompressedBytes": 37392,
+        "nativeLibrariesByAbi": [
+          {
+            "abi": "arm64-v8a",
+            "compressedBytes": 10096,
+            "uncompressedBytes": 10096
+          },
+          {
+            "abi": "armeabi-v7a",
+            "compressedBytes": 7252,
+            "uncompressedBytes": 7252
+          },
+          {
+            "abi": "x86",
+            "compressedBytes": 9284,
+            "uncompressedBytes": 9284
+          },
+          {
+            "abi": "x86_64",
+            "compressedBytes": 10760,
+            "uncompressedBytes": 10760
+          }
+        ],
+        "nativeLibraries": [
+          {
+            "path": "lib/x86_64/libandroidx.graphics.path.so",
+            "compressedBytes": 10760,
+            "uncompressedBytes": 10760
+          },
+          {
+            "path": "lib/arm64-v8a/libandroidx.graphics.path.so",
+            "compressedBytes": 10096,
+            "uncompressedBytes": 10096
+          },
+          {
+            "path": "lib/x86/libandroidx.graphics.path.so",
+            "compressedBytes": 9284,
+            "uncompressedBytes": 9284
+          },
+          {
+            "path": "lib/armeabi-v7a/libandroidx.graphics.path.so",
+            "compressedBytes": 7252,
+            "uncompressedBytes": 7252
+          }
+        ],
+        "otherCompressedBytes": 33333,
+        "r8MappingBytes": 13218176,
+        "r8UsageReportBytes": 2669205,
+        "resourceShrinkerReportBytes": 24544
+      }
+    },
+    "iosZeroLayoutProbe": {
+      "originalPoints": [
+        100,
+        36
+      ],
+      "omittedPoints": [
+        12,
+        28
+      ],
+      "afterPoints": [
+        12,
+        28
+      ],
+      "devErasedViewMatched": true
+    }
+  },
+  "iosPositiveCandidateGeometry": {
+    "cases": 90,
+    "result": "Dimensions and rendered pixels matched in standalone, vertical and horizontal layouts with two colors and five positive thicknesses."
+  },
+  "parameterProbes": [
+    {
+      "colorKind": "shortHex",
+      "thicknessKind": "zero",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#36A\", thickness: 0) } }",
+      "generatedSourceBytes": {
+        "ios": 17039,
+        "android": 21251
+      }
+    },
+    {
+      "colorKind": "shortHex",
+      "thicknessKind": "subpixel",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#36A\", thickness: 0.25) } }",
+      "generatedSourceBytes": {
+        "ios": 17389,
+        "android": 21662
+      }
+    },
+    {
+      "colorKind": "shortHex",
+      "thicknessKind": "fine",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#36A\", thickness: 0.5) } }",
+      "generatedSourceBytes": {
+        "ios": 17388,
+        "android": 21661
+      }
+    },
+    {
+      "colorKind": "shortHex",
+      "thicknessKind": "normal",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#36A\", thickness: 1) } }",
+      "generatedSourceBytes": {
+        "ios": 17386,
+        "android": 21659
+      }
+    },
+    {
+      "colorKind": "shortHex",
+      "thicknessKind": "thick",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#36A\", thickness: 4) } }",
+      "generatedSourceBytes": {
+        "ios": 17386,
+        "android": 21659
+      }
+    },
+    {
+      "colorKind": "shortHex",
+      "thicknessKind": "theme",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#36A\", thickness: Theme.Hairline) } }",
+      "generatedSourceBytes": {
+        "ios": 17388,
+        "android": 21661
+      }
+    },
+    {
+      "colorKind": "opaque",
+      "thicknessKind": "zero",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF\", thickness: 0) } }",
+      "generatedSourceBytes": {
+        "ios": 17039,
+        "android": 21251
+      }
+    },
+    {
+      "colorKind": "opaque",
+      "thicknessKind": "subpixel",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF\", thickness: 0.25) } }",
+      "generatedSourceBytes": {
+        "ios": 17389,
+        "android": 21662
+      }
+    },
+    {
+      "colorKind": "opaque",
+      "thicknessKind": "fine",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF\", thickness: 0.5) } }",
+      "generatedSourceBytes": {
+        "ios": 17388,
+        "android": 21661
+      }
+    },
+    {
+      "colorKind": "opaque",
+      "thicknessKind": "normal",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF\", thickness: 1) } }",
+      "generatedSourceBytes": {
+        "ios": 17386,
+        "android": 21659
+      }
+    },
+    {
+      "colorKind": "opaque",
+      "thicknessKind": "thick",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF\", thickness: 4) } }",
+      "generatedSourceBytes": {
+        "ios": 17386,
+        "android": 21659
+      }
+    },
+    {
+      "colorKind": "opaque",
+      "thicknessKind": "theme",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF\", thickness: Theme.Hairline) } }",
+      "generatedSourceBytes": {
+        "ios": 17388,
+        "android": 21661
+      }
+    },
+    {
+      "colorKind": "translucent",
+      "thicknessKind": "zero",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF80\", thickness: 0) } }",
+      "generatedSourceBytes": {
+        "ios": 17039,
+        "android": 21251
+      }
+    },
+    {
+      "colorKind": "translucent",
+      "thicknessKind": "subpixel",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF80\", thickness: 0.25) } }",
+      "generatedSourceBytes": {
+        "ios": 17389,
+        "android": 21662
+      }
+    },
+    {
+      "colorKind": "translucent",
+      "thicknessKind": "fine",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF80\", thickness: 0.5) } }",
+      "generatedSourceBytes": {
+        "ios": 17388,
+        "android": 21661
+      }
+    },
+    {
+      "colorKind": "translucent",
+      "thicknessKind": "normal",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF80\", thickness: 1) } }",
+      "generatedSourceBytes": {
+        "ios": 17386,
+        "android": 21659
+      }
+    },
+    {
+      "colorKind": "translucent",
+      "thicknessKind": "thick",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF80\", thickness: 4) } }",
+      "generatedSourceBytes": {
+        "ios": 17386,
+        "android": 21659
+      }
+    },
+    {
+      "colorKind": "translucent",
+      "thicknessKind": "theme",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF80\", thickness: Theme.Hairline) } }",
+      "generatedSourceBytes": {
+        "ios": 17388,
+        "android": 21661
+      }
+    },
+    {
+      "colorKind": "transparent",
+      "thicknessKind": "zero",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF00\", thickness: 0) } }",
+      "generatedSourceBytes": {
+        "ios": 17039,
+        "android": 21251
+      }
+    },
+    {
+      "colorKind": "transparent",
+      "thicknessKind": "subpixel",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF00\", thickness: 0.25) } }",
+      "generatedSourceBytes": {
+        "ios": 17389,
+        "android": 21662
+      }
+    },
+    {
+      "colorKind": "transparent",
+      "thicknessKind": "fine",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF00\", thickness: 0.5) } }",
+      "generatedSourceBytes": {
+        "ios": 17388,
+        "android": 21661
+      }
+    },
+    {
+      "colorKind": "transparent",
+      "thicknessKind": "normal",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF00\", thickness: 1) } }",
+      "generatedSourceBytes": {
+        "ios": 17386,
+        "android": 21659
+      }
+    },
+    {
+      "colorKind": "transparent",
+      "thicknessKind": "thick",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF00\", thickness: 4) } }",
+      "generatedSourceBytes": {
+        "ios": 17386,
+        "android": 21659
+      }
+    },
+    {
+      "colorKind": "transparent",
+      "thicknessKind": "theme",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: \"#356EAF00\", thickness: Theme.Hairline) } }",
+      "generatedSourceBytes": {
+        "ios": 17388,
+        "android": 21661
+      }
+    },
+    {
+      "colorKind": "adaptive",
+      "thicknessKind": "zero",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: Theme.Separator, thickness: 0) } }",
+      "generatedSourceBytes": {
+        "ios": 17039,
+        "android": 21251
+      }
+    },
+    {
+      "colorKind": "adaptive",
+      "thicknessKind": "subpixel",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: Theme.Separator, thickness: 0.25) } }",
+      "generatedSourceBytes": {
+        "ios": 17493,
+        "android": 21706
+      }
+    },
+    {
+      "colorKind": "adaptive",
+      "thicknessKind": "fine",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: Theme.Separator, thickness: 0.5) } }",
+      "generatedSourceBytes": {
+        "ios": 17492,
+        "android": 21705
+      }
+    },
+    {
+      "colorKind": "adaptive",
+      "thicknessKind": "normal",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: Theme.Separator, thickness: 1) } }",
+      "generatedSourceBytes": {
+        "ios": 17490,
+        "android": 21703
+      }
+    },
+    {
+      "colorKind": "adaptive",
+      "thicknessKind": "thick",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: Theme.Separator, thickness: 4) } }",
+      "generatedSourceBytes": {
+        "ios": 17490,
+        "android": 21703
+      }
+    },
+    {
+      "colorKind": "adaptive",
+      "thicknessKind": "theme",
+      "fixture": "app DividerProbe { theme { color Separator(light: \"#356EAF\", dark: \"#AACDEE\"); spacing Hairline: 0.5 } body { Divider(color: Theme.Separator, thickness: Theme.Hairline) } }",
+      "generatedSourceBytes": {
+        "ios": 17492,
+        "android": 21705
+      }
+    }
+  ]
+}

@@ -68,7 +68,7 @@ pub(super) fn lower_column_component(
     };
     let gap =
         optional_dimension(gap, "gap", Some(ast::ThemeTokenKind::Spacing), themes)?.unwrap_or(0.0);
-    let mut style = lower_style(style, themes, &cx.exprs(false))?;
+    let mut style = lower_style(style, cx.target, themes, &cx.exprs(false))?;
     style.marquee = marquee;
     let lowered = lower_nodes(children, &child_cx)?;
     if !stacked

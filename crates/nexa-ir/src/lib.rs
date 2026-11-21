@@ -933,6 +933,8 @@ pub enum Node {
         width_expression: Option<Expr>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         height_expression: Option<Expr>,
+        #[serde(default, skip_serializing_if = "ShapeMeasurement::is_none")]
+        measurement: ShapeMeasurement,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         animation: Option<AnimationSpec>,
     },
@@ -1312,6 +1314,22 @@ pub enum Node {
         children: Option<Vec<Node>>,
         event_handlers: Vec<NativeComponentEventHandler>,
     },
+}
+
+/// Dimensions whose typed expressions can be read in native measurement.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShapeMeasurement {
+    #[default]
+    None,
+    Width,
+    Height,
+    Both,
+}
+
+impl ShapeMeasurement {
+    pub fn is_none(&self) -> bool {
+        *self == Self::None
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -6,13 +6,14 @@ use crate::generator::{
     utils::indent,
 };
 
-use super::node_renderer::render_children;
+use super::node_renderer::{render_children, render_children_with_linear_parent};
 
 pub(crate) struct RenderScope<'a> {
     pub(crate) module: &'a Module,
     pub(crate) features: &'a Features,
     pub(crate) depth: usize,
     pub(crate) out: &'a mut SourceWriter,
+    pub(crate) linear_parent: bool,
 }
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
@@ -60,18 +61,33 @@ pub(crate) fn render_if(
         features,
         depth,
         out,
+        linear_parent,
     } = scope;
     let Some(transition) = transition else {
         out.line_at(
             depth,
             format_args!("if ({}) {{", expressions::expression(condition)),
         );
-        render_children(then_body, module, features, depth + 1, out);
+        render_children_with_linear_parent(
+            then_body,
+            module,
+            features,
+            depth + 1,
+            out,
+            linear_parent,
+        );
         if let Some(else_body) = else_body {
             out.push('\n');
             indent(out, depth);
             out.push_str("} else {\n");
-            render_children(else_body, module, features, depth + 1, out);
+            render_children_with_linear_parent(
+                else_body,
+                module,
+                features,
+                depth + 1,
+                out,
+                linear_parent,
+            );
         }
         out.push('\n');
         indent(out, depth);
@@ -112,24 +128,17 @@ pub(crate) fn render_when(
     transition_animation: Option<AnimationSpec>,
     scope: RenderScope<'_>,
 ) {
+    let Some(transition) = transition else {
+        render_when_body(&expressions::expression(value), cases, else_body, scope);
+        return;
+    };
     let RenderScope {
         module,
         features,
         depth,
         out,
+        ..
     } = scope;
-    let Some(transition) = transition else {
-        render_when_body(
-            &expressions::expression(value),
-            cases,
-            else_body,
-            module,
-            features,
-            depth,
-            out,
-        );
-        return;
-    };
 
     out.line_at(
         depth,
@@ -144,10 +153,13 @@ pub(crate) fn render_when(
         &transition_state_name(value).unwrap_or_else(|| "nexTarget".to_owned()),
         cases,
         else_body,
-        module,
-        features,
-        depth + 1,
-        out,
+        RenderScope {
+            module,
+            features,
+            depth: depth + 1,
+            out,
+            linear_parent: false,
+        },
     );
     out.push('\n');
     indent(out, depth);
@@ -168,18 +180,29 @@ fn render_when_body(
     value: &str,
     cases: &[WhenCase],
     else_body: Option<&[Node]>,
-    module: &Module,
-    features: &Features,
-    depth: usize,
-    out: &mut SourceWriter,
+    scope: RenderScope<'_>,
 ) {
+    let RenderScope {
+        module,
+        features,
+        depth,
+        out,
+        linear_parent,
+    } = scope;
     out.line_at(depth, format_args!("when ({value}) {{"));
     for case in cases {
         out.line_at(
             depth + 1,
             format_args!("{} -> {{", expressions::expression(&case.value)),
         );
-        render_children(&case.body, module, features, depth + 2, out);
+        render_children_with_linear_parent(
+            &case.body,
+            module,
+            features,
+            depth + 2,
+            out,
+            linear_parent,
+        );
         out.push('\n');
         indent(out, depth + 1);
         out.push_str("}\n");
@@ -187,7 +210,14 @@ fn render_when_body(
     if let Some(else_body) = else_body {
         indent(out, depth + 1);
         out.push_str("else -> {\n");
-        render_children(else_body, module, features, depth + 2, out);
+        render_children_with_linear_parent(
+            else_body,
+            module,
+            features,
+            depth + 2,
+            out,
+            linear_parent,
+        );
         out.push('\n');
         indent(out, depth + 1);
         out.push_str("}\n");

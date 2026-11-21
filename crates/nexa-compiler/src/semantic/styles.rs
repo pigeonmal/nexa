@@ -6,9 +6,11 @@ use nexa_ir::{
 use nexa_syntax::ast;
 
 use super::{context::ExprContext, expressions::lower_expr, themes::ThemeSymbols};
+use crate::{Target, optimize::normalize_view_effects};
 
 pub(super) fn lower_style(
     style: ast::LayoutStyle,
+    target: Target,
     themes: &ThemeSymbols,
     expr_context: &ExprContext<'_>,
 ) -> Result<ViewStyle, CompileError> {
@@ -124,6 +126,7 @@ pub(super) fn lower_style(
         expr_context,
     )?;
     effects.opacity_expression = opacity_expression;
+    normalize_view_effects(&mut effects, target);
     let alignment = style.alignment.map(parse_alignment).transpose()?;
     let horizontal_arrangement = style
         .horizontal_arrangement

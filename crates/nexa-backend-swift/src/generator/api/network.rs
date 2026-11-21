@@ -86,24 +86,7 @@ private final class NexaNetworkPathStatus: @unchecked Sendable {
     }
     if include_network || include_image_support {
         out.push_str(include_str!("bounded_response.swift"));
-        out.push_str(
-            r#"
-private enum NexaURLSessionSupport {
-    static let configuration: URLSessionConfiguration = {
-        let configuration = URLSessionConfiguration.default
-        configuration.urlCache = URLCache(
-            memoryCapacity: 16 * 1024 * 1024,
-            diskCapacity: 64 * 1024 * 1024
-        )
-        configuration.requestCachePolicy = .useProtocolCachePolicy
-        return configuration
-    }()
-    static let collector = NexaBoundedDataDelegate()
-    static let sharedSession = URLSession(configuration: configuration, delegate: collector, delegateQueue: nil)
-}
-
-"#,
-        );
+        out.push('\n');
     }
     if include_network {
         out.push_str(
@@ -644,144 +627,7 @@ public enum NexaNetwork {
         );
     }
     if include_image_support {
-        out.push_str(
-            r#"
-private enum NexaRemoteImageError: Error {
-    case invalidURL
-    case invalidResponse
-}
-
-private func nexaDownsampleImage(_ data: Data, maxPixelSize: Int = 2048) -> UIImage? {
-    guard let source = CGImageSourceCreateWithData(
-        data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
-    ) else { return nil }
-    let options: [CFString: Any] = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceShouldCacheImmediately: true,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-        kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
-    ]
-    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-        return nil
-    }
-    return UIImage(cgImage: image)
-}
-
-private func nexaDecodeImage(_ data: Data) async throws -> UIImage? {
-    try Task.checkCancellation()
-    let decodeTask = Task.detached(priority: .utility) {
-        try Task.checkCancellation()
-        return nexaDownsampleImage(data)
-    }
-    let decoded = try await withTaskCancellationHandler {
-        try await decodeTask.value
-    } onCancel: { decodeTask.cancel() }
-    try Task.checkCancellation()
-    return decoded
-}
-
-struct NexaRemoteImage: View {
-    let url: String
-    let scale: NexaImageScale
-    let placeholder: String?
-    let showLoadingIndicator: Bool
-    let allowsFile: Bool
-    @State private var image: Image?
-    @State private var failed = false
-
-    var body: some View {
-        ZStack {
-            Color.clear
-                .frame(width: 1, height: 1)
-                .accessibilityHidden(true)
-
-            if let image {
-                image.resizable().aspectRatio(contentMode: scale == .fit ? .fit : .fill)
-            } else if failed {
-                if let placeholder {
-                    NexaImagePlaceholderPrimitive(name: placeholder, scale: scale)
-                } else {
-                    EmptyView()
-                }
-            } else if let placeholder {
-                NexaImagePlaceholderPrimitive(name: placeholder, scale: scale)
-            } else if showLoadingIndicator {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 20, height: 20)
-            } else {
-                EmptyView()
-            }
-        }
-        .task(id: url) {
-            image = nil
-            failed = false
-            do {
-                guard let parsedURL = URL(string: url) else {
-                    throw NexaRemoteImageError.invalidURL
-                }
-                guard parsedURL.isFileURL ? allowsFile : parsedURL.scheme?.lowercased() == "https" else {
-                    throw NexaRemoteImageError.invalidURL
-                }
-                let data: Data
-                if parsedURL.isFileURL {
-                    if let resourceValues = try? parsedURL.resourceValues(forKeys: [.fileSizeKey]),
-                       let fileSize = resourceValues.fileSize,
-                       fileSize > 64 * 1024 * 1024 {
-                        throw NexaRemoteImageError.invalidResponse
-                    }
-                    let localReadTask = Task.detached(priority: .utility) {
-                        let fileHandle = try FileHandle(forReadingFrom: parsedURL)
-                        defer { try? fileHandle.close() }
-
-                        var data = Data()
-                        while true {
-                            try Task.checkCancellation()
-                            guard let chunk = try fileHandle.read(upToCount: 256 * 1024),
-                                  !chunk.isEmpty else {
-                                break
-                            }
-                            guard chunk.count <= 64 * 1024 * 1024 - data.count else {
-                                throw NexaRemoteImageError.invalidResponse
-                            }
-                            data.append(chunk)
-                        }
-                        return data
-                    }
-                    data = try await withTaskCancellationHandler {
-                        try await localReadTask.value
-                    } onCancel: {
-                        localReadTask.cancel()
-                    }
-                } else {
-                    let (remoteData, response) = try await NexaURLSessionSupport.collector.data(
-                        for: URLRequest(url: parsedURL), in: NexaURLSessionSupport.sharedSession,
-                        limit: 64 * 1024 * 1024)
-                    guard let httpResponse = response as? HTTPURLResponse,
-                          (200..<300).contains(httpResponse.statusCode) else {
-                        throw NexaRemoteImageError.invalidResponse
-                    }
-                    data = remoteData
-                }
-                try Task.checkCancellation()
-                guard data.count <= 64 * 1024 * 1024 else {
-                    throw NexaRemoteImageError.invalidResponse
-                }
-                let decoded = try await nexaDecodeImage(data)
-                try Task.checkCancellation()
-                guard let decoded else { throw NexaRemoteImageError.invalidResponse }
-                image = Image(uiImage: decoded)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                failed = true
-            }
-        }
-    }
-}
-"#,
-        );
+        out.push_str(include_str!("remote_image.swift"));
     }
 }
 
@@ -938,15 +784,20 @@ mod tests {
     }
 
     #[test]
-    fn remote_image_loading_cancels_local_reads_and_ignores_stale_results() {
+    fn image_loads_are_shared_until_completion_or_last_cancellation() {
         let mut output = SourceWriter::new();
         render(&mut output, false, true, false, false, false, false);
 
-        assert!(output.contains(".task(id: url) {"));
-        assert!(output.contains("let localReadTask = Task.detached(priority: .utility)"));
-        assert!(output.contains("fileHandle.read(upToCount: 256 * 1024)"));
+        assert!(output.contains(".task(id: request) {"));
+        assert!(output.contains(
+            "NexaImageLoader.shared.image(for: request.validatedURL(), height: request.height)"
+        ));
+        assert!(output.contains("Task.detached(priority: .utility)"));
+        assert!(output.contains("file.read(upToCount: 256 * 1024)"));
         assert!(output.contains("withTaskCancellationHandler {"));
-        assert!(output.contains("localReadTask.cancel()"));
+        assert!(output.contains("task.cancel()"));
+        assert!(output.contains("url.isFileURL && activeFileLoads >= localLoadLimit"));
+        assert!(output.contains("if isFile { await self?.finishFileLoad() }"));
         assert!(output.contains("try Task.checkCancellation()"));
         assert!(output.contains("} catch is CancellationError {"));
         assert!(output.contains("guard !Task.isCancelled else { return }"));

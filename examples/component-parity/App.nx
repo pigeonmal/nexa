@@ -35,8 +35,8 @@ app ComponentParity {
     screen Catalog {
         Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
-                NavigationLink(destination: FormCases) {
-                    Text("Form and section")
+                NavigationLink(destination: IconCases) {
+                    Text("System, font, and SVG icons")
                 }
             }
             Section(title: "Layout") {
@@ -1118,6 +1118,12 @@ app ComponentParity {
                     Text("Serif 18", fontSize: 18, fontDesign: Serif, comment: "Serif typeface at a custom size")
                     Text("Rounded design", fontDesign: Rounded)
                     Text("Monospaced design", fontDesign: Monospaced)
+                }
+                ParityCard(title: "Discovered font family and weight fallback") {
+                    Text("Gilroy Regular · Normal", fontFamily: "Gilroy", fontWeight: Normal)
+                    Text("Gilroy Medium request · Regular fallback", fontFamily: "Gilroy", fontWeight: Medium)
+                    Text("Gilroy Semibold · exact face", fontFamily: "Gilroy", fontWeight: Semibold)
+                    Text("Gilroy Bold request · Semibold fallback", fontFamily: "Gilroy", fontWeight: Bold)
                 }
                 ParityCard(title: "Timed karaoke and transcript highlighting") {
                     Text("TextReveal highlights words as the playback position advances. The app supplies word timings; this preview does not play audio.", fontSize: 13, color: "#777780")
@@ -2341,17 +2347,47 @@ app ComponentParity {
     }
 
     screen IconCases {
-        Column(gap: 12, padding: 16) {
+        state iconSortOrder: String = "Newest"
+        Column(gap: 8, padding: 16) {
             Text("Icon", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Size and tint") {
+            ParityCard(title: "System and native platform symbols") {
                 Row(gap: 24, alignment: Center) {
                     Icon(system: "search", size: 20, color: "#8E8E93", description: "Small search")
                     Icon(system: "search", size: 32, color: "#007AFF", description: "Medium search")
                     Icon(system: "search", size: 48, color: "#E11D48", description: "Large search")
                 }
-                Icon(sfsymbol: "star.fill", size: 24, color: "#E11D48", description: "Native iOS symbol")
-                Icon(materialsymbol: "star", size: 24, color: "#E11D48", description: "Native Android symbol")
-                Icon(Mazicon: "play", size: 24, color: "#E11D48", description: "Mazicon glyph")
+                Row(gap: 24, alignment: Center) {
+                    Icon(sfsymbol: "star.fill", size: 24, color: "#E11D48", description: "Native iOS symbol")
+                    Icon(materialsymbol: "star", size: 24, color: "#E11D48", description: "Native Android symbol")
+                }
+            }
+            ParityCard(title: "Prebuilt font and SVG-converted font") {
+                Row(gap: 16, alignment: Center) {
+                    Icon(mazicon: "play", size: 28, description: "Mazicon prebuilt font glyph")
+                    Icon(Brand: "heart", size: 28, description: "Brand icon generated from SVG")
+                }
+                Text("Mazicon uses a named TTF sidecar; Brand is generated from SVG.", fontSize: 14)
+            }
+            ParityCard(title: "System and custom icon component slots") {
+                Row(gap: 8, alignment: Center) {
+                    Button("Search", icon: Icon(system: "search")) {
+                    }
+                    Button("Play audio", icon: Icon(mazicon: "play")) {
+                    }
+                }
+                Button("Save favorite", icon: Icon(Brand: "heart", color: "#E11D48")) {
+                }
+                Picker(
+                    items: ["Newest", "Popular", "Saved"],
+                    selected: iconSortOrder,
+                    icon: Icon(system: "search"),
+                    itemIcons: ["search", Icon(mazicon: "play"), Icon(Brand: "heart")]
+                )
+                ContentUnavailable(
+                    title: "No saved favorites",
+                    icon: Icon(Brand: "heart"),
+                    description: "Save one to see it here."
+                )
             }
         }
     }
@@ -3131,6 +3167,6 @@ app ComponentParity {
             appBackgroundEntries = appBackgroundEntries + 1
         }
         Direction(value: LTR)
-        NavigationStack(root: KeyboardCases, titleMode: Inline, titleAlignment: Automatic, showNavigationBar: true)
+        NavigationStack(root: Catalog, titleMode: Inline, titleAlignment: Automatic, showNavigationBar: true)
     }
 }

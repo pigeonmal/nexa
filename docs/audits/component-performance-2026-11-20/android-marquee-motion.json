@@ -1,0 +1,25 @@
+{
+  "setup": "Android 12 emulator, two signed Release builds. Mount eight marquees, remove all, then mount all eight again. Instrument registration and removal in the same native primitive used by AOT and DevRuntime.",
+  "nxSource": "app ColumnBench {\n    state shown: Bool = true\n    body {\n        Column(gap: 5, padding: 18) {\n            Spacer(height: 32)\n            Button(\"Toggle marquees\") { shown = !shown }\n            if shown {\n                Column(gap: 8) {\n                    Row(width: 180, height: 34, animation: Marquee(speed: 100, gap: 20)) { Text(\"Station 1 \u2014 the next eastbound train arrives in five minutes\") }\n                    Row(width: 180, height: 34, animation: Marquee(speed: 100, gap: 20)) { Text(\"Station 2 \u2014 the next eastbound train arrives in five minutes\") }\n                    Row(width: 180, height: 34, animation: Marquee(speed: 100, gap: 20)) { Text(\"Station 3 \u2014 the next eastbound train arrives in five minutes\") }\n                    Row(width: 180, height: 34, animation: Marquee(speed: 100, gap: 20)) { Text(\"Station 4 \u2014 the next eastbound train arrives in five minutes\") }\n                    Row(width: 180, height: 34, animation: Marquee(speed: 100, gap: 20)) { Text(\"Station 5 \u2014 the next eastbound train arrives in five minutes\") }\n                    Row(width: 180, height: 34, animation: Marquee(speed: 100, gap: 20)) { Text(\"Station 6 \u2014 the next eastbound train arrives in five minutes\") }\n                    Row(width: 180, height: 34, animation: Marquee(speed: 100, gap: 20)) { Text(\"Station 7 \u2014 the next eastbound train arrives in five minutes\") }\n                    Row(width: 180, height: 34, animation: Marquee(speed: 100, gap: 20)) { Text(\"Station 8 \u2014 the next eastbound train arrives in five minutes\") }\n                }\n            }\n        }\n    }\n}\n",
+  "instrumentation": "from pathlib import Path\nimport sys\nroot=Path(sys.argv[1])\nfor unit in (root/'Generated/android/app/src/main/java').rglob('*.kt'):\n    text=unit.read_text()\n    if 'ANIMATOR_DURATION_SCALE' not in text: continue\n    lines=text.splitlines()\n    out=[]\n    for line in lines:\n        out.append(line)\n        if 'resolver.registerContentObserver(' in line:\n            out.append('        android.util.Log.i(\"NexaMarqueeBench\", \"register animation\")')\n        if 'resolver.unregisterContentObserver(observer)' in line and 'onDispose' not in line:\n            out.append('            android.util.Log.i(\"NexaMarqueeBench\", \"unregister animation\")')\n        if 'onDispose { resolver.unregisterContentObserver(observer) }' in line:\n            out[-1]=line.replace('observer) }','observer); android.util.Log.i(\"NexaMarqueeBench\", \"unregister animation\") }')\n    unit.write_text('\\n'.join(out)+'\\n')\n    assert text!=unit.read_text()\n    break\nelse:\n    raise RuntimeError(\"native observer not found\")\n",
+  "animationContentObserverCounts": {
+    "before": {
+      "mount": 8,
+      "remove": 8,
+      "remount": 8
+    },
+    "after": {
+      "mount": 1,
+      "remove": 1,
+      "remount": 1
+    }
+  },
+  "signedInstrumentedApkBytes": {
+    "before": 908459,
+    "after": 924843
+  },
+  "instrumentedDexBytes": {
+    "before": 1391624,
+    "after": 1392292
+  }
+}

@@ -66,9 +66,17 @@ struct NexaNativeTextInput: UIViewRepresentable {
         }
 
         private func edit(_ input: UIView & UITextInput, previous: String, range: NSRange, replacement: String) -> Bool {
-            guard range.location <= previous.utf16.count && range.length <= previous.utf16.count - range.location else { return false }
+            let previousNSString = previous as NSString
+            let previousLength = previousNSString.length
+            guard range.location <= previousLength && range.length <= previousLength - range.location else { return false }
             if input.markedTextRange != nil { return true }
-            let proposal = (previous as NSString).replacingCharacters(in: range, with: replacement)
+            if owner.maxLength == nil && (!owner.multiline || owner.maxLines == nil) {
+                let containsLineBreak = !owner.multiline && replacement.unicodeScalars.contains {
+                    $0 == "\n" || $0 == "\r" || $0 == "\u{2028}" || $0 == "\u{2029}"
+                }
+                if !containsLineBreak { return true }
+            }
+            let proposal = previousNSString.replacingCharacters(in: range, with: replacement)
             let value = accepted(previous, proposal)
             guard value != proposal else { return true }
             if value == previous { return false }
@@ -98,7 +106,12 @@ struct NexaNativeTextInput: UIViewRepresentable {
 
         @objc func fieldChanged(_ field: UITextField) {
             guard !isApplyingModel && field.markedTextRange == nil else { return }
-            let value = accepted(owner.text, field.text ?? "")
+            let proposed = field.text ?? ""
+            if owner.maxLength == nil && (!owner.multiline || owner.maxLines == nil) {
+                publish(proposed)
+                return
+            }
+            let value = accepted(owner.text, proposed)
             if field.text != value { field.text = value }
             publish(value)
         }
@@ -157,12 +170,17 @@ final class NexaTextInputHost: UIView {
     private var componentRef: NexaTextInputRef?
     private var componentRefGeneration: UInt64?
     private var focusRequestGeneration: UInt64 = 0
+    private var configuredFieldPlaceholderText: String?
+    private var configuredFieldPlaceholderFont: UIFont?
+    private var configuredFieldPlaceholderColor: UIColor?
 
     func configure(owner: NexaTextInputPrimitive, coordinator: NexaNativeTextInput.Coordinator, initialFocus: Bool, text: String? = nil) {
         let requestedText = text ?? owner.text
+        var needsLayout = false
         coordinator.isApplyingModel = true
         defer { coordinator.isApplyingModel = false; lastModelValue = requestedText }
         if owner.multiline != (textView != nil) || (textField == nil && textView == nil) {
+            needsLayout = true
             textField?.delegate = nil
             textView?.delegate = nil
             textField?.removeFromSuperview()
@@ -170,6 +188,9 @@ final class NexaTextInputHost: UIView {
             textField = nil
             textView = nil
             placeholder = nil
+            configuredFieldPlaceholderText = nil
+            configuredFieldPlaceholderFont = nil
+            configuredFieldPlaceholderColor = nil
             if owner.multiline {
                 let view = UITextView()
                 view.backgroundColor = .clear
@@ -200,40 +221,65 @@ final class NexaTextInputHost: UIView {
         let font = owner.nativeFont
         let textColor = owner.textColor.map { UIColor($0) } ?? .label
         let placeholderColor = owner.placeholderColor.map { UIColor($0) } ?? UIColor(red: 142.0 / 255, green: 142.0 / 255, blue: 147.0 / 255, alpha: 1)
-        minimumLines = owner.minLines ?? 1
+        let nextMinimumLines = owner.minLines ?? 1
+        if minimumLines != nextMinimumLines || maximumLines != owner.maxLines {
+            needsLayout = true
+        }
+        minimumLines = nextMinimumLines
         maximumLines = owner.maxLines
         if let field = textField {
             if field.isSecureTextEntry != owner.secure { field.isSecureTextEntry = owner.secure }
-            if field.font != font { field.font = font }
-            field.textColor = textColor
-            field.attributedPlaceholder = NSAttributedString(string: owner.placeholder, attributes: [.font: font, .foregroundColor: placeholderColor])
-            field.keyboardType = owner.keyboard
-            field.returnKeyType = owner.returnKey
-            field.textContentType = owner.autofill
-            field.autocorrectionType = owner.secure ? .no : (owner.autocorrect.map { $0 ? .yes : .no } ?? .default)
-            field.spellCheckingType = owner.secure ? .no : .default
-            field.autocapitalizationType = owner.secure ? .none : owner.capitalization
+            if field.font != font {
+                field.font = font
+                needsLayout = true
+            }
+            if field.textColor?.isEqual(textColor) != true { field.textColor = textColor }
+            let placeholderMetricsChanged = configuredFieldPlaceholderText != owner.placeholder
+                || configuredFieldPlaceholderFont != font
+            if configuredFieldPlaceholderText != owner.placeholder
+                || configuredFieldPlaceholderFont != font
+                || configuredFieldPlaceholderColor?.isEqual(placeholderColor) != true {
+                field.attributedPlaceholder = NSAttributedString(string: owner.placeholder, attributes: [.font: font, .foregroundColor: placeholderColor])
+                configuredFieldPlaceholderText = owner.placeholder
+                configuredFieldPlaceholderFont = font
+                configuredFieldPlaceholderColor = placeholderColor
+            }
+            if placeholderMetricsChanged { needsLayout = true }
+            if field.keyboardType != owner.keyboard { field.keyboardType = owner.keyboard }
+            if field.returnKeyType != owner.returnKey { field.returnKeyType = owner.returnKey }
+            if field.textContentType != owner.autofill { field.textContentType = owner.autofill }
+            let autocorrection = owner.secure ? UITextAutocorrectionType.no : (owner.autocorrect.map { $0 ? .yes : .no } ?? .default)
+            if field.autocorrectionType != autocorrection { field.autocorrectionType = autocorrection }
+            let spellChecking = owner.secure ? UITextSpellCheckingType.no : .default
+            if field.spellCheckingType != spellChecking { field.spellCheckingType = spellChecking }
+            let capitalization = owner.secure ? UITextAutocapitalizationType.none : owner.capitalization
+            if field.autocapitalizationType != capitalization { field.autocapitalizationType = capitalization }
             if field.text != requestedText && (field.markedTextRange == nil || lastModelValue != requestedText) {
                 if field.markedTextRange != nil { field.unmarkText() }
                 field.text = requestedText
             }
         }
         if let view = textView {
-            if view.font != font { view.font = font }
-            view.textColor = textColor
-            view.accessibilityLabel = owner.placeholder
-            view.keyboardType = owner.keyboard
-            view.returnKeyType = owner.returnKey
-            view.textContentType = owner.autofill
-            view.autocorrectionType = owner.autocorrect.map { $0 ? .yes : .no } ?? .default
-            view.autocapitalizationType = owner.capitalization
+            if view.font != font {
+                view.font = font
+                needsLayout = true
+            }
+            if view.textColor?.isEqual(textColor) != true { view.textColor = textColor }
+            if view.accessibilityLabel != owner.placeholder { view.accessibilityLabel = owner.placeholder }
+            if view.keyboardType != owner.keyboard { view.keyboardType = owner.keyboard }
+            if view.returnKeyType != owner.returnKey { view.returnKeyType = owner.returnKey }
+            if view.textContentType != owner.autofill { view.textContentType = owner.autofill }
+            let autocorrection = owner.autocorrect.map { $0 ? UITextAutocorrectionType.yes : .no } ?? .default
+            if view.autocorrectionType != autocorrection { view.autocorrectionType = autocorrection }
+            if view.autocapitalizationType != owner.capitalization { view.autocapitalizationType = owner.capitalization }
             if view.text != requestedText && (view.markedTextRange == nil || lastModelValue != requestedText) {
                 if view.markedTextRange != nil { view.unmarkText() }
                 view.text = requestedText
+                needsLayout = true
             }
-            placeholder?.text = owner.placeholder
-            placeholder?.font = font
-            placeholder?.textColor = placeholderColor
+            if placeholder?.text != owner.placeholder { placeholder?.text = owner.placeholder }
+            if placeholder?.font != font { placeholder?.font = font }
+            if placeholder?.textColor?.isEqual(placeholderColor) != true { placeholder?.textColor = placeholderColor }
             refreshPlaceholder()
         }
         if !initialFocusResolved {
@@ -241,12 +287,17 @@ final class NexaTextInputHost: UIView {
             initialFocusPending = initialFocus
         }
         attachComponentRef(owner.componentRef)
-        invalidateIntrinsicContentSize()
-        setNeedsLayout()
+        if needsLayout {
+            invalidateIntrinsicContentSize()
+            setNeedsLayout()
+        }
         scheduleInitialFocus()
     }
 
-    func refreshPlaceholder() { placeholder?.isHidden = !(textView?.text.isEmpty ?? true) }
+    func refreshPlaceholder() {
+        let shouldHide = !(textView?.text.isEmpty ?? true)
+        if placeholder?.isHidden != shouldHide { placeholder?.isHidden = shouldHide }
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -262,13 +313,21 @@ final class NexaTextInputHost: UIView {
 
     func measuredSize(width: CGFloat?) -> CGSize {
         if let field = textField {
-            let ideal = field.sizeThatFits(CGSize(width: width ?? CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
-            return CGSize(width: width ?? ideal.width, height: ceil((field.font ?? UIFont.preferredFont(forTextStyle: .body)).lineHeight))
+            let height = ceil((field.font ?? UIFont.preferredFont(forTextStyle: .body)).lineHeight)
+            if let width { return CGSize(width: width, height: height) }
+            let ideal = field.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+            return CGSize(width: ideal.width, height: height)
         }
         guard let view = textView else { return .zero }
         let font = view.font ?? UIFont.preferredFont(forTextStyle: .body)
-        let idealWidth = max(1, ((view.text.isEmpty ? placeholder?.text ?? "" : view.text) as NSString).size(withAttributes: [.font: font]).width)
-        let availableWidth = max(1, width ?? idealWidth)
+        let availableWidth: CGFloat
+        if let width {
+            availableWidth = max(1, width)
+        } else {
+            let value = view.text ?? ""
+            let text = value.isEmpty ? placeholder?.text ?? "" : value
+            availableWidth = max(1, (text as NSString).size(withAttributes: [.font: font]).width)
+        }
         let fitted = view.sizeThatFits(CGSize(width: availableWidth, height: CGFloat.greatestFiniteMagnitude)).height
         let minimum = font.lineHeight * CGFloat(minimumLines)
         let maximum = maximumLines.map { font.lineHeight * CGFloat($0) } ?? CGFloat.greatestFiniteMagnitude

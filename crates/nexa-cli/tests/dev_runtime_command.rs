@@ -162,7 +162,7 @@ fn android_dev_scroll_tracking_does_not_allocate_filtered_visible_rows() {
         .find("private fun nexaDevLeadingVisibleDataItemIndex(")
         .expect("find visible-item scroll helper");
     let helper_end = runtime[helper_start..]
-        .find("private fun nexaDevListItemIsUnobscuredByStickyHeader(")
+        .find("private fun nexaDevSharedMaterialIcon(")
         .map(|offset| helper_start + offset)
         .expect("find next scroll helper");
     let helper = &runtime[helper_start..helper_end];
@@ -175,7 +175,9 @@ fn android_dev_scroll_tracking_does_not_allocate_filtered_visible_rows() {
     assert!(!shared_helper.contains("Int?"));
     assert!(shared_helper.contains("while (position < visibleItems.size)"));
     assert!(runtime.contains("private data class NexaDevScrollSnapshot("));
-    assert_eq!(runtime.matches("NexaDevScrollSnapshot(").count(), 4);
+    assert!(!runtime.contains("visibleItemCount"));
+    assert_eq!(runtime.matches("NexaDevObserveFastList(").count(), 4);
+    assert!(runtime.contains("if (!watchesPosition && !watchesEnd) return"));
     assert!(!runtime.contains("isScrollInProgress to Triple("));
     assert!(!runtime.contains("listState.layoutInfo.viewportStartOffset"));
     assert!(!runtime.contains("listState.layoutInfo.viewportEndOffset"));

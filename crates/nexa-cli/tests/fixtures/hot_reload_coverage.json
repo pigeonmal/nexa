@@ -1692,6 +1692,28 @@
         "android": "covered"
       }
     ],
+    "ShapeMeasurement": [
+      {
+        "name": "None",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Width",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Height",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Both",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "StatusBarStyle": [
       {
         "name": "Default",

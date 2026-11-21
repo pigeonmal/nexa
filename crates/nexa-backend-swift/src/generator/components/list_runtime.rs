@@ -6,15 +6,35 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_fast_list, "UIKit");
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GridSupport {
+    None,
+    Grid,
+    Masonry,
+}
+
+impl GridSupport {
+    pub(crate) fn for_features(features: &Features) -> Self {
+        if features.uses_masonry_list {
+            Self::Masonry
+        } else if features.uses_grid_list {
+            Self::Grid
+        } else {
+            Self::None
+        }
+    }
+}
+
 pub(crate) fn render(
     out: &mut SourceWriter,
     uses_sticky_header: bool,
     uses_scroll_events: bool,
     uses_vertical_list: bool,
     uses_horizontal_list: bool,
-    uses_grid_list: bool,
+    grid: GridSupport,
     uses_sectioned_list: bool,
 ) {
+    let uses_grid_list = grid != GridSupport::None;
     let mut runtime = String::from(
         r#"
 private struct NexaFastListScrollPositionEchoes {
@@ -1028,30 +1048,25 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             if isApplyingProgrammaticScrollPosition { return }
             guard !pageSnap else { return }
-            let isOverscrolling = nexaFastListIsOverscrolling(scrollView, horizontal: false)
+            guard let tableView = scrollView as? UITableView else { return }
             if isApplyingVisibleRowReconfiguration {
-                if let tableView = scrollView as? UITableView {
-                    seedVisibleScrollPosition(in: tableView)
-                }
+                seedVisibleScrollPosition(in: tableView)
                 return
             }
-            let visiblePosition = (scrollView as? UITableView)
-                .flatMap { leadingVisibleRowPosition(in: $0) }
-            let logicalPosition = visiblePosition.map { position in
-                reverseLayout ? rowCount - 1 - position : position
-            }
             // <nexa:scroll-events-condition-active:begin>
-            if !isOverscrolling,
-               !isIgnoringProgrammaticScrollCallbacks,
+            if !isIgnoringProgrammaticScrollCallbacks,
                (onScrollPositionChanged != nil || onScroll != nil),
-               let position = logicalPosition,
+               !nexaFastListIsOverscrolling(tableView, horizontal: false),
+               let visibleRow = leadingVisibleRowPosition(in: tableView),
+               case let position = reverseLayout ? rowCount - 1 - visibleRow : visibleRow,
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-active:end>
             // <nexa:scroll-events-condition-inactive:begin>
-            if !isOverscrolling,
-               !isIgnoringProgrammaticScrollCallbacks,
+            if !isIgnoringProgrammaticScrollCallbacks,
                onScrollPositionChanged != nil,
-               let position = logicalPosition,
+               !nexaFastListIsOverscrolling(tableView, horizontal: false),
+               let visibleRow = leadingVisibleRowPosition(in: tableView),
+               case let position = reverseLayout ? rowCount - 1 - visibleRow : visibleRow,
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-inactive:end>
             {
@@ -1080,9 +1095,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
                     }
                 }
             }
-            if let tableView = scrollView as? UITableView {
-                reportEndReachedIfVisible(in: tableView)
-            }
+            reportEndReachedIfVisible(in: tableView)
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -1828,99 +1841,55 @@ private func nexaFastGridLayout(
     }
 }
 
+// <nexa:list-runtime-masonry:begin>
+// __NEXA_MASONRY_GEOMETRY__
+
 @available(iOS 16.0, *)
 private final class NexaFastMasonryLayout: UICollectionViewLayout {
-    var columns: Int
-    var spacing: CGFloat
-    private var measuredHeights: [Int: CGFloat] = [:]
-    private var columnAttributes: [[UICollectionViewLayoutAttributes]] = []
-    private var itemAttributes: [UICollectionViewLayoutAttributes] = []
-    private var contentSize: CGSize = .zero
+    private var geometry: NexaMasonryGeometry
     private var cachedWidth: CGFloat = -1
-    private var cachedItemCount = -1
-    private var isDirty = true
 
     init(columns: Int, spacing: CGFloat) {
-        self.columns = max(1, columns)
-        self.spacing = max(0, spacing)
+        geometry = NexaMasonryGeometry(columns: columns, spacing: spacing)
         super.init()
     }
 
-    required init?(coder: NSCoder) {
-        nil
-    }
+    required init?(coder: NSCoder) { nil }
 
     override func prepare() {
         super.prepare()
         guard let collectionView else { return }
-        let width = max(0, collectionView.bounds.width - collectionView.adjustedContentInset.left - collectionView.adjustedContentInset.right)
-        let itemCount = collectionView.numberOfItems(inSection: 0)
-        guard isDirty || cachedWidth != width || cachedItemCount != itemCount else { return }
-
-        if cachedWidth != width || cachedItemCount >= 0 && itemCount < cachedItemCount {
-            measuredHeights.removeAll(keepingCapacity: true)
-        }
-
+        let insets = collectionView.adjustedContentInset
+        let width = max(0, collectionView.bounds.width - insets.left - insets.right)
+        geometry.prepare(width: width, count: collectionView.numberOfItems(inSection: 0))
         cachedWidth = width
-        cachedItemCount = itemCount
-        isDirty = false
-        let laneCount = max(1, columns)
-        let itemWidth = max(0, (width - spacing * CGFloat(laneCount - 1)) / CGFloat(laneCount))
-        var laneBottoms = Array(repeating: CGFloat.zero, count: laneCount)
-        columnAttributes = Array(repeating: [], count: laneCount)
-        itemAttributes = []
-        itemAttributes.reserveCapacity(itemCount)
-
-        for item in 0..<itemCount {
-            let lane = laneBottoms.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
-            let y = laneBottoms[lane] == 0 ? 0 : laneBottoms[lane] + spacing
-            let indexPath = IndexPath(item: item, section: 0)
-            let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
-            let height = measuredHeights[item] ?? 120
-            attributes.frame = CGRect(x: CGFloat(lane) * (itemWidth + spacing), y: y, width: itemWidth, height: height)
-            columnAttributes[lane].append(attributes)
-            itemAttributes.append(attributes)
-            laneBottoms[lane] = y + height
-        }
-        contentSize = CGSize(width: width, height: max(0, (laneBottoms.max() ?? 0)))
     }
 
-    override var collectionViewContentSize: CGSize { contentSize }
+    override var collectionViewContentSize: CGSize { geometry.contentSize }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-        var result: [UICollectionViewLayoutAttributes] = []
-        for lane in columnAttributes {
-            var low = 0
-            var high = lane.count
-            while low < high {
-                let middle = (low + high) / 2
-                if lane[middle].frame.maxY <= rect.minY {
-                    low = middle + 1
-                } else {
-                    high = middle
-                }
-            }
-            var index = low
-            while index < lane.count, lane[index].frame.minY < rect.maxY {
-                result.append(lane[index])
-                index += 1
-            }
+        var attributes: [UICollectionViewLayoutAttributes] = []
+        geometry.forEachFrame(in: rect) { item, frame in
+            attributes.append(Self.makeAttributes(for: item, frame: frame))
         }
-        return result
+        return attributes
     }
 
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        guard indexPath.section == 0, itemAttributes.indices.contains(indexPath.item) else {
-            return nil
-        }
-        return itemAttributes[indexPath.item]
+        guard indexPath.section == 0, let frame = geometry.frame(for: indexPath.item) else { return nil }
+        return Self.makeAttributes(for: indexPath.item, frame: frame)
+    }
+
+    private static func makeAttributes(for item: Int, frame: CGRect) -> UICollectionViewLayoutAttributes {
+        let attributes = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: item, section: 0))
+        attributes.frame = frame
+        return attributes
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
         guard let collectionView else { return false }
         let insets = collectionView.adjustedContentInset
-        let width = max(0, newBounds.width - insets.left - insets.right)
-        return width != cachedWidth
+        return max(0, newBounds.width - insets.left - insets.right) != cachedWidth
     }
 
     override func shouldInvalidateLayout(
@@ -1938,9 +1907,12 @@ private final class NexaFastMasonryLayout: UICollectionViewLayout {
             forPreferredLayoutAttributes: preferredAttributes,
             withOriginalAttributes: originalAttributes
         )
-        context.invalidateItems(at: itemAttributes.map(\.indexPath))
-        measuredHeights[originalAttributes.indexPath.item] = max(1, preferredAttributes.size.height)
-        isDirty = true
+        geometry.recordHeight(preferredAttributes.size.height, for: originalAttributes.indexPath.item)
+        // The layout answers every subsequent geometry query from the updated model.
+        // Explicitly invalidate cells UIKit already has on screen.
+        if let visible = collectionView?.indexPathsForVisibleItems {
+            context.invalidateItems(at: visible)
+        }
         return context
     }
 }
@@ -1959,6 +1931,17 @@ private final class NexaFastMasonryCell: UICollectionViewCell {
         attributes.size.height = max(1, fittedSize.height)
         return attributes
     }
+}
+
+// <nexa:list-runtime-masonry:end>
+
+@available(iOS 16.0, *)
+@MainActor
+private func nexaListGridLayout(
+    columns: Int, minCellWidth: CGFloat?, itemHeight: CGFloat?, masonry: Bool, spacing: CGFloat
+) -> UICollectionViewLayout {
+    // __NEXA_MASONRY_CASE__
+    return nexaFastGridLayout(columns: columns, minCellWidth: minCellWidth, itemHeight: itemHeight, spacing: spacing)
 }
 
 @available(iOS 16.0, *)
@@ -2048,9 +2031,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UICollectionView {
-        let layout: UICollectionViewLayout = masonry
-            ? NexaFastMasonryLayout(columns: columns, spacing: spacing)
-            : nexaFastGridLayout(columns: columns, minCellWidth: minCellWidth, itemHeight: itemHeight, spacing: spacing)
+        let layout = nexaListGridLayout(columns: columns, minCellWidth: minCellWidth, itemHeight: itemHeight, masonry: masonry, spacing: spacing)
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         nexaConfigureEdgeToEdgeScrollView(collectionView, environment: context.environment)
         collectionView.dataSource = context.coordinator
@@ -2062,7 +2043,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             action: onRefresh
         )
         collectionView.register(
-            masonry ? NexaFastMasonryCell.self : UICollectionViewCell.self,
+            __NEXA_GRID_CELL_TYPE__,
             forCellWithReuseIdentifier: nexaFastGridListCellReuseIdentifier
         )
         collectionView.alwaysBounceVertical = onRefresh != nil
@@ -2129,9 +2110,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         coordinator.rowContent = rowContent
         if layoutChanged {
             collectionView.setCollectionViewLayout(
-                masonry
-                    ? NexaFastMasonryLayout(columns: columns, spacing: spacing)
-                    : nexaFastGridLayout(columns: columns, minCellWidth: minCellWidth, itemHeight: itemHeight, spacing: spacing),
+                nexaListGridLayout(columns: columns, minCellWidth: minCellWidth, itemHeight: itemHeight, masonry: masonry, spacing: spacing),
                 animated: false
             )
         }
@@ -2449,6 +2428,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         (uses_vertical_list, "vertical"),
         (uses_horizontal_list, "horizontal"),
         (uses_grid_list, "grid"),
+        (grid == GridSupport::Masonry, "masonry"),
     ] {
         if !uses_list {
             runtime = remove_marked_section(&mut runtime, "list-runtime", section);
@@ -2498,6 +2478,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         "vertical",
         "horizontal",
         "grid",
+        "masonry",
         "vertical-constants",
     ] {
         runtime = strip_markers(&mut runtime, "list-runtime", section);
@@ -2518,7 +2499,29 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         "        // __NEXA_RECONFIGURE_GRID__",
         &visible_content_reconfiguration(true, false),
     );
+    if grid == GridSupport::Masonry {
+        runtime = runtime
+            .replace(
+                "// __NEXA_MASONRY_GEOMETRY__",
+                include_str!("masonry_geometry.swift"),
+            )
+            .replace(
+                "// __NEXA_MASONRY_CASE__",
+                "if masonry { return NexaFastMasonryLayout(columns: columns, spacing: spacing) }",
+            )
+            .replace(
+                "__NEXA_GRID_CELL_TYPE__",
+                "masonry ? NexaFastMasonryCell.self : UICollectionViewCell.self",
+            );
+    } else {
+        runtime = runtime
+            .replace("    // __NEXA_MASONRY_CASE__\n", "")
+            .replace("__NEXA_GRID_CELL_TYPE__", "UICollectionViewCell.self");
+    }
     out.push_str(&runtime);
+    if uses_vertical_list || uses_horizontal_list || uses_grid_list || uses_sectioned_list {
+        out.push_str(fast_list_ref_helpers());
+    }
     if uses_vertical_list {
         out.push_str(&fast_list_primitive(uses_sticky_header, uses_scroll_events));
     }
@@ -2762,10 +2765,8 @@ func NexaFastSectionedListPrimitive<RowContent: View, HeaderContent: View>(
 "#
 }
 
-fn fast_list_primitive(uses_sticky_header: bool, uses_scroll_events: bool) -> String {
-    let mut out = swiftui_page_snap_list().to_owned();
-    out.push_str(
-        r#"
+fn fast_list_ref_helpers() -> &'static str {
+    r#"
 @MainActor
 private func nexaAttachFastListRef(
     _ reference: NexaFastListRef?,
@@ -2839,8 +2840,11 @@ private func nexaScrollFastList(
         : CGPoint(x: view.contentOffset.x, y: clamped)
     view.setContentOffset(offset, animated: animated)
 }
-"#,
-    );
+"#
+}
+
+fn fast_list_primitive(uses_sticky_header: bool, uses_scroll_events: bool) -> String {
+    let mut out = swiftui_page_snap_list().to_owned();
     append_fast_list_primitive(&mut out, false, uses_sticky_header, uses_scroll_events);
     if uses_sticky_header {
         append_fast_list_primitive(&mut out, true, true, uses_scroll_events);
@@ -3183,12 +3187,20 @@ fn remove_marker_line(source: &mut String, marker: &str) -> String {
 mod tests {
     use nexa_codegen::SourceWriter;
 
-    use super::render;
+    use super::{GridSupport, render};
 
     #[test]
     fn section_header_registry_is_only_emitted_for_sectioned_lists() {
         let mut sectioned = SourceWriter::new();
-        render(&mut sectioned, false, false, false, false, false, true);
+        render(
+            &mut sectioned,
+            false,
+            false,
+            false,
+            false,
+            GridSupport::None,
+            true,
+        );
         let source = sectioned.as_str();
         assert!(source.contains("private final class NexaSectionHeaderRegistry"));
         assert!(source.contains("coordinator.sectionHeaders.forEach"));
@@ -3199,14 +3211,30 @@ mod tests {
         assert!(!source.contains("for section in 0..<coordinator.sectionCount"));
 
         let mut plain = SourceWriter::new();
-        render(&mut plain, false, false, true, true, true, false);
+        render(
+            &mut plain,
+            false,
+            false,
+            true,
+            true,
+            GridSupport::Grid,
+            false,
+        );
         assert!(!plain.as_str().contains("NexaSectionHeaderRegistry"));
     }
 
     #[test]
     fn scroll_observation_does_not_materialize_index_arrays() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, true, true, true, true, true, false);
+        render(
+            &mut generated,
+            true,
+            true,
+            true,
+            true,
+            GridSupport::Grid,
+            false,
+        );
         let source = generated.as_str();
         assert!(source.contains("visibleRows.lazy.map(\\.row)"));
         assert!(source.contains("visibleRows.lazy.compactMap"));
@@ -3219,7 +3247,15 @@ mod tests {
     #[test]
     fn short_lists_bounce_only_when_refresh_is_enabled() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, false, true, true, true, true);
+        render(
+            &mut generated,
+            false,
+            false,
+            true,
+            true,
+            GridSupport::Grid,
+            true,
+        );
 
         assert!(
             generated
@@ -3241,7 +3277,15 @@ mod tests {
     #[test]
     fn vertical_lists_expand_into_their_available_viewport() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, false, true, false, false, false);
+        render(
+            &mut generated,
+            false,
+            false,
+            true,
+            false,
+            GridSupport::None,
+            false,
+        );
 
         assert!(
             generated
@@ -3253,7 +3297,15 @@ mod tests {
     #[test]
     fn content_sized_fast_list_rows_share_the_52_point_minimum() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, false, true, false, false, true);
+        render(
+            &mut generated,
+            false,
+            false,
+            true,
+            false,
+            GridSupport::None,
+            true,
+        );
 
         assert_eq!(nexa_codegen::design_system::FAST_LIST_ROW_MIN_HEIGHT, 52);
         assert!(generated.as_str().contains(
@@ -3271,7 +3323,15 @@ mod tests {
         );
 
         let mut all_axes = SourceWriter::new();
-        render(&mut all_axes, false, false, true, true, true, true);
+        render(
+            &mut all_axes,
+            false,
+            false,
+            true,
+            true,
+            GridSupport::Grid,
+            true,
+        );
         assert!(all_axes.as_str().contains("} ?? .estimated(CGFloat(52))"));
         assert!(all_axes.as_str().contains(
             "minHeight: itemExtent ?? CGFloat(52),\n                            maxHeight: itemExtent"
@@ -3286,7 +3346,15 @@ mod tests {
     #[test]
     fn horizontal_item_extent_sets_height_without_constraining_content_width() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, false, false, true, false, false);
+        render(
+            &mut generated,
+            false,
+            false,
+            false,
+            true,
+            GridSupport::None,
+            false,
+        );
         let source = generated.as_str();
 
         assert!(source.contains("layout.estimatedItemSize = nexaFastHorizontalEstimatedItemSize("));
@@ -3306,7 +3374,15 @@ mod tests {
     #[test]
     fn grid_and_sectioned_lists_expand_into_their_available_viewport() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, false, false, false, true, true);
+        render(
+            &mut generated,
+            false,
+            false,
+            false,
+            false,
+            GridSupport::Grid,
+            true,
+        );
 
         assert_eq!(
             generated
@@ -3319,21 +3395,50 @@ mod tests {
     }
 
     #[test]
-    fn masonry_height_changes_invalidate_all_repositioned_items() {
+    fn masonry_geometry_is_feature_gated_and_invalidates_visible_cells() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, false, true, true, true, true);
+        render(
+            &mut generated,
+            false,
+            false,
+            false,
+            false,
+            GridSupport::Masonry,
+            false,
+        );
         let source = generated.as_str();
+        assert!(source.contains("struct NexaMasonryGeometry"));
+        assert!(source.contains("geometry.recordHeight(preferredAttributes.size.height"));
+        assert!(source.contains("context.invalidateItems(at: visible)"));
+        assert!(source.contains("func nexaAttachFastListRef("));
 
-        assert!(source.contains("context.invalidateItems(at: itemAttributes.map(\\.indexPath))"));
-        assert!(source.contains("measuredHeights[originalAttributes.indexPath.item]"));
-        assert!(source.contains("isDirty = true"));
-        assert!(!source.contains("context.invalidateEverything = true"));
+        let mut grid_only = SourceWriter::new();
+        render(
+            &mut grid_only,
+            false,
+            false,
+            false,
+            false,
+            GridSupport::Grid,
+            false,
+        );
+        assert!(grid_only.as_str().contains("func nexaAttachFastListRef("));
+        assert!(!grid_only.as_str().contains("NexaMasonryGeometry"));
+        assert!(!grid_only.as_str().contains("NexaFastMasonryCell"));
     }
 
     #[test]
     fn reverse_layout_flips_placement_without_reversing_row_data_again() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, false, true, false, false, false);
+        render(
+            &mut generated,
+            false,
+            false,
+            true,
+            false,
+            GridSupport::None,
+            false,
+        );
 
         assert!(
             generated
@@ -3351,7 +3456,15 @@ mod tests {
     #[test]
     fn scroll_updates_preserve_the_viewport_and_defer_row_layout_until_idle() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, true, true, true, true, false);
+        render(
+            &mut generated,
+            false,
+            true,
+            true,
+            true,
+            GridSupport::Grid,
+            false,
+        );
         let source = generated.as_str();
 
         assert!(source.contains("var needsVisibleRowReconfiguration = false"));
@@ -3402,7 +3515,15 @@ mod tests {
     #[test]
     fn initial_visible_final_row_uses_the_same_end_reached_rule_on_every_axis() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, true, true, true, true, false);
+        render(
+            &mut generated,
+            false,
+            true,
+            true,
+            true,
+            GridSupport::Grid,
+            false,
+        );
         let source = generated.as_str();
 
         assert!(source.contains("reportEndReachedIfVisible(in: tableView)"));
@@ -3427,7 +3548,15 @@ mod tests {
     #[test]
     fn programmatic_list_positions_report_through_the_scroll_delegate() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, true, true, true, true, false);
+        render(
+            &mut generated,
+            false,
+            true,
+            true,
+            true,
+            GridSupport::Grid,
+            false,
+        );
         let source = generated.as_str();
 
         assert!(source.contains("tableView.scrollToRow("));
@@ -3444,7 +3573,15 @@ mod tests {
     #[test]
     fn controlled_scroll_positions_do_not_interrupt_an_active_drag() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, true, true, false, false, false);
+        render(
+            &mut generated,
+            false,
+            true,
+            true,
+            false,
+            GridSupport::None,
+            false,
+        );
         let source = generated.as_str();
 
         assert!(source.contains(
@@ -3470,13 +3607,24 @@ mod tests {
     #[test]
     fn scroll_callbacks_ignore_ios_rubber_band_positions() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, true, true, true, true, false);
+        render(
+            &mut generated,
+            false,
+            true,
+            true,
+            true,
+            GridSupport::Grid,
+            false,
+        );
         let source = generated.as_str();
 
         assert!(source.contains("private func nexaFastListIsOverscrolling"));
         assert!(!source.contains("NEXA_TRACE"));
         assert_eq!(
-            source.matches("if !isOverscrolling,").count(),
+            source.matches("if !isOverscrolling,").count()
+                + source
+                    .matches("!nexaFastListIsOverscrolling(tableView, horizontal: false),")
+                    .count(),
             3,
             "each scroll callback path should ignore temporary overscroll positions"
         );
@@ -3485,7 +3633,15 @@ mod tests {
     #[test]
     fn sticky_headers_do_not_report_rows_hidden_behind_the_header() {
         let mut generated = SourceWriter::new();
-        render(&mut generated, false, true, true, false, false, false);
+        render(
+            &mut generated,
+            false,
+            true,
+            true,
+            false,
+            GridSupport::None,
+            false,
+        );
         let source = generated.as_str();
 
         assert!(
@@ -3494,6 +3650,10 @@ mod tests {
         assert!(source.contains("tableView.headerView(forSection: 0)"));
         assert!(source.contains("pinnedHeader.frame.maxY"));
         assert!(source.contains("tableView.rectForRow(at: indexPath).minY >= visibleTop - 1"));
-        assert!(source.contains("let visiblePosition = leadingVisibleRowPosition(in: tableView)"));
+        assert!(source.contains(
+            "(onScrollPositionChanged != nil || onScroll != nil),
+               !nexaFastListIsOverscrolling(tableView, horizontal: false),
+               let visibleRow = leadingVisibleRowPosition(in: tableView),"
+        ));
     }
 }

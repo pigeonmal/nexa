@@ -1,0 +1,117 @@
+{
+  "fixtureSource": "app ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 8) {\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n            ProgressBar(progress: tileWidth / 12.0)\n        }\n    }\n}\n",
+  "workload": "24 default determinate bars alternate between 2/3 and 5/6 progress every app frame callback after two seconds of warmup. The iOS short runs use a before/after/after/before order.",
+  "ios": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "residentBytesStart": 185417728,
+        "residentBytesEveryFiveSeconds": [
+          185548800
+        ],
+        "displayLinkP95Ms": 17.690208333078772,
+        "displayLinkIntervals": 480,
+        "residentBytesEnd": 185532416,
+        "cpuSeconds": 1.086266,
+        "wallSeconds": 8.007981291681062
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "cpuSeconds": 0.931046,
+        "residentBytesEnd": 190234624,
+        "displayLinkP95Ms": 16.682291694451123,
+        "residentBytesStart": 190578688,
+        "wallSeconds": 8.016598333313596,
+        "residentBytesEveryFiveSeconds": [
+          190234624
+        ],
+        "displayLinkIntervals": 480
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "displayLinkP95Ms": 16.68933330802247,
+        "residentBytesEveryFiveSeconds": [
+          190398464
+        ],
+        "wallSeconds": 8.000010833318811,
+        "displayLinkIntervals": 480,
+        "residentBytesStart": 190578688,
+        "residentBytesEnd": 190398464,
+        "cpuSeconds": 1.8768369999999999
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "residentBytesEnd": 189317120,
+        "displayLinkIntervals": 479,
+        "residentBytesEveryFiveSeconds": [
+          189300736
+        ],
+        "displayLinkP95Ms": 16.689916665200144,
+        "wallSeconds": 8.000037875026464,
+        "cpuSeconds": 1.7094010000000002,
+        "residentBytesStart": 189906944
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 13108280,
+      "mainExecutableBytes": 301088,
+      "appBundleBytes": 301862,
+      "bundleOtherBytes": 774
+    }
+  },
+  "android": {
+    "sample": {
+      "wallSeconds": 12.016399006,
+      "cpuMillis": 1299,
+      "pssKiBStart": 26115,
+      "pssKiBEnd": 33631,
+      "pssKiBEveryFiveSeconds": [
+        29755,
+        32402
+      ],
+      "composeClockIntervals": 332,
+      "composeClockP95Ms": 97.129166,
+      "gfxInfoFrameStats": {
+        "records": 118,
+        "lastIntervalFps": 28.306452745161337,
+        "frameDurationP95Ms": 110.974349
+      }
+    },
+    "apkBytes": 759503,
+    "aabBytes": 1744151,
+    "enduranceSample": {
+      "wallSeconds": 45.005813481,
+      "cpuMillis": 10629,
+      "pssKiBStart": 26941,
+      "pssKiBEnd": 29440,
+      "pssKiBEveryFiveSeconds": [
+        30381,
+        33885,
+        36725,
+        39637,
+        42685,
+        45809,
+        48085,
+        26360,
+        29420
+      ],
+      "composeClockIntervals": 1313,
+      "composeClockP95Ms": 98.183042,
+      "gfxInfoFrameStats": {
+        "records": 116,
+        "lastIntervalFps": 28.163266432653106,
+        "frameDurationP95Ms": 163.029713
+      }
+    },
+    "enduranceNotes": "Host builds overlapped this sample. Use it for the PSS trend only. No heap or GC event trace was collected."
+  }
+}

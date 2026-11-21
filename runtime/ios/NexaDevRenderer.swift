@@ -404,6 +404,7 @@ private func nexaDevIconSpec(
     isDark: Bool
 ) -> NexaIconSpec? {
     guard let icon = rawIcon as? [String: Any] else { return nil }
+    let source = icon["source"] as? [String: Any] ?? icon
     let description = icon["description"] as? String
     let size = (icon["size"] as? NSNumber).map { CGFloat($0.doubleValue) }
     let tint: Color? = {
@@ -413,7 +414,7 @@ private func nexaDevIconSpec(
         }
         return devColor(value, isDark: isDark)
     }()
-    if let glyph = icon["font_glyph"] as? [String: Any],
+    if let glyph = (source["FontGlyph"] as? [String: Any] ?? source["font_glyph"] as? [String: Any]),
        let family = glyph["font_family"] as? String,
        let codepoint = glyph["glyph"] as? NSNumber,
        codepoint.int32Value >= 0 {
@@ -427,14 +428,17 @@ private func nexaDevIconSpec(
             preservesColor: true
         )
     }
-    if let shared = icon["shared"] as? String,
+    let system = source["System"] as? [String: Any]
+        ?? source["system"] as? [String: Any]
+        ?? source
+    if let shared = system["shared"] as? String,
        let symbol = nexaDevSharedIconSymbol(shared) {
         return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
     }
-    if let symbol = icon["sf_symbol"] as? String {
+    if let symbol = system["sf_symbol"] as? String {
         return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
     }
-    if let material = icon["material_symbol"] as? String,
+    if let material = system["material_symbol"] as? String,
        let symbol = nexaDevMaterialIconSymbol(material) {
         return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
     }
@@ -752,10 +756,10 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     let row: (Int, Int, Int) -> RowContent
     let onMove: ((IndexSet, Int) -> Void)?
     let moveEnabled: Bool
-    let onScrollPositionChanged: (Int) -> Void
-    let onScroll: ((Int) -> Void)?
+    let onScrollPositionChanged: ((Int) -> Void)?
+    let onScroll: (() -> Void)?
     let onScrollBeginDrag: (() -> Void)?
-    let onEndReached: ((Int) -> Void)?
+    let onEndReached: (() -> Void)?
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     @Environment(\.nexaDevPageRestoreRevision) private var pageRestoreRevision
@@ -765,7 +769,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     @State private var endReachedGate = NexaDevListEndReachedGate()
     @State private var followsBottom = true
     @State private var horizontalViewportSize: CGSize = .zero
-    @State private var latestPosition = 0
+
     @State private var scrollPositionCommandRevision = 0
     @State private var pendingProgrammaticScrollPosition: Int?
     @State private var suppressesProgrammaticScrollCallbacks = false
@@ -787,13 +791,13 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
         }
     }
 
-    private var gatedOnEndReached: ((Int) -> Void)? {
+    private var gatedOnEndReached: (() -> Void)? {
         guard let onEndReached else { return nil }
         let itemCount = count
         let gate = endReachedGate
-        return { index in
+        return {
             guard gate.claim(count: itemCount) else { return }
-            onEndReached(index)
+            onEndReached()
         }
     }
 
@@ -888,14 +892,11 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 scrollPosition: scrollPosition.map(Int32.init),
                 componentRef: componentRef,
                 restoreRevision: pageRestoreRevision,
-                onScrollPositionChanged: { position in
-                    latestPosition = position
-                    onScrollPositionChanged(position)
-                },
+                onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached.map { callback in { callback(latestPosition) } },
-                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                onEndReached: gatedOnEndReached,
+                onScroll: onScroll,
                 headerContent: stickyHeader.map { header in { header } },
                 rowContent: { index in row(index, 0, index) }
             )
@@ -910,14 +911,11 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 scrollPosition: scrollPosition.map(Int32.init),
                 componentRef: componentRef,
-                onScrollPositionChanged: { position in
-                    latestPosition = position
-                    onScrollPositionChanged(position)
-                },
+                onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached.map { callback in { callback(latestPosition) } },
-                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                onEndReached: gatedOnEndReached,
+                onScroll: onScroll,
                 rowContent: { index in row(index, 0, index) }
             )
         } else if case let .grid(columns) = axis, sectionCounts == nil {
@@ -932,14 +930,11 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 scrollPosition: scrollPosition.map(Int32.init),
                 componentRef: componentRef,
-                onScrollPositionChanged: { position in
-                    latestPosition = position
-                    onScrollPositionChanged(position)
-                },
+                onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached.map { callback in { callback(latestPosition) } },
-                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                onEndReached: gatedOnEndReached,
+                onScroll: onScroll,
                 rowContent: { index in row(index, 0, index) }
             )
         } else if case let .adaptiveGrid(minCellWidth) = axis, sectionCounts == nil {
@@ -955,14 +950,11 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 scrollPosition: scrollPosition.map(Int32.init),
                 componentRef: componentRef,
-                onScrollPositionChanged: { position in
-                    latestPosition = position
-                    onScrollPositionChanged(position)
-                },
+                onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached.map { callback in { callback(latestPosition) } },
-                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                onEndReached: gatedOnEndReached,
+                onScroll: onScroll,
                 rowContent: { index in row(index, 0, index) }
             )
         } else if case let .masonry(columns) = axis, sectionCounts == nil {
@@ -978,14 +970,11 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 masonry: true,
                 scrollPosition: scrollPosition.map(Int32.init),
                 componentRef: componentRef,
-                onScrollPositionChanged: { position in
-                    latestPosition = position
-                    onScrollPositionChanged(position)
-                },
+                onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached.map { callback in { callback(latestPosition) } },
-                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                onEndReached: gatedOnEndReached,
+                onScroll: onScroll,
                 rowContent: { index in row(index, 0, index) }
             )
         } else if case .vertical = axis, let sectionCounts, let sectionOffsets {
@@ -1033,8 +1022,8 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                     hideVerticalScrollbar: hideVerticalScrollbar,
                     onScrollPositionChanged: onScrollPositionChanged,
                     onRefresh: onRefresh,
-                    onScroll: onScroll,
-                    onEndReached: gatedOnEndReached,
+                    onScroll: onScroll.map { callback in { _ in callback() } },
+                    onEndReached: gatedOnEndReached.map { callback in { _ in callback() } },
                     rowContent: { index in row(index, 0, index) }
                 )
             } else {
@@ -1046,7 +1035,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                         hideHorizontalScrollbar: hideHorizontalScrollbar,
                         hideVerticalScrollbar: hideVerticalScrollbar,
                         row: row,
-                        onScrollPositionChanged: onScrollPositionChanged,
+                        onScrollPositionChanged: { onScrollPositionChanged?($0) },
                         onScroll: onScroll,
                         onEndReached: gatedOnEndReached
                     )
@@ -1216,8 +1205,8 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                     if positionChanged && canAcceptPosition {
                         lastReportedVisibleIndex = visibleIndex
                         if !isInitialPosition && (canReportScroll || reachedProgrammaticTarget) {
-                            onScrollPositionChanged(visibleIndex)
-                            onScroll?(visibleIndex)
+                            onScrollPositionChanged?(visibleIndex)
+                            onScroll?()
                         }
                     }
                 }
@@ -1225,7 +1214,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 // Match native lists: fire once when the actual final row is
                 // visible, then re-arm only when the item count changes.
                 if shouldReportEndReached && endReachedGate.complete(count: count) {
-                    onEndReached?(visibleIndex)
+                    onEndReached?()
                 }
             }
         }
@@ -1387,8 +1376,8 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
     let hideVerticalScrollbar: Bool
     let row: (Int, Int, Int) -> RowContent
     let onScrollPositionChanged: (Int) -> Void
-    let onScroll: ((Int) -> Void)?
-    let onEndReached: ((Int) -> Void)?
+    let onScroll: (() -> Void)?
+    let onEndReached: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -1461,8 +1450,8 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
         var pageHeight: CGFloat = 0
         var row: (Int, Int, Int) -> RowContent
         var onScrollPositionChanged: (Int) -> Void
-        var onScroll: ((Int) -> Void)?
-        var onEndReached: ((Int) -> Void)?
+        var onScroll: (() -> Void)?
+        var onEndReached: (() -> Void)?
         var lastReportedPage: Int?
         var lastEndReachedCount: Int?
 
@@ -1471,8 +1460,8 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
             scrollPosition: Int?,
             row: @escaping (Int, Int, Int) -> RowContent,
             onScrollPositionChanged: @escaping (Int) -> Void,
-            onScroll: ((Int) -> Void)?,
-            onEndReached: ((Int) -> Void)?
+            onScroll: (() -> Void)?,
+            onEndReached: (() -> Void)?
         ) {
             self.count = max(0, count)
             self.scrollPosition = scrollPosition
@@ -1552,10 +1541,10 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
             guard page != lastReportedPage else { return }
             lastReportedPage = page
             onScrollPositionChanged(page)
-            onScroll?(page)
+            onScroll?()
             if page >= count - 1, lastEndReachedCount != count {
                 lastEndReachedCount = count
-                onEndReached?(page)
+                onEndReached?()
             } else if page < count - 1 {
                 lastEndReachedCount = nil
             }
@@ -1704,8 +1693,7 @@ struct NexaDevNodeList: View {
     @Environment(\.nexaDevNodeIdentity) private var nodeIdentity
     @Environment(\.nexaDevNavigationStackIdentity) private var navigationStackIdentity
     @Environment(\.nexaDevNavigationPath) private var navigationPath
-    @Environment(\.nexaDevVisualSafeInsets) private var visualSafeInsets
-    @Environment(\.nexaDevViewportSize) private var viewportSize
+    @Environment(\.nexaVisualSafeAreaInsets) private var visualSafeInsets
     @Environment(\.nexaWindowMetrics) private var windowMetrics
     @Environment(\.layoutDirection) private var layoutDirection
 
@@ -2117,7 +2105,7 @@ struct NexaDevNodeList: View {
                 let shape = RoundedRectangle(cornerRadius: cornerRadius)
                 scrollView = AnyView(scrollView.overlay(shape.stroke(border, lineWidth: borderWidth)))
             }
-            if let opacity = style["opacity"] as? Double {
+            if let opacity = style["opacity"] as? Double, opacity != 1 {
                 scrollView = AnyView(scrollView.compositingGroup().opacity(opacity))
             }
             let effects = style["effects"] as? [String: Any] ?? [:]
@@ -2305,8 +2293,6 @@ struct NexaDevNodeList: View {
                 let source = container
                     .environment(\.nexaDevContentSlot, contentSlot)
                     .environment(\.nexaDevNodeIdentity, nodeIdentity)
-                    .environment(\.nexaDevVisualSafeInsets, visualSafeInsets)
-                    .environment(\.nexaDevViewportSize, viewportSize)
                     .environment(\.nexaSharedNamespace, nexaSharedNamespace)
                 styled = AnyView(NexaMarqueePrimitive(
                     horizontal: (fields["kind"] as? String) == "Row",
@@ -2436,7 +2422,9 @@ struct NexaDevNodeList: View {
                 let shape = RoundedRectangle(cornerRadius: cornerRadius)
                 styled = AnyView(styled.overlay(shape.stroke(border, lineWidth: borderWidth)))
             }
-            if let opacity = style["opacity"] as? Double { styled = AnyView(styled.compositingGroup().opacity(opacity)) }
+            if let opacity = style["opacity"] as? Double, opacity != 1 {
+                styled = AnyView(styled.compositingGroup().opacity(opacity))
+            }
             let effects = style["effects"] as? [String: Any] ?? [:]
             if let expression = effects["opacity_expression"], !(expression is NSNull),
                let opacity = store.evaluate(expression, locals: locals, scope: scope) as? Double {
@@ -2717,7 +2705,9 @@ struct NexaDevNodeList: View {
             }
             var styled = styledText
             if let padding = style["padding"] as? Double { styled = AnyView(styled.padding(padding)) }
-            if let opacity = style["opacity"] as? Double { styled = AnyView(styled.opacity(opacity)) }
+            if let opacity = style["opacity"] as? Double, opacity != 1 {
+                styled = AnyView(styled.opacity(opacity))
+            }
             let effects = style["effects"] as? [String: Any] ?? [:]
             if let expression = effects["opacity_expression"], !(expression is NSNull),
                let opacity = store.evaluate(expression, locals: locals, scope: scope) as? Double {
@@ -2772,6 +2762,9 @@ struct NexaDevNodeList: View {
         case "Spacer":
             let widthDimension = nexaDevDimension(fields["width"])
             let heightDimension = nexaDevDimension(fields["height"])
+            if widthDimension == nil && heightDimension == nil {
+                return AnyView(Spacer(minLength: 0).layoutPriority(-1))
+            }
             func fixedSize(_ dimension: NexaDevDimension?, widthAxis: Bool) -> CGFloat? {
                 guard let dimension else { return nil }
                 switch dimension {
@@ -2786,18 +2779,13 @@ struct NexaDevNodeList: View {
             }
             let width = fixedSize(widthDimension, widthAxis: true)
             let height = fixedSize(heightDimension, widthAxis: false)
-            let spacerView: AnyView
-            if widthDimension == nil && heightDimension == nil {
-                spacerView = AnyView(Spacer(minLength: 0).layoutPriority(-1))
-            } else {
-                spacerView = AnyView(Color.clear)
+            if let width, let height {
+                return AnyView(Color.clear.frame(width: width, height: height))
             }
-            var sizedSpacer = spacerView
+            var sizedSpacer = AnyView(Color.clear)
             if widthDimension == .fill { sizedSpacer = AnyView(sizedSpacer.frame(maxWidth: .infinity)) }
             if heightDimension == .fill { sizedSpacer = AnyView(sizedSpacer.frame(maxHeight: .infinity)) }
-            if let width, let height {
-                sizedSpacer = AnyView(sizedSpacer.frame(width: width, height: height))
-            } else if let width {
+            if let width {
                 sizedSpacer = AnyView(sizedSpacer.frame(width: width))
             } else if let height {
                 sizedSpacer = AnyView(sizedSpacer.frame(height: height))
@@ -2820,8 +2808,9 @@ struct NexaDevNodeList: View {
             }
             return sizedSpacer
         case "Divider":
-            let color = devColor(fields["color"], isDark: colorScheme == .dark)
             let thickness = fields["thickness"] as? Double ?? 1
+            guard thickness > 0 else { return AnyView(EmptyView()) }
+            let color = devColor(fields["color"], isDark: colorScheme == .dark)
             return AnyView(NexaDividerPrimitive(color: color ?? .gray, thickness: CGFloat(thickness)))
         case NexaDevNodeKind.shape:
             let shapeFields = fields["shape"] as? [String: Any] ?? [:]
@@ -2837,27 +2826,18 @@ struct NexaDevNodeList: View {
             let height = dimension("height", fallback: 0)
             let animation = nexaDevAnimation(fields["animation"])
             let fill = devColor(fields["fill"], isDark: colorScheme == .dark) ?? .clear
+            func renderShape<S: Shape>(_ shape: S) -> AnyView {
+                let framed = shape.fill(fill).frame(width: width, height: height)
+                guard let animation else { return AnyView(framed) }
+                return AnyView(framed.animation(animation, value: CGSize(width: width, height: height)))
+            }
             if shapeFields["Circle"] != nil || encodedShape == "Circle" {
-                return AnyView(
-                    Circle().fill(fill).frame(width: width, height: height)
-                        .animation(animation, value: width)
-                        .animation(animation, value: height)
-                )
+                return renderShape(Circle())
             }
             if let radius = shapeFields["Rounded"] as? Double {
-                return AnyView(
-                    RoundedRectangle(cornerRadius: CGFloat(radius))
-                        .fill(fill)
-                        .frame(width: width, height: height)
-                        .animation(animation, value: width)
-                        .animation(animation, value: height)
-                )
+                return renderShape(RoundedRectangle(cornerRadius: CGFloat(radius)))
             }
-            return AnyView(
-                Capsule().fill(fill).frame(width: width, height: height)
-                    .animation(animation, value: width)
-                    .animation(animation, value: height)
-            )
+            return renderShape(Capsule())
         case "Content":
             guard let contentSlot else { return AnyView(EmptyView()) }
             return AnyView(NexaDevNodeList(
@@ -3036,8 +3016,6 @@ struct NexaDevNodeList: View {
             let actions = fields["actions"] as? [Any] ?? []
             let doubleTapActions = fields["double_tap_actions"] as? [Any] ?? []
             let longPressActions = fields["long_press_actions"] as? [Any] ?? []
-            let longPressDurationMs = max(1, (store.evaluate(fields[NexaDevKeys.longPressDurationMs] ?? ["Number": ["raw": "500", "ty": "Int32"]], locals: locals, scope: scope) as? NSNumber)?.intValue ?? 500)
-            let longPressMinimumDuration = Double(longPressDurationMs) / 1000.0
             let dragParameters = fields[NexaDevKeys.dragParameters] as? [String] ?? []
             let dragActions = fields[NexaDevKeys.dragActions] as? [Any] ?? []
             let pinchParameter = fields[NexaDevKeys.pinchParameter] as? String
@@ -3051,6 +3029,15 @@ struct NexaDevNodeList: View {
                 : AnyView(content.frame(minHeight: 48, alignment: .topLeading).contentShape(.interaction, Rectangle()))
             let hasDoubleTap = !doubleTapActions.isEmpty
             let hasLongPress = !longPressActions.isEmpty
+            let longPressMinimumDuration: Double
+            if hasLongPress {
+                let durationMs = fields[NexaDevKeys.longPressDurationMs].flatMap {
+                    (store.evaluate($0, locals: locals, scope: scope) as? NSNumber)?.intValue
+                } ?? 500
+                longPressMinimumDuration = Double(max(1, durationMs)) / 1000.0
+            } else {
+                longPressMinimumDuration = 0
+            }
             let performTap: () -> Void = {
                 guard !disabled else { return }
                 playNexaHaptic(haptic)
@@ -3400,34 +3387,35 @@ struct NexaDevNodeList: View {
                     }
                 },
                 moveEnabled: moveEnabled,
-                onScrollPositionChanged: { index in
-                    guard let scrollPositionName else { return }
-                    store.setScrollPositionFromNative(
-                        scrollPositionName,
-                        value: index,
-                        scope: scope,
-                        expectedCommandRevision: scrollPositionCommandRevision
-                    )
+                onScrollPositionChanged: scrollPositionName.map { name in
+                    { index in
+                        store.setScrollPositionFromNative(
+                            name,
+                            value: index,
+                            scope: scope,
+                            expectedCommandRevision: scrollPositionCommandRevision
+                        )
+                    }
                 },
                 onScroll: onScrollActions.map { actions in
-                    { index in
+                    {
                         guard scrollPositionName.map({
                             store.stateCommandRevision($0, scope: scope) == scrollPositionCommandRevision
                         }) ?? true else { return }
-                        store.perform(actions, scope: scope, locals: locals.merging([indexName: index]) { _, newest in newest })
+                        store.perform(actions, scope: scope, locals: locals)
                     }
                 },
                 onScrollBeginDrag: onScrollBeginDragActions.map { actions in
                     { store.perform(actions, scope: scope, locals: locals) }
                 },
                 onEndReached: onEndReachedActions.map { actions in
-                    { index in
+                    {
                         guard store.claimFastListEndReached(
                             identity: identity,
                             scope: scope,
                             count: count
                         ) else { return }
-                        var callbackLocals = locals.merging([indexName: index]) { _, newest in newest }
+                        var callbackLocals = locals
                         callbackLocals[nexaDevTaskOwnerLocal] = taskOwner
                         store.perform(actions, scope: scope, locals: callbackLocals)
                     }
@@ -3442,21 +3430,22 @@ struct NexaDevNodeList: View {
         case "Switch":
             let name = fields["state"] as? String ?? ""
             let label = store.stringify(store.evaluate(fields["label"] ?? "", locals: locals, scope: scope))
-            let onChange = fields["on_change"] as? [String: Any]
+            let change = fields["on_change"] as? [String: Any]
+            let onChange: ((Bool) -> Void)?
+            if let parameter = change?["parameter"] as? String,
+               let actions = change?["actions"] as? [Any], !actions.isEmpty {
+                onChange = { nextValue in
+                    var changeLocals = locals
+                    changeLocals[parameter] = nextValue
+                    store.perform(actions, scope: scope, locals: changeLocals)
+                }
+            } else {
+                onChange = nil
+            }
             return AnyView(NexaSwitchPrimitive(label: Text(label), isOn: Binding(
                 get: { store.truthy(store.value(name, scope: scope)) },
-                set: { nextValue in
-                    let previousValue = store.truthy(store.value(name, scope: scope))
-                    guard nextValue != previousValue else { return }
-                    store.setValue(name, value: nextValue, scope: scope)
-                    if let onChange,
-                       let parameter = onChange["parameter"] as? String {
-                        var changeLocals = locals
-                        changeLocals[parameter] = nextValue
-                        store.perform(onChange["actions"] as? [Any] ?? [], scope: scope, locals: changeLocals)
-                    }
-                }
-            ), onChange: nil))
+                set: { store.setValue(name, value: $0, scope: scope) }
+            ), onChange: onChange))
         case "Slider":
             let name = fields["state"] as? String ?? ""
             let min = (store.evaluate(fields["min"] ?? 0, locals: locals, scope: scope) as? NSNumber)?.doubleValue ?? 0
@@ -3710,6 +3699,7 @@ struct NexaDevNodeList: View {
             let showLoadingIndicator = fields["show_loading_indicator"] as? Bool ?? false
             let maxHeight = fields["max_height"] as? CGFloat
             let fillMaxSize = fields["fill_max_size"] as? Bool ?? false
+            let sharedExpression = fields["shared_element"] as? [String: Any]
             var rendered: AnyView
             if let asset = source["Asset"] as? String {
                 rendered = AnyView(NexaAssetImagePrimitive(
@@ -3719,29 +3709,19 @@ struct NexaDevNodeList: View {
                     maxHeight: maxHeight,
                     fillMaxSize: fillMaxSize
                 ))
-            } else if let expression = source["RemoteUrl"] {
+            } else if let expression = source["RemoteUrl"] ?? source["LocalFile"] {
+                let allowsFile = source["LocalFile"] != nil
                 let urlText = store.stringify(store.evaluate(expression, locals: locals, scope: scope))
                 rendered = AnyView(NexaRemoteImagePrimitive(
                     url: urlText,
                     scale: scale,
-                    placeholder: placeholder,
+                    placeholder: allowsFile ? nil : placeholder,
                     showLoadingIndicator: showLoadingIndicator,
-                    allowsFile: false,
+                    allowsFile: allowsFile,
                     description: description,
                     maxHeight: maxHeight,
-                    fillMaxSize: fillMaxSize
-                ))
-            } else if let expression = source["LocalFile"] {
-                let urlText = store.stringify(store.evaluate(expression, locals: locals, scope: scope))
-                rendered = AnyView(NexaRemoteImagePrimitive(
-                    url: urlText,
-                    scale: scale,
-                    placeholder: nil,
-                    showLoadingIndicator: showLoadingIndicator,
-                    allowsFile: true,
-                    description: description,
-                    maxHeight: maxHeight,
-                    fillMaxSize: fillMaxSize
+                    fillMaxSize: fillMaxSize,
+                    usesSharedElement: sharedExpression != nil
                 ))
             } else {
                 rendered = AnyView(NexaImagePlaceholderPrimitive(
@@ -3749,8 +3729,7 @@ struct NexaDevNodeList: View {
                     scale: scale
                 ))
             }
-            if let sharedExpression = fields["shared_element"] as? [String: Any],
-               let namespace = nexaSharedNamespace {
+            if let sharedExpression, let namespace = nexaSharedNamespace {
                 let id = store.evaluate(sharedExpression, locals: locals, scope: scope) as? String ?? ""
                 rendered = AnyView(rendered.matchedGeometryEffect(id: id, in: namespace))
             }

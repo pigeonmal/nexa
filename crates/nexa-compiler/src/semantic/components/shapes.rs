@@ -77,6 +77,24 @@ pub(super) fn lower_shape_component(
     let fill = optional_color(args.remove("fill"), "Shape fill", themes)?
         .ok_or_else(|| CompileError::new(span, "Shape requires a `fill` value"))?;
     let animation = args.remove("animation").map(parse_animation).transpose()?;
+    let measurement = if animation.is_none() {
+        let reads_state = |expression: Option<&Expr>| match expression {
+            Some(expression) => reads_numeric_state(expression),
+            None => Some(false),
+        };
+        match (
+            reads_state(width_expression.as_ref()),
+            reads_state(height_expression.as_ref()),
+        ) {
+            (Some(true), Some(true)) => nexa_ir::ShapeMeasurement::Both,
+            (Some(true), Some(false)) => nexa_ir::ShapeMeasurement::Width,
+            (Some(false), Some(true)) => nexa_ir::ShapeMeasurement::Height,
+            // Preserve the authored order when either dimension evaluates a call.
+            _ => nexa_ir::ShapeMeasurement::None,
+        }
+    } else {
+        nexa_ir::ShapeMeasurement::None
+    };
     Ok(Node::Shape {
         shape,
         width,
@@ -84,6 +102,30 @@ pub(super) fn lower_shape_component(
         fill,
         width_expression,
         height_expression,
+        measurement,
         animation,
     })
+}
+
+/// Classify scalar arithmetic that measurement can reevaluate without running
+/// app functions, plugin calls, or operations that can throw.
+fn reads_numeric_state(expression: &Expr) -> Option<bool> {
+    match expression {
+        Expr::State(_, Type::Numeric(_)) | Expr::AnimatedState(_, Type::Numeric(_)) => Some(true),
+        Expr::Number { .. } => Some(false),
+        Expr::Located { expression, .. } => reads_numeric_state(expression),
+        Expr::Add(left, right, NumericType::Float32 | NumericType::Float64)
+        | Expr::Arithmetic {
+            left,
+            right,
+            ty: NumericType::Float32 | NumericType::Float64,
+            ..
+        } => {
+            let left_reads = reads_numeric_state(left)?;
+            let right_reads = reads_numeric_state(right)?;
+            Some(left_reads || right_reads)
+        }
+        Expr::Negate { value, .. } => reads_numeric_state(value),
+        _ => None,
+    }
 }

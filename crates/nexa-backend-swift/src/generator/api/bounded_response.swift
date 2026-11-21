@@ -241,3 +241,17 @@ private final class NexaBoundedDataDelegate: NSObject, URLSessionDataDelegate {
         } else { request.continuation.resume(throwing: URLError(.badServerResponse)) }
     }
 }
+
+private enum NexaURLSessionSupport {
+    static let configuration: URLSessionConfiguration = {
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = URLCache(
+            memoryCapacity: 16 * 1024 * 1024,
+            diskCapacity: 64 * 1024 * 1024
+        )
+        configuration.requestCachePolicy = .useProtocolCachePolicy
+        return configuration
+    }()
+    static let collector = NexaBoundedDataDelegate()
+    static let sharedSession = URLSession(configuration: configuration, delegate: collector, delegateQueue: nil)
+}

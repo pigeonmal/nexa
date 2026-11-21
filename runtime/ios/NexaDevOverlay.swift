@@ -166,7 +166,7 @@ struct NexaDevStatusBarVisibility: ViewModifier {
 
 struct NexaDevStatusBarConfigurationModifier: ViewModifier {
     let config: [String: Any]?
-    let safeInsets: NexaDevVisualSafeAreaSnapshot
+    let safeInsets: NexaVisualSafeAreaSnapshot
     let isDark: Bool
 
     @ViewBuilder

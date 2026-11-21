@@ -1,0 +1,134 @@
+{
+  "setup": "Android 12 emulator (API 31), signed minified Release APKs, ART speed compilation. Scroll a four-column grid of 5,000 cells for eight seconds at 800 pixels per second after 1.8 seconds of startup. Run before/after/after/before. The recent gfxinfo interval contains up to 120 frames.",
+  "nxSource": "app ColumnBench {\n    let gallery = ComponentRef<FastList>()\n    body {\n        Column(gap: 4) {\n            Text(\"Album covers\")\n            FastList(count: 5000, axis: Grid(4), rowHeight: 40, showDividers: false, ref: gallery) { index in\n                Image(asset: \"cell_cover\", description: \"\", maxHeight: 36)\n            }\n        }\n    }\n}\n",
+  "configSource": "config {\n    app { displayName: \"Nexa Effect Bench\", version: \"1.0.0\", buildNumber: 1 }\n    assets { icon: \"\", splash: \"\" }\n    ios { minVersion: \"16.0\", bundleIdentifier: \"dev.nexa.drawableids\", icon: \"\" }\n    android { minSdk: 24, targetSdk: 36, applicationId: \"dev.nexa.drawableids\", icon: \"\" }\n    permissions {}\n}\n",
+  "assets": {
+    "preparation": "Scale examples/component-parity/assets/images/parity_sample.png to 64 by 64 pixels with sips -z 64 64. Use the same image for the referenced and unused drawables.",
+    "sha256": {
+      "cell_cover.png": "de9e3c370e8a45f1cdb60ceafa8f56f5406ef6b77c21e740ee1acfd99df861d7",
+      "dormant_art.png": "de9e3c370e8a45f1cdb60ceafa8f56f5406ef6b77c21e740ee1acfd99df861d7"
+    }
+  },
+  "instrumentation": "from pathlib import Path\nimport shutil,sys\nprobe,source=map(Path,sys.argv[1:3])\ntarget=probe/sys.argv[3]/'android'\nshutil.copytree(source,target,dirs_exist_ok=True)\npackage=target/'app/src/main/java/dev/nexa/drawableids'\npath=package/'NexaGenerated.kt'\ncode=path.read_text()\nneedle='                    val nexaGridState0 = rememberLazyGridState()\\n'\nassert needle in code\ncode=code.replace(needle,needle+'''                    androidx.compose.runtime.LaunchedEffect(nexaGridState0) {\n                        kotlinx.coroutines.delay(1800)\n                        val firstLookups = NexaDrawableBench.lookups\n                        val firstLookupNanos = NexaDrawableBench.lookupNanos\n                        val firstCpu = android.os.Process.getElapsedCpuTime()\n                        val start = android.os.SystemClock.elapsedRealtimeNanos()\n                        var last = start\n                        var callbacks = 0\n                        nexaGridState0.scroll {\n                            while (last - start < 8_000_000_000L) {\n                                androidx.compose.runtime.withFrameNanos { }\n                                val now = android.os.SystemClock.elapsedRealtimeNanos()\n                                scrollBy(((now - last) * 0.0000008).toFloat())\n                                last = now\n                                callbacks++\n                            }\n                        }\n                        android.util.Log.i(\"NexaListBench\", org.json.JSONObject()\n                            .put(\"nameLookups\", NexaDrawableBench.lookups - firstLookups)\n                            .put(\"lookupMillis\", (NexaDrawableBench.lookupNanos - firstLookupNanos) / 1e6)\n                            .put(\"startupLookups\", firstLookups)\n                            .put(\"cpuMillis\", android.os.Process.getElapsedCpuTime() - firstCpu)\n                            .put(\"wallSeconds\", (last - start) / 1e9)\n                            .put(\"nativeFrameCallbacks\", callbacks)\n                            .put(\"lastItem\", nexaGridState0.firstVisibleItemIndex)\n                            .put(\"pssKiB\", android.os.Debug.getPss()).toString())\n                    }\n''')\npath.write_text(code+'''\ninternal object NexaDrawableBench {\n    var lookups = 0\n    var lookupNanos = 0L\n}\n''')\nfor path in package.glob('NexaGenerated*.kt'):\n    code=path.read_text()\n    needle='''        context.resources.getIdentifier(\n            name,\n            \"drawable\",\n            context.packageName,\n        )'''\n    if needle in code:\n        code=code.replace(needle,'''        val started = System.nanoTime()\n        val resolved = context.resources.getIdentifier(name, \"drawable\", context.packageName)\n        NexaDrawableBench.lookupNanos += System.nanoTime() - started\n        NexaDrawableBench.lookups++\n        resolved''',1)\n        path.write_text(code)\n",
+  "releaseSamples": [
+    {
+      "run": 0,
+      "variant": "before",
+      "counters": {
+        "nameLookups": 236,
+        "lookupMillis": 6.382545,
+        "startupLookups": 84,
+        "cpuMillis": 1449,
+        "wallSeconds": 8.011977337,
+        "nativeFrameCallbacks": 481,
+        "lastItem": 232,
+        "pssKiB": 43778,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 60.0000024000001,
+          "frameDurationP95Ms": 5.551746
+        }
+      }
+    },
+    {
+      "run": 1,
+      "variant": "after",
+      "counters": {
+        "nameLookups": 0,
+        "lookupMillis": 0,
+        "startupLookups": 0,
+        "cpuMillis": 1458,
+        "wallSeconds": 8.014943421,
+        "nativeFrameCallbacks": 481,
+        "lastItem": 232,
+        "pssKiB": 43511,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 60.0000024000001,
+          "frameDurationP95Ms": 5.285475
+        }
+      }
+    },
+    {
+      "run": 2,
+      "variant": "after",
+      "counters": {
+        "nameLookups": 0,
+        "lookupMillis": 0,
+        "startupLookups": 0,
+        "cpuMillis": 1217,
+        "wallSeconds": 8.000649837,
+        "nativeFrameCallbacks": 480,
+        "lastItem": 232,
+        "pssKiB": 43469,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 60.0000024000001,
+          "frameDurationP95Ms": 20.753619
+        }
+      }
+    },
+    {
+      "run": 3,
+      "variant": "before",
+      "counters": {
+        "nameLookups": 236,
+        "lookupMillis": 7.415867,
+        "startupLookups": 84,
+        "cpuMillis": 1395,
+        "wallSeconds": 8.006713587,
+        "nativeFrameCallbacks": 481,
+        "lastItem": 232,
+        "pssKiB": 43867,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 60.0000024000001,
+          "frameDurationP95Ms": 5.447287
+        }
+      }
+    }
+  ],
+  "verification": {
+    "generatedSwiftIdentical": true,
+    "baselineResourceReachability": {
+      "cell_cover": "keep XML file",
+      "dormant_art": "unreachable"
+    },
+    "candidateResourceReachability": {
+      "cell_cover": "R.drawable field",
+      "dormant_art": "unreachable"
+    },
+    "androidReleaseImageAccessibilityPixelSizes": {
+      "projectDrawable": [
+        64,
+        64
+      ],
+      "externalNativeDrawable": [
+        80,
+        40
+      ],
+      "remoteErrorPlaceholder": [
+        80,
+        40
+      ]
+    },
+    "plainReleaseApkBytes": {
+      "before": 991147,
+      "after": 991135
+    },
+    "hotReload": {
+      "edit": "Replace cell_cover with the bundled wide_cover during the same DevRuntime session.",
+      "androidAccessibilityPixelSizes": {
+        "initial": [
+          64,
+          64
+        ],
+        "patched": [
+          80,
+          40
+        ]
+      },
+      "ios": "XCTest verified the initial image, replacement image, and removal of the previous image label."
+    }
+  }
+}

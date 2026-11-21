@@ -1,0 +1,516 @@
+{
+  "fixture": {
+    "tileCount": 120,
+    "source": "component Tile(amount: Float64) {\n    body {\n        Stack(width: 32, height: 24, opacity: 1, scale: 1, scaleY: 1, rotation: 0, offsetY: 0, blur: 0) {\n            Shape(width: amount, height: 12, shape: Rounded(2), fill: \"#356EAF\")\n        }\n    }\n}\napp ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 2) {\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n            Row(gap: 2) {\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n                Tile(amount: tileWidth)\n            }\n        }\n    }\n}\n",
+    "driver": "Alternates each shape width between 8 and 10 on the native app frame clock.",
+    "warmupSeconds": 2
+  },
+  "ios": {
+    "target": "iPhone 18 Pro Max simulator, iOS 27.0",
+    "configuration": "AOT Release",
+    "samples": [
+      {
+        "run": 0,
+        "variant": "before",
+        "counters": {
+          "residentBytesStart": 190758912,
+          "residentBytesEveryFiveSeconds": [
+            190349312
+          ],
+          "residentBytesEnd": 190349312,
+          "wallSeconds": 7.014739291684236,
+          "displayLinkIntervals": 420,
+          "cpuSeconds": 1.021638,
+          "displayLinkP95Ms": 16.69191668042913
+        }
+      },
+      {
+        "run": 1,
+        "variant": "after",
+        "counters": {
+          "displayLinkIntervals": 420,
+          "residentBytesEveryFiveSeconds": [
+            185810944
+          ],
+          "residentBytesEnd": 185810944,
+          "residentBytesStart": 186023936,
+          "displayLinkP95Ms": 16.707000031601638,
+          "cpuSeconds": 1.6277630000000003,
+          "wallSeconds": 7.000053625029977
+        }
+      },
+      {
+        "run": 2,
+        "variant": "after",
+        "counters": {
+          "residentBytesStart": 186023936,
+          "cpuSeconds": 1.603341,
+          "displayLinkP95Ms": 16.70187502168119,
+          "wallSeconds": 7.000028416630812,
+          "residentBytesEveryFiveSeconds": [
+            185860096
+          ],
+          "residentBytesEnd": 185860096,
+          "displayLinkIntervals": 420
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "counters": {
+          "displayLinkIntervals": 419,
+          "cpuSeconds": 1.6094720000000002,
+          "residentBytesStart": 188317696,
+          "wallSeconds": 7.000037749996409,
+          "residentBytesEveryFiveSeconds": [
+            187973632
+          ],
+          "residentBytesEnd": 187973632,
+          "displayLinkP95Ms": 16.70445833588019
+        }
+      }
+    ],
+    "adoptedVariant": "after",
+    "adoptedGeneratedViewAndComponentSourcesMatch": true,
+    "unsignedDeviceRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 9324676,
+      "mainExecutableBytes": 270128,
+      "appBundleBytes": 270910,
+      "bundleOtherBytes": 782
+    },
+    "isolatedRepeat": [
+      {
+        "run": 0,
+        "variant": "before",
+        "counters": {
+          "displayLinkP95Ms": 16.692041710484773,
+          "cpuSeconds": 1.8071679999999999,
+          "displayLinkIntervals": 540,
+          "residentBytesStart": 180535296,
+          "residentBytesEveryFiveSeconds": [
+            179814400
+          ],
+          "residentBytesEnd": 179748864,
+          "wallSeconds": 9.013747583318036
+        }
+      },
+      {
+        "run": 1,
+        "variant": "after",
+        "counters": {
+          "wallSeconds": 9.016654499981087,
+          "cpuSeconds": 1.740446,
+          "residentBytesEnd": 176046080,
+          "residentBytesEveryFiveSeconds": [
+            176144384
+          ],
+          "displayLinkIntervals": 541,
+          "residentBytesStart": 176308224,
+          "displayLinkP95Ms": 16.70091663254425
+        }
+      },
+      {
+        "run": 2,
+        "variant": "after",
+        "counters": {
+          "residentBytesStart": 176308224,
+          "displayLinkIntervals": 540,
+          "displayLinkP95Ms": 16.700083331670612,
+          "wallSeconds": 9.016647375014145,
+          "cpuSeconds": 1.772075,
+          "residentBytesEveryFiveSeconds": [
+            176160768
+          ],
+          "residentBytesEnd": 176046080
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "counters": {
+          "displayLinkIntervals": 541,
+          "wallSeconds": 9.016656541614793,
+          "cpuSeconds": 1.785632,
+          "displayLinkP95Ms": 16.69362501706928,
+          "residentBytesEveryFiveSeconds": [
+            166887424
+          ],
+          "residentBytesStart": 178552832,
+          "residentBytesEnd": 166887424
+        }
+      }
+    ]
+  },
+  "android": {
+    "target": "Ajami_Android12 emulator, API 31",
+    "configuration": "AOT minified Release, compiled in speed mode on the emulator",
+    "removeAllIdentityModifiers": [
+      {
+        "run": 0,
+        "variant": "before",
+        "counters": {
+          "wallSeconds": 6.003068879,
+          "cpuMillis": 5506,
+          "pssKiBStart": 37394,
+          "pssKiBEnd": 38494,
+          "pssKiBEveryFiveSeconds": [
+            34649
+          ],
+          "composeClockIntervals": 305,
+          "composeClockP95Ms": 34.480541,
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 54.045803688549704,
+            "frameDurationP95Ms": 63.622293
+          }
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "counters": {
+          "wallSeconds": 6.009461962,
+          "cpuMillis": 5657,
+          "pssKiBStart": 38656,
+          "pssKiBEnd": 33267,
+          "pssKiBEveryFiveSeconds": [
+            36841
+          ],
+          "composeClockIntervals": 303,
+          "composeClockP95Ms": 31.146542,
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 49.166668633333416,
+            "frameDurationP95Ms": 80.973649
+          }
+        }
+      },
+      {
+        "run": 1,
+        "variant": "after",
+        "counters": {
+          "wallSeconds": 6.007108754,
+          "cpuMillis": 1140,
+          "pssKiBStart": 28756,
+          "pssKiBEnd": 27032,
+          "pssKiBEveryFiveSeconds": [
+            26878
+          ],
+          "composeClockIntervals": 165,
+          "composeClockP95Ms": 103.802417,
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 28.433736077108478,
+            "frameDurationP95Ms": 188.339148
+          }
+        }
+      },
+      {
+        "run": 2,
+        "variant": "after",
+        "counters": {
+          "wallSeconds": 6.019829462,
+          "cpuMillis": 1072,
+          "pssKiBStart": 28645,
+          "pssKiBEnd": 29730,
+          "pssKiBEveryFiveSeconds": [
+            29919
+          ],
+          "composeClockIntervals": 157,
+          "composeClockP95Ms": 103.283,
+          "gfxInfoFrameStats": {
+            "records": 118,
+            "lastIntervalFps": 25.251799571223064,
+            "frameDurationP95Ms": 153.215391
+          }
+        }
+      }
+    ],
+    "singleLayerExperiments": [
+      {
+        "run": 0,
+        "variant": "retained",
+        "counters": {
+          "wallSeconds": 6.00900417,
+          "cpuMillis": 826,
+          "pssKiBStart": 29559,
+          "pssKiBEnd": 28885,
+          "pssKiBEveryFiveSeconds": [
+            30345
+          ],
+          "composeClockIntervals": 169,
+          "composeClockP95Ms": 97.744792,
+          "gfxInfoFrameStats": {
+            "records": 118,
+            "lastIntervalFps": 27.85718076280668,
+            "frameDurationP95Ms": 94.856607
+          }
+        }
+      },
+      {
+        "run": 3,
+        "variant": "retained",
+        "counters": {
+          "wallSeconds": 6.006681087,
+          "cpuMillis": 1711,
+          "pssKiBStart": 28994,
+          "pssKiBEnd": 31783,
+          "pssKiBEveryFiveSeconds": [
+            31855
+          ],
+          "composeClockIntervals": 171,
+          "composeClockP95Ms": 97.174292,
+          "gfxInfoFrameStats": {
+            "records": 112,
+            "lastIntervalFps": 27.183674556734736,
+            "frameDurationP95Ms": 98.903889
+          }
+        }
+      },
+      {
+        "run": 1,
+        "variant": "offscreen",
+        "counters": {
+          "wallSeconds": 6.029057546,
+          "cpuMillis": 2424,
+          "pssKiBStart": 33365,
+          "pssKiBEnd": 31863,
+          "pssKiBEveryFiveSeconds": [
+            34107
+          ],
+          "composeClockIntervals": 207,
+          "composeClockP95Ms": 84.886583,
+          "gfxInfoFrameStats": {
+            "records": 114,
+            "lastIntervalFps": 31.830987188732447,
+            "frameDurationP95Ms": 99.740961
+          }
+        }
+      },
+      {
+        "run": 2,
+        "variant": "offscreen",
+        "counters": {
+          "wallSeconds": 6.002264588,
+          "cpuMillis": 4973,
+          "pssKiBStart": 32279,
+          "pssKiBEnd": 34243,
+          "pssKiBEveryFiveSeconds": [
+            32483
+          ],
+          "composeClockIntervals": 300,
+          "composeClockP95Ms": 35.644084,
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 51.67883418394169,
+            "frameDurationP95Ms": 74.360011
+          }
+        }
+      }
+    ],
+    "keepOpacityBoundaryOnly": [
+      {
+        "run": 0,
+        "variant": "before",
+        "counters": {
+          "wallSeconds": 8.013477255,
+          "cpuMillis": 7125,
+          "pssKiBStart": 36704,
+          "pssKiBEnd": 36888,
+          "pssKiBEveryFiveSeconds": [
+            32429
+          ],
+          "composeClockIntervals": 371,
+          "composeClockP95Ms": 36.014042,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 47.28477010331133,
+            "frameDurationP95Ms": 69.001536
+          }
+        }
+      },
+      {
+        "run": 1,
+        "variant": "final",
+        "counters": {
+          "wallSeconds": 8.011413504,
+          "cpuMillis": 7728,
+          "pssKiBStart": 35589,
+          "pssKiBEnd": 36720,
+          "pssKiBEveryFiveSeconds": [
+            34150
+          ],
+          "composeClockIntervals": 322,
+          "composeClockP95Ms": 33.145416,
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 39.11602366408846,
+            "frameDurationP95Ms": 84.655667
+          }
+        }
+      },
+      {
+        "run": 2,
+        "variant": "final",
+        "counters": {
+          "wallSeconds": 8.011972672,
+          "cpuMillis": 7953,
+          "pssKiBStart": 32381,
+          "pssKiBEnd": 32915,
+          "pssKiBEveryFiveSeconds": [
+            32627
+          ],
+          "composeClockIntervals": 347,
+          "composeClockP95Ms": 33.248709,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 42.50000170000007,
+            "frameDurationP95Ms": 79.519099
+          }
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "counters": {
+          "wallSeconds": 8.021301713,
+          "cpuMillis": 8124,
+          "pssKiBStart": 36295,
+          "pssKiBEnd": 32424,
+          "pssKiBEveryFiveSeconds": [
+            34816
+          ],
+          "composeClockIntervals": 318,
+          "composeClockP95Ms": 36.492166,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 39.447515390055315,
+            "frameDurationP95Ms": 84.629466
+          }
+        }
+      }
+    ],
+    "adoptedVariant": "before",
+    "adoptedGeneratedComponentSourceMatches": true,
+    "releasePackaging": {
+      "before": {
+        "apkBytes": 759507,
+        "aabBytes": 1748835
+      },
+      "after": {
+        "apkBytes": 759507,
+        "aabBytes": 1743751
+      },
+      "final": {
+        "apkBytes": 759507,
+        "aabBytes": 1744885
+      },
+      "sizing-dedup": {
+        "apkBytes": 759507,
+        "aabBytes": 1748772
+      }
+    },
+    "removeDuplicateFixedDimensions": [
+      {
+        "run": 0,
+        "variant": "before",
+        "counters": {
+          "wallSeconds": 10.012256839,
+          "cpuMillis": 10239,
+          "pssKiBStart": 38051,
+          "pssKiBEnd": 35789,
+          "pssKiBEveryFiveSeconds": [
+            37098,
+            35789
+          ],
+          "composeClockIntervals": 428,
+          "composeClockP95Ms": 31.704334,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 42.50000170000007,
+            "frameDurationP95Ms": 78.912478
+          }
+        }
+      },
+      {
+        "run": 1,
+        "variant": "sizing-dedup",
+        "counters": {
+          "wallSeconds": 10.011402256,
+          "cpuMillis": 10086,
+          "pssKiBStart": 35094,
+          "pssKiBEnd": 34707,
+          "pssKiBEveryFiveSeconds": [
+            33127,
+            34707
+          ],
+          "composeClockIntervals": 424,
+          "composeClockP95Ms": 32.3245,
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 41.89349280000007,
+            "frameDurationP95Ms": 87.427882
+          }
+        }
+      },
+      {
+        "run": 2,
+        "variant": "sizing-dedup",
+        "counters": {
+          "wallSeconds": 10.025799715,
+          "cpuMillis": 10189,
+          "pssKiBStart": 35446,
+          "pssKiBEnd": 32490,
+          "pssKiBEveryFiveSeconds": [
+            35634,
+            32490
+          ],
+          "composeClockIntervals": 424,
+          "composeClockP95Ms": 32.128084,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 41.75438763508779,
+            "frameDurationP95Ms": 79.833016
+          }
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "counters": {
+          "wallSeconds": 10.01552838,
+          "cpuMillis": 10050,
+          "pssKiBStart": 36544,
+          "pssKiBEnd": 33779,
+          "pssKiBEveryFiveSeconds": [
+            33876,
+            33779
+          ],
+          "composeClockIntervals": 413,
+          "composeClockP95Ms": 32.46175,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 42.24852240000007,
+            "frameDurationP95Ms": 78.790374
+          }
+        }
+      }
+    ]
+  },
+  "limitations": [
+    "iOS display-link callback cadence measures main-thread scheduling. Compositor presentation remains unverified.",
+    "Android gfxinfo estimates cadence from recent window frame records. The app emits work on the native frame clock, so process CPU totals are not measurements for a fixed number of updates.",
+    "Some host builds overlapped the single-layer Android experiments. The Android changes were discarded.",
+    "RSS and PSS describe whole-process memory. Object-level retention remains unverified."
+  ],
+  "devRuntime": {
+    "edit": "Change the tile rotation from 0 to 8.",
+    "iosAppliedPatch": "dev-ios-2",
+    "androidAppliedPatch": "dev-android-2"
+  }
+}

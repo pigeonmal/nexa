@@ -1,0 +1,52 @@
+{
+  "fixtureSource": "component BenchRow(label: String) {\n    body {\n        Row(gap: 3) {\n            Pressable() {\n                Text(label)\n            }.onTap {}\n            Pressable() {\n                Text(label)\n            }.onTap {}\n            Pressable() {\n                Text(label)\n            }.onTap {}\n            Pressable() {\n                Text(label)\n            }.onTap {}\n        }\n    }\n}\napp ColumnBench {\n    state buttonLabel: String = \"A\"\n    body {\n        Column(gap: 1) {\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n        }\n    }\n}\n",
+  "workload": "40 Pressable nodes alternate their child text on each frame callback in Release AOT, after two seconds of warmup. No touch gestures are injected.",
+  "ios": {
+    "simulator": "iOS 27.0",
+    "sample": {
+      "displayLinkIntervals": 720,
+      "displayLinkP95Ms": 16.679958382155746,
+      "wallSeconds": 12.016636833315715,
+      "residentBytesEnd": 191332352,
+      "cpuSeconds": 1.6665040000000002,
+      "residentBytesEveryFiveSeconds": [
+        191397888,
+        191332352
+      ],
+      "residentBytesStart": 191545344
+    },
+    "release": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 9834404,
+      "mainExecutableBytes": 321448,
+      "appBundleBytes": 322236,
+      "bundleOtherBytes": 788
+    }
+  },
+  "android": {
+    "emulator": "API 31",
+    "sample": {
+      "wallSeconds": 12.048174257,
+      "cpuMillis": 8385,
+      "pssKiBStart": 40055,
+      "pssKiBEnd": 35031,
+      "pssKiBEveryFiveSeconds": [
+        36663,
+        34168
+      ],
+      "composeClockIntervals": 477,
+      "composeClockP95Ms": 57.434875,
+      "gfxInfoFrameStats": {
+        "records": 116,
+        "lastIntervalFps": 40.11628067441867,
+        "frameDurationP95Ms": 86.592854
+      }
+    },
+    "apkBytes": 857811,
+    "aabBytes": 2066561
+  }
+}

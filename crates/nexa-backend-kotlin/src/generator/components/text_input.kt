@@ -22,15 +22,17 @@ internal fun NexaTextInputPrimitive(
     keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions(),
     keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions(),
 ) {
-    val nativeKeyboardOptions = if (secure) keyboardOptions.copy(
-        keyboardType = when (keyboardOptions.keyboardType) {
-            androidx.compose.ui.text.input.KeyboardType.Text -> androidx.compose.ui.text.input.KeyboardType.Password
-            androidx.compose.ui.text.input.KeyboardType.Number -> androidx.compose.ui.text.input.KeyboardType.NumberPassword
-            else -> keyboardOptions.keyboardType
-        },
-        autoCorrectEnabled = false,
-        capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.None,
-    ) else keyboardOptions
+    val nativeKeyboardOptions = androidx.compose.runtime.remember(secure, keyboardOptions) {
+        if (!secure) keyboardOptions else keyboardOptions.copy(
+            keyboardType = when (keyboardOptions.keyboardType) {
+                androidx.compose.ui.text.input.KeyboardType.Text -> androidx.compose.ui.text.input.KeyboardType.Password
+                androidx.compose.ui.text.input.KeyboardType.Number -> androidx.compose.ui.text.input.KeyboardType.NumberPassword
+                else -> keyboardOptions.keyboardType
+            },
+            autoCorrectEnabled = false,
+            capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.None,
+        )
+    }
     val limiter = androidx.compose.runtime.remember { NexaTextInputEditLimiter() }
     val initialFocusOnMount = androidx.compose.runtime.remember { initialFocus }
     val inputHasFocus = androidx.compose.runtime.remember {
@@ -42,10 +44,10 @@ internal fun NexaTextInputPrimitive(
     } else {
         null
     }
-    androidx.compose.runtime.LaunchedEffect(focusRequester) {
-        if (initialFocusOnMount) {
+    if (initialFocusOnMount && focusRequester != null) {
+        androidx.compose.runtime.LaunchedEffect(focusRequester) {
             androidx.compose.runtime.withFrameNanos { }
-            focusRequester?.requestFocus()
+            focusRequester.requestFocus()
         }
     }
     if (componentRef != null && focusRequester != null) {
@@ -66,14 +68,14 @@ internal fun NexaTextInputPrimitive(
     val bringIntoViewRequester = androidx.compose.runtime.remember {
         androidx.compose.foundation.relocation.BringIntoViewRequester()
     }
-    val keyboardInsets = androidx.compose.foundation.layout.WindowInsets.ime
-    val density = androidx.compose.ui.platform.LocalDensity.current
     val inputFocusModifier = focusModifier
         .then(focusRequester?.let { androidx.compose.ui.Modifier.focusRequester(it) } ?: androidx.compose.ui.Modifier)
         .bringIntoViewRequester(bringIntoViewRequester)
         .onFocusChanged { inputHasFocus.value = it.isFocused }
-    androidx.compose.runtime.LaunchedEffect(inputHasFocus.value, keyboardInsets, density) {
-        if (inputHasFocus.value) {
+    if (inputHasFocus.value) {
+        val keyboardInsets = androidx.compose.foundation.layout.WindowInsets.ime
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        androidx.compose.runtime.LaunchedEffect(keyboardInsets, density) {
             // Observe visibility, not animated inset pixels. Hidden/unfocused
             // fields do no keyboard-animation work and no per-frame relayout.
             androidx.compose.runtime.snapshotFlow { keyboardInsets.getBottom(density) > 0 }
@@ -186,31 +188,41 @@ private fun NexaTextInputField(
     keyboardOptions: androidx.compose.foundation.text.KeyboardOptions,
     keyboardActions: androidx.compose.foundation.text.KeyboardActions,
 ) {
-    val inputStyle = textStyle.copy(
-        color = textColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
-        textAlign = androidx.compose.ui.text.style.TextAlign.Start,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
-        letterSpacing = 0.sp,
-        lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified,
-    )
+    val onSurfaceColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface
+    val effectiveTextColor = textColor ?: onSurfaceColor
+    val stableInputStyle = androidx.compose.runtime.remember(textStyle, effectiveTextColor) {
+        textStyle.copy(
+            color = effectiveTextColor,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
+            letterSpacing = 0.sp,
+            lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified,
+        )
+    }
+    val effectivePlaceholderColor = placeholderColor ?: androidx.compose.ui.graphics.Color(0xFF8E8E93)
+    val placeholderStyle = androidx.compose.runtime.remember(stableInputStyle, effectivePlaceholderColor) {
+        stableInputStyle.copy(color = effectivePlaceholderColor)
+    }
+    val primaryColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
+    val cursorBrush = androidx.compose.runtime.remember(primaryColor) {
+        androidx.compose.ui.graphics.SolidColor(primaryColor)
+    }
+    val visualTransformation = androidx.compose.runtime.remember(secure) {
+        if (secure) androidx.compose.ui.text.input.PasswordVisualTransformation()
+        else androidx.compose.ui.text.input.VisualTransformation.None
+    }
     androidx.compose.foundation.text.BasicTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,
-        textStyle = inputStyle,
+        textStyle = stableInputStyle,
         minLines = minLines,
         maxLines = maxLines,
         singleLine = singleLine,
-        visualTransformation = if (secure) {
-            androidx.compose.ui.text.input.PasswordVisualTransformation()
-        } else {
-            androidx.compose.ui.text.input.VisualTransformation.None
-        },
+        visualTransformation = visualTransformation,
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
-        cursorBrush = androidx.compose.ui.graphics.SolidColor(
-            androidx.compose.material3.MaterialTheme.colorScheme.primary,
-        ),
+        cursorBrush = cursorBrush,
         decorationBox = { innerTextField ->
             androidx.compose.foundation.layout.Box(
                 contentAlignment = if (singleLine) androidx.compose.ui.Alignment.CenterStart else androidx.compose.ui.Alignment.TopStart,
@@ -218,9 +230,7 @@ private fun NexaTextInputField(
                 if (value.isEmpty() && placeholder.isNotEmpty()) {
                     androidx.compose.material3.Text(
                         placeholder,
-                        style = inputStyle.copy(
-                            color = placeholderColor ?: androidx.compose.ui.graphics.Color(0xFF8E8E93),
-                        ),
+                        style = placeholderStyle,
                         maxLines = 1,
                     )
                 }
@@ -232,13 +242,35 @@ private fun NexaTextInputField(
 
 @androidx.compose.runtime.Composable
 private fun NexaTextInputClearButton(onClear: () -> Unit) {
-    androidx.compose.material3.IconButton(onClick = onClear) {
-        androidx.compose.material3.Icon(
-            imageVector = androidx.compose.material.icons.Icons.Filled.Cancel,
-            contentDescription = "Clear text",
+    androidx.compose.material3.IconButton(
+        onClick = onClear,
+        modifier = androidx.compose.ui.Modifier.semantics {
+            contentDescription = "Clear text"
+        },
+    ) {
+        androidx.compose.foundation.Canvas(
             modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(18f)),
-            tint = androidx.compose.ui.graphics.Color(0xFF8E8E93),
-        )
+        ) {
+            val tint = androidx.compose.ui.graphics.Color(0xFF8E8E93)
+            val strokeWidth = size.minDimension * 0.1f
+            val inset = size.minDimension * 0.29f
+            drawCircle(
+                color = tint,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(strokeWidth),
+            )
+            drawLine(
+                color = tint,
+                start = androidx.compose.ui.geometry.Offset(inset, inset),
+                end = androidx.compose.ui.geometry.Offset(size.width - inset, size.height - inset),
+                strokeWidth = strokeWidth,
+            )
+            drawLine(
+                color = tint,
+                start = androidx.compose.ui.geometry.Offset(size.width - inset, inset),
+                end = androidx.compose.ui.geometry.Offset(inset, size.height - inset),
+                strokeWidth = strokeWidth,
+            )
+        }
     }
 }
 

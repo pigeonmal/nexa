@@ -6,13 +6,8 @@ use crate::generator::{components::render_children, expressions::expression, fea
 use crate::generator::engine::imports::ImportSet;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    imports.add(features.uses_link, "android.content.Intent");
     imports.add(
-        features.uses_link,
-        "android.content.ActivityNotFoundException",
-    );
-    imports.add(
-        features.uses_link || features.uses_navigation_uri,
+        features.uses_navigation_uri,
         "android.net.Uri",
     );
     imports.add(features.uses_link, "androidx.compose.foundation.clickable");
@@ -30,24 +25,13 @@ pub(crate) fn render_link(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    out.line_at(depth, format_args!("NexaLinkPrimitive(onClick = {{"));
     out.line_at(
-        depth + 1,
+        depth,
         format_args!(
-            "val nexaLinkIntent = Intent(Intent.ACTION_VIEW, Uri.parse({}))",
+            "NexaLinkPrimitive(onClick = {{ nexaLaunchLink(nexaLinkContext, android.net.Uri.parse({})) }}) {{",
             expression(url)
         ),
     );
-    out.line_at(depth + 1, format_args!("try {{"));
-    out.line_at(
-        depth + 2,
-        format_args!("nexaLinkContext.startActivity(nexaLinkIntent)"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("}} catch (_: ActivityNotFoundException) {{}}"),
-    );
-    out.line_at(depth, format_args!("}}) {{"));
     render_children(children, module, features, depth + 1, out);
     out.push('\n');
     out.line_at(depth, format_args!("}}"));

@@ -1,0 +1,135 @@
+{
+  "fixtureSource": "app ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 4) {\n            Row(gap: 4) {\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n            }\n            Row(gap: 4) {\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n            }\n            Row(gap: 4) {\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n            }\n            Row(gap: 4) {\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n            }\n            Row(gap: 4) {\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n            }\n            Row(gap: 4) {\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n                ProgressRing(progress: tileWidth / 12.0, size: 32)\n            }\n        }\n    }\n}\n",
+  "workload": "36 determinate rings alternate between 2/3 and 5/6 progress after a two-second warmup. Short samples used serial simulator runs. Endurance samples ran during build verification and are used for memory trends only.",
+  "ios": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "residentBytesEnd": 201572352,
+        "wallSeconds": 8.00264741666615,
+        "residentBytesStart": 192462848,
+        "displayLinkP95Ms": 16.680791683029383,
+        "displayLinkIntervals": 480,
+        "residentBytesEveryFiveSeconds": [
+          198852608
+        ],
+        "cpuSeconds": 2.34078
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "residentBytesEnd": 199540736,
+        "displayLinkP95Ms": 16.68066665297374,
+        "wallSeconds": 8.016628874989692,
+        "residentBytesStart": 190365696,
+        "displayLinkIntervals": 480,
+        "cpuSeconds": 2.4084269999999997,
+        "residentBytesEveryFiveSeconds": [
+          196739072
+        ]
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "displayLinkIntervals": 481,
+        "residentBytesStart": 190382080,
+        "residentBytesEnd": 199589888,
+        "displayLinkP95Ms": 16.679666645359248,
+        "residentBytesEveryFiveSeconds": [
+          196788224
+        ],
+        "wallSeconds": 8.016662708309013,
+        "cpuSeconds": 2.453716
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "displayLinkP95Ms": 16.678374959155917,
+        "cpuSeconds": 2.5018080000000005,
+        "residentBytesStart": 190447616,
+        "displayLinkIntervals": 480,
+        "wallSeconds": 8.016660249966662,
+        "residentBytesEnd": 199573504,
+        "residentBytesEveryFiveSeconds": [
+          196804608
+        ]
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 14112872,
+      "mainExecutableBytes": 289888,
+      "appBundleBytes": 290666,
+      "bundleOtherBytes": 778
+    },
+    "enduranceSample": {
+      "residentBytesEveryFiveSeconds": [
+        184729600,
+        167690240,
+        164102144,
+        126468096,
+        127483904,
+        123748352,
+        97124352,
+        98304000,
+        97812480
+      ],
+      "residentBytesStart": 184926208,
+      "cpuSeconds": 35.016039,
+      "residentBytesEnd": 97910784,
+      "displayLinkIntervals": 2203,
+      "wallSeconds": 45.01321629167069,
+      "displayLinkP95Ms": 35.97708331653848
+    }
+  },
+  "android": {
+    "sample": {
+      "wallSeconds": 12.04182934,
+      "cpuMillis": 2087,
+      "pssKiBStart": 26713,
+      "pssKiBEnd": 40642,
+      "pssKiBEveryFiveSeconds": [
+        32878,
+        38510
+      ],
+      "composeClockIntervals": 439,
+      "composeClockP95Ms": 78.640959,
+      "gfxInfoFrameStats": {
+        "records": 117,
+        "lastIntervalFps": 36.43979203350791,
+        "frameDurationP95Ms": 80.111249
+      }
+    },
+    "apkBytes": 759507,
+    "aabBytes": 1745221,
+    "enduranceSample": {
+      "wallSeconds": 45.014228897,
+      "cpuMillis": 16074,
+      "pssKiBStart": 26829,
+      "pssKiBEnd": 27694,
+      "pssKiBEveryFiveSeconds": [
+        31636,
+        37820,
+        43996,
+        50194,
+        28974,
+        29658,
+        26934,
+        28850,
+        27694
+      ],
+      "composeClockIntervals": 1450,
+      "composeClockP95Ms": 83.02525,
+      "gfxInfoFrameStats": {
+        "records": 118,
+        "lastIntervalFps": 39.886365231818246,
+        "frameDurationP95Ms": 87.894289
+      }
+    }
+  }
+}

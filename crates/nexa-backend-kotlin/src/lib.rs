@@ -39,6 +39,7 @@ pub struct KotlinProjectFeatures {
     pub uses_saveable_state: bool,
     pub uses_expressive_menus: bool,
     pub uses_expressive_motion: bool,
+    pub uses_slider: bool,
     pub uses_wavy_progress_bar: bool,
     pub uses_wavy_progress_ring: bool,
     pub uses_compose_animation: bool,
@@ -106,6 +107,23 @@ impl KotlinBackend {
         font_catalog: nexa_codegen::FontCatalog,
     ) -> (nexa_codegen::GeneratedSources, KotlinProjectFeatures) {
         generator::generate_units_with_font_catalog_and_project_features(module, font_catalog)
+    }
+
+    /// Generate AOT units using drawable names guaranteed by the project's
+    /// resource staging plan, while keeping native-name lookup for other names.
+    pub fn generate_project_units(
+        &self,
+        module: &nexa_ir::Module,
+        font_catalog: nexa_codegen::FontCatalog,
+        known_drawables: std::collections::BTreeSet<String>,
+        plugin_requires_network: bool,
+    ) -> (nexa_codegen::GeneratedSources, KotlinProjectFeatures) {
+        generator::generate_project_units(
+            module,
+            font_catalog,
+            known_drawables,
+            plugin_requires_network,
+        )
     }
 
     /// Generate release units with Nexa's network runtime for native plugins.

@@ -2100,7 +2100,56 @@ fn flexible_row_spacers_yield_space_to_text_before_wrapping() {
     assert!(ios_dev_renderer.contains("Spacer(minLength: 0).layoutPriority(-1)"));
     assert!(ios_dev_renderer.contains("rendered.layoutPriority(1)"));
     let android_dev_renderer = include_str!("../../../runtime/android/NexaDevRenderer.kt");
-    assert!(android_dev_renderer.contains("child.has(\"Spacer\") && !fixedSpacer"));
+    assert!(android_dev_renderer.contains("nexaDevAcceptsSpacerWeight(child) || fillsRowWidth"));
+}
+
+#[test]
+fn zero_thickness_divider_needs_no_native_layout_node() {
+    let module = compile(
+        r##"app HiddenDivider { body { Divider(color: "#356EAF", thickness: 0) } }"##,
+    )
+    .expect("zero thickness should be accepted");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(swift.contains("EmptyView()"));
+    assert!(!swift.contains("NexaDividerPrimitive"));
+    assert!(!kotlin.contains("NexaDividerPrimitive"));
+
+    let swift_dev = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+    let kotlin_dev = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+    assert!(swift_dev.contains("guard thickness > 0 else { return AnyView(EmptyView()) }"));
+    assert!(kotlin_dev.contains("if (thickness > 0.dp) {\n                NexaDividerPrimitive("));
+}
+
+#[test]
+fn flexible_spacers_use_weight_only_under_a_linear_layout() {
+    let module = compile(
+        r#"
+        app SpacerOwnership {
+            state showGap: Bool = true
+            body {
+                Column {
+                    Spacer()
+                    Row { if showGap { Spacer() } }
+                    Row { when showGap { true: { Spacer() } false: { Text("Closed") } } }
+                    Stack { Text("Information"); Spacer(); if showGap { Spacer() } }
+                    Row { Stack { Text("Gate"); Spacer() } }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("dimensionless spacers should lower in stacks and linear layouts");
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert_eq!(
+        kotlin
+            .matches("Spacer(modifier = Modifier.weight(1f))")
+            .count(),
+        3
+    );
+    assert_eq!(kotlin.matches("Spacer(modifier = Modifier)").count(), 3);
 }
 
 #[test]
@@ -2112,6 +2161,9 @@ fn fixed_spacers_stay_fixed_in_ios_aot_and_devruntime() {
                 Column {
                     Text("Before")
                     Spacer(width: 8, height: 8)
+                    Spacer(width: screenWidthFraction(0.25), height: screenHeightFraction(0.1))
+                    Spacer(width: 80%, height: Fill)
+                    Spacer(width: Fill, height: 4)
                     Text("After")
                 }
             }
@@ -2122,18 +2174,30 @@ fn fixed_spacers_stay_fixed_in_ios_aot_and_devruntime() {
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
     assert!(
-        swift.contains("Color.clear\n.frame(width: 8).frame(height: 8)"),
+        swift.contains("Color.clear\n.frame(width: 8, height: 8)"),
         "{swift}"
     );
+    assert!(swift.contains(".frame(width: nexaWindowMetrics.viewportSize.width * 0.25, height: nexaWindowMetrics.viewportSize.height * 0.1)"));
+    assert!(swift.contains(
+        ".frame(maxHeight: .infinity).modifier(NexaParentRelativeDimensionModifier(width: 0.8))"
+    ));
+    assert!(swift.contains(".frame(maxWidth: .infinity).frame(height: 4)"));
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
-    assert!(kotlin.contains("Spacer(modifier = Modifier.width(8.dp).height(8.dp))"));
+    assert!(kotlin.contains("Spacer(modifier = Modifier.size(width = 8.dp, height = 8.dp))"));
+    assert!(kotlin.contains(".size(width = (LocalNexaWindowMetrics.current.viewportWidthDp * 0.25f).dp, height = (LocalNexaWindowMetrics.current.viewportHeightDp * 0.1f).dp)"));
+    assert!(kotlin.contains(".fillMaxHeight().nexaParentRelativeDimension(width = 0.8f)"));
+    assert!(kotlin.contains(".fillMaxWidth().height(4.dp)"));
 
     let ios_dev_renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
-    assert!(ios_dev_renderer.contains("spacerView = AnyView(Color.clear)"));
+    assert!(
+        ios_dev_renderer
+            .contains("return AnyView(Color.clear.frame(width: width, height: height))")
+    );
     assert!(ios_dev_renderer.contains("let widthDimension = nexaDevDimension(fields[\"width\"])"));
     let android_dev_renderer = include_str!("../../../runtime/android/NexaDevRenderer.kt");
     assert!(android_dev_renderer.contains("val width = nexaDevDimension(fields.opt(\"width\"))"));
+    assert!(android_dev_renderer.contains("resolvedWidth != null && resolvedHeight != null -> Modifier.size(resolvedWidth, resolvedHeight)"));
 }
 
 #[test]
@@ -6300,7 +6364,7 @@ fn omitted_progress_compiles_to_native_indeterminate_indicators() {
     assert!(swift.contains(
         "NexaProgressBarPrimitive(progress: nil, tint: nil, trackColor: nil, thickness: nil, cornerRadius: nil)"
     ));
-    assert!(swift.contains("indeterminateBar(tint: Color.accentColor)"));
+    assert!(swift.contains("IndeterminateTrack(\n                tint: tint ?? Color.accentColor,"));
     assert!(swift.contains(".accessibilityRepresentation { ProgressView() }"));
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);

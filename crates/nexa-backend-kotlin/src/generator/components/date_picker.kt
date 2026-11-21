@@ -1,3 +1,4 @@
+// nexa-codegen: NexaDatePickerPrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaDatePickerPrimitive(
     timestamp: Long?,

@@ -1,0 +1,214 @@
+{
+  "fixtureSource": "app ColumnBench {\n    state buttonLabel: String = \"A\"\n    body {\n        Column(gap: 4) {\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n            SegmentedControl(items: [\"A\", \"B\", \"C\"], selected: buttonLabel)\n        }\n    }\n}\n",
+  "workload": "12 SegmentedControls with three choices each, driven by switching a shared selected value each app frame, after two seconds of warmup.",
+  "ios": {
+    "samples": [
+      {
+        "durationSeconds": 8,
+        "order": 0,
+        "variant": "before",
+        "displayLinkIntervals": 480,
+        "wallSeconds": 8.003930250008125,
+        "residentBytesEnd": 191741952,
+        "displayLinkP95Ms": 16.695625032298267,
+        "residentBytesEveryFiveSeconds": [
+          191741952
+        ],
+        "cpuSeconds": 1.4741049999999998,
+        "residentBytesStart": 192610304
+      },
+      {
+        "durationSeconds": 8,
+        "order": 1,
+        "variant": "after",
+        "residentBytesStart": 191168512,
+        "residentBytesEnd": 190808064,
+        "cpuSeconds": 1.301584,
+        "displayLinkIntervals": 480,
+        "residentBytesEveryFiveSeconds": [
+          190808064
+        ],
+        "wallSeconds": 8.00002054165816,
+        "displayLinkP95Ms": 16.677375009749085
+      },
+      {
+        "durationSeconds": 8,
+        "order": 2,
+        "variant": "after",
+        "residentBytesStart": 191299584,
+        "residentBytesEnd": 191184896,
+        "displayLinkIntervals": 480,
+        "cpuSeconds": 1.2689620000000001,
+        "wallSeconds": 8.000013999990188,
+        "residentBytesEveryFiveSeconds": [
+          191184896
+        ],
+        "displayLinkP95Ms": 16.679708322044462
+      },
+      {
+        "durationSeconds": 8,
+        "order": 3,
+        "variant": "before",
+        "displayLinkIntervals": 480,
+        "residentBytesStart": 191447040,
+        "residentBytesEnd": 191234048,
+        "displayLinkP95Ms": 16.67645829729736,
+        "cpuSeconds": 1.308669,
+        "wallSeconds": 8.000004000030458,
+        "residentBytesEveryFiveSeconds": [
+          191234048
+        ]
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 15198114,
+      "mainExecutableBytes": 300520,
+      "appBundleBytes": 301361,
+      "bundleOtherBytes": 841
+    }
+  },
+  "android": {
+    "samples": [
+      {
+        "durationSeconds": 5,
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 5.028189837,
+        "cpuMillis": 253,
+        "pssKiBStart": 32472,
+        "pssKiBEnd": 47163,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 112,
+        "composeClockP95Ms": 100.245083,
+        "gfxInfoFrameStats": null
+      },
+      {
+        "durationSeconds": 5,
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 5.09072992,
+        "cpuMillis": 278,
+        "pssKiBStart": 31937,
+        "pssKiBEnd": 48246,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 125,
+        "composeClockP95Ms": 100.093666,
+        "gfxInfoFrameStats": null
+      },
+      {
+        "durationSeconds": 5,
+        "order": 2,
+        "variant": "after",
+        "wallSeconds": 5.055956378,
+        "cpuMillis": 236,
+        "pssKiBStart": 31517,
+        "pssKiBEnd": 46208,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 112,
+        "composeClockP95Ms": 100.126667,
+        "gfxInfoFrameStats": null
+      },
+      {
+        "durationSeconds": 5,
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 5.006794128,
+        "cpuMillis": 263,
+        "pssKiBStart": 32867,
+        "pssKiBEnd": 47893,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 115,
+        "composeClockP95Ms": 100.638083,
+        "gfxInfoFrameStats": null
+      },
+      {
+        "durationSeconds": 8,
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 8.016476129,
+        "cpuMillis": 944,
+        "pssKiBStart": 34584,
+        "pssKiBEnd": 32004,
+        "pssKiBEveryFiveSeconds": [
+          53570
+        ],
+        "composeClockIntervals": 237,
+        "composeClockP95Ms": 99.465125,
+        "gfxInfoFrameStats": null
+      },
+      {
+        "durationSeconds": 8,
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 8.013832088,
+        "cpuMillis": 1983,
+        "pssKiBStart": 37589,
+        "pssKiBEnd": 31987,
+        "pssKiBEveryFiveSeconds": [
+          46869
+        ],
+        "composeClockIntervals": 214,
+        "composeClockP95Ms": 103.090042,
+        "gfxInfoFrameStats": {
+          "records": 9,
+          "lastIntervalFps": 12.972973491891914,
+          "frameDurationP95Ms": 541.615856
+        }
+      },
+      {
+        "durationSeconds": 8,
+        "order": 2,
+        "variant": "after",
+        "wallSeconds": 8.062159213,
+        "cpuMillis": 208,
+        "pssKiBStart": 31241,
+        "pssKiBEnd": 32621,
+        "pssKiBEveryFiveSeconds": [
+          47434
+        ],
+        "composeClockIntervals": 204,
+        "composeClockP95Ms": 99.27575,
+        "gfxInfoFrameStats": {
+          "records": 5,
+          "lastIntervalFps": 21.818789888020735,
+          "frameDurationP95Ms": 106.207321
+        }
+      },
+      {
+        "durationSeconds": 8,
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 8.018126296,
+        "cpuMillis": 340,
+        "pssKiBStart": 31112,
+        "pssKiBEnd": 31710,
+        "pssKiBEveryFiveSeconds": [
+          47271
+        ],
+        "composeClockIntervals": 199,
+        "composeClockP95Ms": 99.659541,
+        "gfxInfoFrameStats": {
+          "records": 4,
+          "lastIntervalFps": 20.00000080000003,
+          "frameDurationP95Ms": 97.620277
+        }
+      }
+    ],
+    "packageBytes": {
+      "before": {
+        "apkBytes": 859027,
+        "aabBytes": 2078053
+      },
+      "after": {
+        "apkBytes": 859027,
+        "aabBytes": 2077990
+      }
+    },
+    "notes": "Gfxinfo unavailable or sparse; CPU comparison inconclusive. Eight-second retry overlapped host builds."
+  }
+}

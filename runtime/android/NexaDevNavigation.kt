@@ -313,11 +313,13 @@ internal fun RenderNavigationStack(
                         "navigator/$navigatorId/entry/$entryId/screen/${screen.optString("name")}"
                     }
                     val screenNodes = screen.optJSONArray("body") ?: JSONArray()
-                    val screenToolbars = nexaDevTabToolbars(screenNodes)
+                    val (filteredScreenNodes, screenToolbars) = remember(module, screenNodes) {
+                        nexaDevToolbarLayout(screenNodes)
+                    }
                     val screenBody = if (isRootScreen && (!showNavigationBar || screenToolbars.isEmpty())) {
                         screenNodes
                     } else {
-                        nexaDevWithoutTabToolbars(screenNodes)
+                        filteredScreenNodes
                     }
                     val screenBindings = store.bindings(
                         screen.optJSONArray("states"),

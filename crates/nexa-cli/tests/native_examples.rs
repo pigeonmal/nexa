@@ -81,6 +81,27 @@ fn generate_example(project: &TestProject, example: &str, target: &str) -> PathB
 }
 
 #[test]
+fn navigation_without_app_icons_declares_the_core_back_icon_dependency() {
+    let project = TestProject::new("nexa-navigation-core-icon");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app NavigationIcons {
+            screen Albums { Text("Albums") }
+            body { NavigationStack(root: Albums) }
+        }"#,
+    )
+    .expect("write navigation fixture");
+    let output = project.join("generated");
+    nexa_cli::generate_project(&entry, "android", &output, "NavigationIcons")
+        .expect("generate Android navigation fixture");
+    let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("read Android dependencies");
+    assert!(gradle.contains("androidx.compose.material:material-icons-core"));
+    assert!(!gradle.contains("androidx.compose.material:material-icons-extended"));
+}
+
+#[test]
 fn generated_android_activity_binds_runtime_before_compose_starts() {
     let project = TestProject::new("nexa-android-runtime-bind-order");
     let entry = project.join("App.nx");
@@ -378,6 +399,9 @@ fn animations_and_segmented_control_aot_hosts_compile_when_native_toolchains_are
             }
         }
         ProgressBar(progress: progress)
+        Slider(value: progress, min: 0.0, max: 1.0)
+        Slider(value: progress, min: 0.0, max: 1.0, step: 0.25, showStepIndicators: false)
+            .onEditingChanged { active -> expanded = active }
         Button("Toggle details") { expanded = !expanded }
         if expanded {
             Text("Animated details")

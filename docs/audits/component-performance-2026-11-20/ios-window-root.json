@@ -1,0 +1,123 @@
+{
+  "setup": "iOS 27 arm64 simulator Release, eight-second scroll, same instrumentation and list on each build. Builds and workspace verification overlapped with the benchmark.",
+  "nxSource": "app ColumnBench {\n    body {\n        FastList(count: 5000, rowHeight: 40) { index in\n            Text(\"Item \\(index)\")\n        }\n    }\n}\n",
+  "instrumentation": "from pathlib import Path\nimport re\nimport shutil\n\nroot=Path(Path('/tmp/nexa-window-root-dir').read_text())\n\nfor mode in (__import__('sys').argv[1],):\n    folder=root/mode/'Generated'/'ios'/'ColumnBench'\n    screen=folder/'NexaGenerated.swift'\n    code=screen.read_text()\n    line='    public var body: some View {'\n    code=code.replace(line, '    @State private var columnProbe = ColumnProbe()\\n'+line,1)\n    assert code.endswith('        }\\n    }\\n}\\n')\n    code=code[:-len('        }\\n    }\\n}\\n')]+'''        }\n        .onAppear { columnProbe.start { _ in } }\n        .onDisappear { columnProbe.stop() }\n    }\n}\n\n@MainActor\nprivate final class ColumnProbe: NSObject {\n    private weak var gallery: UITableView?\n    private var link: CADisplayLink?\n    private var update: ((Double) -> Void)?\n    private var startTime = 0.0\n    private var previous = 0.0\n    private var tick = 0\n    private var firstQueries = 0\n    private var firstCPU = 0.0\n    private var firstMemory: UInt64 = 0\n    private var intervals: [Double] = []\n    private let duration = Double(ProcessInfo.processInfo.environment[\"NEXA_BENCH_SECONDS\"] ?? \"\") ?? 5\n    private var nextMemorySample = 5.0\n    private var memorySamples: [UInt64] = []\n\n    func start(_ update: @escaping (Double) -> Void) {\n        guard link == nil else { return }\n        self.update = update\n        intervals.reserveCapacity(Int(duration * 70))\n        let link = CADisplayLink(target: self, selector: #selector(frame(_:)))\n        link.preferredFramesPerSecond = 60\n        link.add(to: .main, forMode: .common)\n        self.link = link\n    }\n\n    func stop() {\n        link?.invalidate()\n        link = nil\n        update = nil\n    }\n\n    @objc private func frame(_ link: CADisplayLink) {\n        let now = CACurrentMediaTime()\n        if startTime == 0 { startTime = now + 2 }\n        if now >= startTime {\n            if previous == 0 {\n                firstQueries = nexaBenchQueries\n                firstCPU = cpuSeconds()\n                firstMemory = residentBytes()\n            } else {\n                intervals.append((now - previous) * 1000)\n            }\n            previous = now\n            if duration > 5, now - startTime >= nextMemorySample {\n                memorySamples.append(residentBytes())\n                nextMemorySample += 5\n            }\n            if now - startTime >= duration {\n                let sorted = intervals.sorted()\n                let result: [String: Any] = [\n                    \"wallSeconds\": now - startTime,\n                    \"leadingRowQueries\": nexaBenchQueries - firstQueries,\n                    \"cpuSeconds\": cpuSeconds() - firstCPU,\n                    \"residentBytesStart\": firstMemory,\n                    \"residentBytesEnd\": residentBytes(),\n                    \"residentBytesEveryFiveSeconds\": memorySamples,\n                    \"displayLinkIntervals\": intervals.count,\n                    \"displayLinkP95Ms\": sorted[sorted.count * 95 / 100]\n                ]\n                let file = URL.documentsDirectory.appending(path: \"column-perf.json\")\n                if let bytes = try? JSONSerialization.data(withJSONObject: result) {\n                    try? bytes.write(to: file, options: .atomic)\n                }\n                stop()\n                return\n            }\n        }\n        tick += 1\n        if gallery == nil {\n            gallery = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.compactMap { findGallery($0) }.first\n        }\n        if let gallery {\n            let maximum = max(0, gallery.contentSize.height - gallery.bounds.height)\n            gallery.contentOffset.y = min(maximum, CGFloat(tick) * 10)\n            gallery.layoutIfNeeded()\n        }\n        update?(tick.isMultiple(of: 2) ? 8 : 10)\n    }\n\n    private func findGallery(_ root: UIView) -> UITableView? {\n        if let gallery = root as? UITableView { return gallery }\n        for child in root.subviews {\n            if let gallery = findGallery(child) { return gallery }\n        }\n        return nil\n    }\n\n    private func cpuSeconds() -> Double {\n        var usage = rusage()\n        getrusage(RUSAGE_SELF, &usage)\n        return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec)\n          + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000\n    }\n\n    private func residentBytes() -> UInt64 {\n        var info = mach_task_basic_info()\n        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)\n        let status = withUnsafeMutablePointer(to: &info) {\n            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {\n                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)\n            }\n        }\n        return status == KERN_SUCCESS ? info.resident_size : 0\n    }\n}\n'''\n    screen.write_text('import UIKit\\n@MainActor var nexaBenchQueries = 0\\n'+code)\n\n    for unit in folder.glob(\"NexaGenerated*.swift\"):\n        text = unit.read_text()\n        marker = \"func leadingVisibleRowPosition(in tableView: UITableView) -> Int? {\"\n        if marker in text:\n            unit.write_text(text.replace(marker, marker + \"\\n            nexaBenchQueries += 1\"))\n            break\n    else:\n        raise RuntimeError(\"missing native vertical list\")\n",
+  "releaseExecutableBytes": {
+    "before": 387176,
+    "after": 336184
+  },
+  "samples": [
+    {
+      "variant": "before",
+      "residentBytesEnd": 199917568,
+      "displayLinkIntervals": 480,
+      "residentBytesStart": 200310784,
+      "cpuSeconds": 0.6828219999999999,
+      "residentBytesEveryFiveSeconds": [
+        200065024
+      ],
+      "wallSeconds": 8.013795416685753,
+      "displayLinkP95Ms": 16.688458330463618,
+      "leadingRowQueries": 0
+    },
+    {
+      "variant": "after",
+      "residentBytesEveryFiveSeconds": [
+        197869568
+      ],
+      "displayLinkIntervals": 480,
+      "residentBytesStart": 197787648,
+      "wallSeconds": 8.016658583306707,
+      "displayLinkP95Ms": 16.68012503068894,
+      "leadingRowQueries": 0,
+      "residentBytesEnd": 198131712,
+      "cpuSeconds": 0.5628139999999999
+    },
+    {
+      "variant": "after",
+      "displayLinkP95Ms": 16.68366667581722,
+      "wallSeconds": 8.01344925002195,
+      "residentBytesEnd": 198049792,
+      "cpuSeconds": 0.5495849999999999,
+      "leadingRowQueries": 0,
+      "residentBytesStart": 197853184,
+      "displayLinkIntervals": 480,
+      "residentBytesEveryFiveSeconds": [
+        198131712
+      ]
+    },
+    {
+      "variant": "before",
+      "cpuSeconds": 0.6228360000000001,
+      "residentBytesEnd": 187842560,
+      "displayLinkIntervals": 471,
+      "residentBytesEveryFiveSeconds": [
+        198361088
+      ],
+      "residentBytesStart": 197902336,
+      "wallSeconds": 8.012535166635644,
+      "leadingRowQueries": 0,
+      "displayLinkP95Ms": 16.685124952346087
+    }
+  ],
+  "isolatedReleaseSamples": [
+    {
+      "variant": "before",
+      "displayLinkP95Ms": 16.698000021278858,
+      "residentBytesStart": 199081984,
+      "displayLinkIntervals": 480,
+      "wallSeconds": 8.000051208306104,
+      "residentBytesEveryFiveSeconds": [
+        199213056
+      ],
+      "residentBytesEnd": 199213056,
+      "leadingRowQueries": 0,
+      "cpuSeconds": 1.0117310000000002
+    },
+    {
+      "variant": "after",
+      "displayLinkIntervals": 480,
+      "residentBytesEveryFiveSeconds": [
+        198115328
+      ],
+      "residentBytesStart": 197787648,
+      "cpuSeconds": 1.220488,
+      "displayLinkP95Ms": 16.6932083084248,
+      "wallSeconds": 8.01649533334421,
+      "leadingRowQueries": 0,
+      "residentBytesEnd": 198115328
+    },
+    {
+      "variant": "after",
+      "residentBytesEnd": 198148096,
+      "displayLinkIntervals": 480,
+      "wallSeconds": 8.000031166651752,
+      "leadingRowQueries": 0,
+      "displayLinkP95Ms": 16.693916637450457,
+      "residentBytesStart": 197836800,
+      "residentBytesEveryFiveSeconds": [
+        198148096
+      ],
+      "cpuSeconds": 1.2387129999999997
+    },
+    {
+      "variant": "before",
+      "residentBytesEnd": 198361088,
+      "displayLinkIntervals": 479,
+      "cpuSeconds": 1.2413439999999998,
+      "leadingRowQueries": 0,
+      "residentBytesEveryFiveSeconds": [
+        198361088
+      ],
+      "displayLinkP95Ms": 16.691541648469865,
+      "wallSeconds": 8.000006916641723,
+      "residentBytesStart": 197885952
+    }
+  ],
+  "iosNavigationMetricsSmoke": "XCTest passed with a nonzero accessibility frame on the viewport-sized screen.",
+  "iosSharedRootHotReloadSmoke": {
+    "result": "passed",
+    "mode": "iOS DevRuntime",
+    "scenario": "A viewport-relative screen rendered before and after a live content edit using the same root and environment as AOT."
+  }
+}

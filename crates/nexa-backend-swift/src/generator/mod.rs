@@ -351,7 +351,7 @@ const NEXA_COLLECTION_HELPERS: &str = r#"private func nexaGroupByStable<Element,
 "#;
 
 const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = concat!(
-    r#"// nexa-codegen: NexaEdgeToEdgeRoot
+    r#"// nexa-codegen: NexaEdgeToEdgeRootModifier
 struct NexaSafeAreaRootWidthKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -398,16 +398,13 @@ struct NexaVisualSafeAreaSnapshot: Equatable {
 struct NexaWindowMetricsSnapshot: Equatable {
     let viewportSize: CGSize
     let safeInsets: NexaVisualSafeAreaSnapshot
-    let keyboardInsets: UIEdgeInsets
 
     init(
         viewportSize: CGSize = .zero,
-        safeInsets: NexaVisualSafeAreaSnapshot = NexaVisualSafeAreaSnapshot(),
-        keyboardInsets: UIEdgeInsets = .zero
+        safeInsets: NexaVisualSafeAreaSnapshot = NexaVisualSafeAreaSnapshot()
     ) {
         self.viewportSize = viewportSize
         self.safeInsets = safeInsets
-        self.keyboardInsets = keyboardInsets
     }
 }
 
@@ -416,10 +413,6 @@ struct NexaWindowMetricsKey: EnvironmentKey {
 }
 
 struct NexaVisualSafeAreaInsetsKey: EnvironmentKey {
-    static let defaultValue = NexaVisualSafeAreaSnapshot()
-}
-
-struct NexaWindowSafeAreaInsetsKey: EnvironmentKey {
     static let defaultValue = NexaVisualSafeAreaSnapshot()
 }
 
@@ -438,27 +431,11 @@ extension EnvironmentValues {
         set { self[NexaVisualSafeAreaInsetsKey.self] = newValue }
     }
 
-    var nexaWindowSafeAreaInsets: NexaVisualSafeAreaSnapshot {
-        get { self[NexaWindowSafeAreaInsetsKey.self] }
-        set { self[NexaWindowSafeAreaInsetsKey.self] = newValue }
-    }
-
     var nexaFormTopPadding: CGFloat {
         get { self[NexaFormTopPaddingKey.self] }
         set { self[NexaFormTopPaddingKey.self] = newValue }
     }
 
-}
-
-struct NexaViewportSizeKey: EnvironmentKey {
-    static let defaultValue = CGSize.zero
-}
-
-extension EnvironmentValues {
-    var nexaViewportSize: CGSize {
-        get { self[NexaViewportSizeKey.self] }
-        set { self[NexaViewportSizeKey.self] = newValue }
-    }
 }
 
 private struct NexaAnimatedWhen<Value: Hashable, Content: View>: View {
@@ -498,6 +475,22 @@ private struct NexaAnimatedWhen<Value: Hashable, Content: View>: View {
     }
 }
 
+private struct NexaEdgeToEdgeRootModifier: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .ignoresSafeArea(.container, edges: .all)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+        } else {
+            content
+        }
+    }
+}
+
+// nexa-codegen: NexaEdgeToEdgeRoot
 private final class NexaSafeAreaInsetsProbeView: UIView {
     var onInsetsChange: ((UIEdgeInsets, CGSize) -> Void)?
     private var lastReportedInsets: UIEdgeInsets?
@@ -549,7 +542,7 @@ private struct NexaSafeAreaInsetsProbe: UIViewRepresentable {
     }
 }
 
-private struct NexaEdgeToEdgeRoot<Content: View>: View {
+struct NexaEdgeToEdgeRoot<Content: View>: View {
     private let edgeToEdge: Bool
     private let content: (NexaWindowMetricsSnapshot) -> Content
     @State private var containerSafeInsets = NexaVisualSafeAreaSnapshot()
@@ -573,8 +566,6 @@ private struct NexaEdgeToEdgeRoot<Content: View>: View {
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                 .environment(\.nexaWindowMetrics, metrics)
                 .environment(\.nexaVisualSafeAreaInsets, containerSafeInsets)
-                .environment(\.nexaWindowSafeAreaInsets, containerSafeInsets)
-                .environment(\.nexaViewportSize, metrics.viewportSize)
         }
         .background {
             NexaSafeAreaInsetsProbe { insets, windowSize in
@@ -596,18 +587,21 @@ private struct NexaEdgeToEdgeRoot<Content: View>: View {
     }
 }
 
-private struct NexaEdgeToEdgeRootModifier: ViewModifier {
-    let enabled: Bool
+// nexa-codegen: NexaLayoutRoot
+private struct NexaLayoutRoot<Content: View>: View {
+    let edgeToEdge: Bool
+    private let content: Content
 
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if enabled {
-            content
-                .ignoresSafeArea(.container, edges: .all)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-        } else {
-            content
+    init(edgeToEdge: Bool = true, @ViewBuilder content: () -> Content) {
+        self.edgeToEdge = edgeToEdge
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            content.frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
+        .modifier(NexaEdgeToEdgeRootModifier(enabled: edgeToEdge))
     }
 }
 
@@ -987,15 +981,10 @@ struct NexaSwitchPrimitive: View {
     @Binding var isOn: Bool
     let onChange: ((Bool) -> Void)?
 
-    private var selection: Binding<Bool> {
-        Binding(
-            get: { isOn },
-            set: { nextValue in
-                guard nextValue != isOn else { return }
-                isOn = nextValue
-                onChange?(nextValue)
-            }
-        )
+    private func setSelection(_ nextValue: Bool) {
+        guard nextValue != isOn else { return }
+        isOn = nextValue
+        onChange?(nextValue)
     }
 
     var body: some View {
@@ -1004,8 +993,8 @@ struct NexaSwitchPrimitive: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .onTapGesture { selection.wrappedValue.toggle() }
-            Toggle("", isOn: selection)
+                .onTapGesture { setSelection(!isOn) }
+            Toggle("", isOn: Binding(get: { isOn }, set: setSelection))
                 .labelsHidden()
                 .tint(Color(uiColor: .systemBlue))
                 .accessibilityLabel(label)
@@ -1062,7 +1051,8 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
     @ViewBuilder
     private func pickerOptions(selection: Binding<String>) -> some View {
         Picker("", selection: selection) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+            ForEach(items.indices, id: \.self) { index in
+                let item = items[index]
                 if itemIcons.indices.contains(index) {
                     Label {
                         Text(item)
@@ -1642,9 +1632,6 @@ struct NexaSliderPrimitive: View {
 
 // nexa-codegen: NexaProgressBarPrimitive
 struct NexaProgressBarPrimitive: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isVisible = false
-
     let progress: Double?
     let tint: Color?
     let trackColor: Color?
@@ -1666,59 +1653,90 @@ struct NexaProgressBarPrimitive: View {
                     ProgressView(value: normalizedProgress, total: 1)
                 }
             } else {
-                let barHeight = thickness ?? 4
-                let radius = cornerRadius ?? barHeight / 2
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: radius)
-                            .fill(trackColor ?? Color.primary.opacity(0.1))
-                        RoundedRectangle(cornerRadius: radius)
-                            .fill(tint ?? Color.accentColor)
-                            .frame(width: max(geometry.size.width * CGFloat(normalizedProgress), 0))
-                    }
-                }
-                .frame(height: barHeight)
-                .animation(
-                    cornerRadius == 0 && !reduceMotion ? .linear(duration: 0.25) : nil,
-                    value: normalizedProgress,
+                DeterminateTrack(
+                    progress: normalizedProgress,
+                    tint: tint,
+                    trackColor: trackColor,
+                    thickness: thickness,
+                    cornerRadius: cornerRadius
                 )
-                .accessibilityValue(Text("\(Int((normalizedProgress * 100).rounded()))%"))
             }
         } else {
-            if let tint {
-                indeterminateBar(tint: tint)
-            } else {
-                indeterminateBar(tint: Color.accentColor)
-            }
+            IndeterminateTrack(
+                tint: tint ?? Color.accentColor,
+                trackColor: trackColor,
+                thickness: thickness,
+                cornerRadius: cornerRadius
+            )
         }
     }
 
-    private func indeterminateBar(tint: Color) -> some View {
-        let barHeight = thickness ?? 4
-        let radius = cornerRadius ?? barHeight / 2
-        return GeometryReader { geometry in
-            let segmentWidth = min(max(geometry.size.width * 0.25, barHeight * 2), geometry.size.width)
-            let shouldAnimate = isVisible && !reduceMotion
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: radius)
-                    .fill(trackColor ?? Color.primary.opacity(0.1))
-                RoundedRectangle(cornerRadius: radius)
-                    .fill(tint)
-                    .frame(width: segmentWidth)
-                    .offset(x: reduceMotion
-                        ? (geometry.size.width - segmentWidth) / 2
-                        : isVisible ? geometry.size.width : -segmentWidth)
+    private struct DeterminateTrack: View {
+        let progress: Double
+        let tint: Color?
+        let trackColor: Color?
+        let thickness: CGFloat?
+        let cornerRadius: CGFloat?
+
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        var body: some View {
+            let barHeight = thickness ?? 4
+            let radius = cornerRadius ?? barHeight / 2
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(trackColor ?? Color.primary.opacity(0.1))
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(tint ?? Color.accentColor)
+                        .frame(width: max(geometry.size.width * CGFloat(progress), 0))
+                }
             }
-            .clipShape(RoundedRectangle(cornerRadius: radius))
+            .frame(height: barHeight)
             .animation(
-                reduceMotion ? nil : .linear(duration: 1.2).repeatForever(autoreverses: false),
-                value: shouldAnimate,
+                cornerRadius == 0 && !reduceMotion ? .linear(duration: 0.25) : nil,
+                value: progress,
             )
-            .onAppear { isVisible = true }
-            .onDisappear { isVisible = false }
-            .accessibilityRepresentation { ProgressView() }
+            .accessibilityValue(Text("\(Int((progress * 100).rounded()))%"))
         }
-        .frame(height: barHeight)
+    }
+
+    private struct IndeterminateTrack: View {
+        let tint: Color
+        let trackColor: Color?
+        let thickness: CGFloat?
+        let cornerRadius: CGFloat?
+
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @State private var isVisible = false
+
+        var body: some View {
+            let barHeight = thickness ?? 4
+            let radius = cornerRadius ?? barHeight / 2
+            GeometryReader { geometry in
+                let segmentWidth = min(max(geometry.size.width * 0.25, barHeight * 2), geometry.size.width)
+                let shouldAnimate = isVisible && !reduceMotion
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(trackColor ?? Color.primary.opacity(0.1))
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(tint)
+                        .frame(width: segmentWidth)
+                        .offset(x: reduceMotion
+                            ? (geometry.size.width - segmentWidth) / 2
+                            : isVisible ? geometry.size.width : -segmentWidth)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: radius))
+                .animation(
+                    reduceMotion ? nil : .linear(duration: 1.2).repeatForever(autoreverses: false),
+                    value: shouldAnimate,
+                )
+                .onAppear { isVisible = true }
+                .onDisappear { isVisible = false }
+                .accessibilityRepresentation { ProgressView() }
+            }
+            .frame(height: barHeight)
+        }
     }
 }
 
@@ -1729,9 +1747,6 @@ struct NexaProgressRingPrimitive: View {
     let trackColor: Color?
     let size: CGFloat?
     let thickness: CGFloat?
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isAnimating = false
 
     private var normalizedProgress: Double? {
         guard let progress else { return nil }
@@ -1745,17 +1760,18 @@ struct NexaProgressRingPrimitive: View {
     private var pathSize: CGFloat { max(indicatorSize - indicatorThickness, 0) }
 
     var body: some View {
+        let progress = normalizedProgress
         ZStack {
             Circle()
                 .stroke(trackColor ?? indicatorColor.opacity(0.16), lineWidth: indicatorThickness)
 
-            if let normalizedProgress {
-                if normalizedProgress >= 1 {
+            if let progress {
+                if progress >= 1 {
                     Circle()
                         .stroke(indicatorColor, lineWidth: indicatorThickness)
-                } else if normalizedProgress > 0 {
+                } else if progress > 0 {
                     Circle()
-                        .trim(from: 0, to: normalizedProgress)
+                        .trim(from: 0, to: progress)
                         .stroke(
                             indicatorColor,
                             style: StrokeStyle(lineWidth: indicatorThickness, lineCap: .round)
@@ -1763,27 +1779,36 @@ struct NexaProgressRingPrimitive: View {
                         .rotationEffect(.degrees(-90))
                 }
             } else {
-                Circle()
-                    .trim(from: 0, to: 0.25)
-                    .stroke(
-                        indicatorColor,
-                        style: StrokeStyle(lineWidth: indicatorThickness, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(isAnimating ? 270 : -90))
+                IndeterminateArc(color: indicatorColor, thickness: indicatorThickness)
             }
         }
         .frame(width: pathSize, height: pathSize)
         .frame(width: indicatorSize, height: indicatorSize)
-        .animation(.easeInOut(duration: 0.2), value: normalizedProgress)
-        .animation(
-            reduceMotion ? nil : .linear(duration: 1).repeatForever(autoreverses: false),
-            value: isAnimating,
-        )
-        .onAppear { isAnimating = !reduceMotion }
-        .onDisappear { isAnimating = false }
+        .animation(.easeInOut(duration: 0.2), value: progress)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Progress")
-        .accessibilityValue(normalizedProgress.map { "\(Int(($0 * 100).rounded()))%" } ?? "In Progress")
+        .accessibilityValue(progress.map { "\(Int(($0 * 100).rounded()))%" } ?? "In Progress")
+    }
+
+    private struct IndeterminateArc: View {
+        let color: Color
+        let thickness: CGFloat
+
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @State private var isAnimating = false
+
+        var body: some View {
+            Circle()
+                .trim(from: 0, to: 0.25)
+                .stroke(color, style: StrokeStyle(lineWidth: thickness, lineCap: .round))
+                .rotationEffect(.degrees(isAnimating ? 270 : -90))
+                .animation(
+                    reduceMotion ? nil : .linear(duration: 1).repeatForever(autoreverses: false),
+                    value: isAnimating,
+                )
+                .onAppear { isAnimating = !reduceMotion }
+                .onDisappear { isAnimating = false }
+        }
     }
 }
 
@@ -1827,7 +1852,7 @@ struct NexaDividerPrimitive: View {
         Rectangle()
             .fill(color)
             .frame(maxWidth: .infinity)
-            .frame(height: max(0, thickness))
+            .frame(height: thickness)
     }
 }
 
@@ -1853,6 +1878,8 @@ private struct NexaNativeSegmentedControl: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UISegmentedControl {
         let control = UISegmentedControl(items: items)
+        context.coordinator.items = items
+        context.coordinator.appliedDefaultStyle = false
         control.addTarget(
             context.coordinator,
             action: #selector(Coordinator.selectionChanged(_:)),
@@ -1864,20 +1891,27 @@ private struct NexaNativeSegmentedControl: UIViewRepresentable {
     }
 
     func updateUIView(_ control: UISegmentedControl, context: Context) {
-        context.coordinator.selection = $selection
-        context.coordinator.items = items
-
-        let displayedItems = (0..<control.numberOfSegments).compactMap {
-            control.titleForSegment(at: $0)
-        }
-        if displayedItems != items {
+        let coordinator = context.coordinator
+        coordinator.selection = $selection
+        // This representable owns the control's segments. The coordinator starts
+        // with the same titles as makeUIView and updates them after each rebuild.
+        if coordinator.items != items {
             control.removeAllSegments()
             for (index, item) in items.enumerated() {
                 control.insertSegment(withTitle: item, at: index, animated: false)
             }
+            coordinator.items = items
         }
 
-        control.selectedSegmentIndex = items.firstIndex(of: selection) ?? UISegmentedControl.noSegment
+        let selectedIndex = items.firstIndex(of: selection) ?? UISegmentedControl.noSegment
+        if control.selectedSegmentIndex != selectedIndex {
+            control.selectedSegmentIndex = selectedIndex
+        }
+
+        let usesDefaultStyle = tint == nil && background == nil && textColor == nil
+            && selectedTextColor == nil && fontSize == nil && fontWeight == nil
+            && cornerRadius == nil && borderColor == nil && borderWidth == nil
+        if usesDefaultStyle && coordinator.appliedDefaultStyle { return }
 
         if let background {
             let color = UIColor(background)
@@ -1910,6 +1944,7 @@ private struct NexaNativeSegmentedControl: UIViewRepresentable {
         control.layer.borderColor = borderColor.map { UIColor($0).cgColor }
         control.layer.borderWidth = max(0, borderWidth ?? (borderColor == nil ? 0 : 1))
         control.layer.masksToBounds = background != nil || borderColor != nil || (borderWidth ?? 0) > 0
+        coordinator.appliedDefaultStyle = usesDefaultStyle
     }
 
     private static func uiFontWeight(_ weight: Font.Weight?) -> UIFont.Weight {
@@ -1929,6 +1964,7 @@ private struct NexaNativeSegmentedControl: UIViewRepresentable {
     final class Coordinator: NSObject {
         var selection: Binding<String>
         var items: [String]
+        var appliedDefaultStyle = false
 
         init(selection: Binding<String>, items: [String]) {
             self.selection = selection
@@ -2070,25 +2106,14 @@ struct NexaIconView: View {
         let displaySize = icon.size ?? size
         let displayTint = icon.tint ?? (icon.preservesColor ? nil : tint)
         if let glyph = icon.glyph, let fontFamily = icon.fontFamily {
-            if icon.layers.isEmpty {
-                let glyphText = UnicodeScalar(Int(glyph)).map { String($0) } ?? "�"
-                let text = Text(glyphText).font(.custom(fontFamily, size: displaySize ?? 17))
-                if let tint = displayTint {
-                    accessible(text.foregroundStyle(tint))
-                } else {
-                    accessible(text)
-                }
-            } else {
-                accessible(ZStack {
-                    ForEach(icon.layers.indices, id: \.self) { index in
-                        let layer = icon.layers[index]
-                        let glyphText = UnicodeScalar(Int(layer.glyph)).map { String($0) } ?? "�"
-                        Text(glyphText)
-                            .font(.custom(fontFamily, size: displaySize ?? 17))
-                            .foregroundStyle(displayTint ?? layer.color)
-                    }
-                })
-            }
+            NexaFontIconPrimitive(
+                glyph: glyph,
+                fontFamily: fontFamily,
+                description: icon.description ?? description,
+                size: displaySize,
+                tint: displayTint,
+                layers: icon.layers
+            )
         } else if let symbol = icon.symbol {
             let image = Image(systemName: symbol)
             if let displaySize {
@@ -2196,18 +2221,22 @@ struct NexaContentUnavailablePrimitive: View {
         NexaIconView(icon: icon, description: "", size: 58, tint: iconTint)
     }
 
+    private var titleLabel: some View {
+        Label {
+            if let titleColor { title.foregroundStyle(titleColor) } else { title }
+        } icon: {
+            if let iconTint {
+                iconContent.foregroundStyle(iconTint)
+            } else {
+                iconContent
+            }
+        }
+    }
+
     @ViewBuilder var body: some View {
         if #available(iOS 17.0, *) {
             ContentUnavailableView {
-                Label {
-                    if let titleColor { title.foregroundStyle(titleColor) } else { title }
-                } icon: {
-                    if let iconTint {
-                        iconContent.foregroundStyle(iconTint)
-                    } else {
-                        iconContent
-                    }
-                }
+                titleLabel
             } description: {
                 if let description {
                     if let descriptionColor {
@@ -2221,16 +2250,7 @@ struct NexaContentUnavailablePrimitive: View {
             .background { if let background { background } }
         } else {
             VStack(spacing: 8) {
-                Label {
-                    if let titleColor { title.foregroundStyle(titleColor) } else { title }
-                } icon: {
-                    if let iconTint {
-                        iconContent.foregroundStyle(iconTint)
-                    } else {
-                        iconContent
-                    }
-                }
-                    .font(.title3)
+                titleLabel.font(.title3)
                 if let description {
                     if let descriptionColor {
                         description.foregroundStyle(descriptionColor)
@@ -2268,11 +2288,17 @@ struct NexaColumnPrimitive<Content: View>: View {
         self.content = content()
     }
 
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: alignment, spacing: spacing) { content }
+        let stack = VStack(alignment: alignment, spacing: spacing) { content }
             .multilineTextAlignment(textAlignment)
-            .environment(\.nexaSafeAreaRootFillsWidth, false)
-            .frame(maxWidth: fillsSafeAreaRootWidth ? .infinity : nil)
+        if fillsSafeAreaRootWidth {
+            stack
+                .environment(\.nexaSafeAreaRootFillsWidth, false)
+                .frame(maxWidth: .infinity)
+        } else {
+            stack
+        }
     }
 }
 
@@ -2310,17 +2336,18 @@ struct NexaRowPrimitive<Content: View>: View {
         self.content = content()
     }
 
+    @ViewBuilder
     var body: some View {
-        if let horizontalArrangement {
-            HStack(alignment: alignment, spacing: spacing) { content }
-                .frame(maxWidth: .infinity, alignment: horizontalArrangement.frameAlignment)
-                .multilineTextAlignment(.leading)
+        let stack = HStack(alignment: alignment, spacing: spacing) { content }
+            .multilineTextAlignment(.leading)
+        let frameAlignment = horizontalArrangement?.frameAlignment
+            ?? (fillsSafeAreaRootWidth ? .leading : nil)
+        if let frameAlignment {
+            stack
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .environment(\.nexaSafeAreaRootFillsWidth, false)
         } else {
-            HStack(alignment: alignment, spacing: spacing) { content }
-                .multilineTextAlignment(.leading)
-                .environment(\.nexaSafeAreaRootFillsWidth, false)
-                .frame(maxWidth: fillsSafeAreaRootWidth ? .infinity : nil, alignment: .leading)
+            stack
         }
     }
 }
@@ -4966,7 +4993,11 @@ fn generate_with_analysis_mode(
         }
         if features.facts.capabilities.uses_locale_api {
             out.push_str(NEXA_LOCALE_HELPER);
-        } else if features.facts.capabilities.uses_localized_strings {
+        } else if features.facts.capabilities.uses_localized_strings
+            || features.facts.ui.text_input.present
+        {
+            // TextInput placeholders use the localization lookup even when
+            // the app has no Text node or explicit Locale API calls.
             out.push_str(NEXA_LOCALIZATION_HELPER);
         }
         // Regex declarations are shared by every generated unit. Keep them in
@@ -5127,11 +5158,14 @@ fn generate_with_analysis_mode(
             module.body.first(),
             Some(Node::NavigationStack { .. } | Node::NavigationSplitView { .. })
         );
-        if root_owns_navigation_safe_area {
-            out.push_str("        NexaEdgeToEdgeRoot(edgeToEdge: false) { nexaWindowMetrics in\n");
-        } else {
-            out.push_str("        NexaEdgeToEdgeRoot { nexaWindowMetrics in\n");
-        }
+        let observes_window = features.for_dev_runtime || features.facts.ui.observes_window_metrics();
+        let (root, arguments) = match (observes_window, root_owns_navigation_safe_area) {
+            (true, true) => ("NexaEdgeToEdgeRoot", "(edgeToEdge: false) { nexaWindowMetrics in"),
+            (true, false) => ("NexaEdgeToEdgeRoot", " { nexaWindowMetrics in"),
+            (false, true) => ("NexaLayoutRoot", "(edgeToEdge: false) {"),
+            (false, false) => ("NexaLayoutRoot", " {"),
+        };
+        out.push_str(&format!("        {root}{arguments}\n"));
 
         if needs_group {
             out.push_str("            Group {\n");
@@ -5223,7 +5257,7 @@ fn generate_with_analysis_mode(
                 features.uses_scroll_events,
                 features.uses_vertical_list,
                 features.uses_horizontal_list,
-                features.uses_grid_list,
+                list_runtime::GridSupport::for_features(&features),
                 features.uses_sectioned_list,
             );
         });
@@ -5248,7 +5282,7 @@ fn generate_with_analysis_mode(
                 features.uses_permission_request,
                 &features.used_permissions,
                 features.dynamic_permission,
-                features.expose_permissions_to_dev_runtime,
+                features.for_dev_runtime,
             );
         });
     }
@@ -5347,6 +5381,7 @@ pub(super) fn generate_for_dev_units_with_font_catalog_and_project_features(
     features.uses_vertical_list = true;
     features.uses_horizontal_list = true;
     features.uses_grid_list = true;
+    features.uses_masonry_list = true;
     features.uses_sectioned_list = true;
     features.uses_sticky_header = true;
     features.uses_scroll_events = true;
@@ -5390,7 +5425,7 @@ pub(super) fn generate_for_dev_units_with_font_catalog_and_project_features(
     ]
     .into_iter()
     .collect();
-    features.expose_permissions_to_dev_runtime = true;
+    features.for_dev_runtime = true;
     features.uses_native_library = true;
     let project_features = project_features_from_analysis(&features);
     (
@@ -5505,11 +5540,11 @@ mod tests {
     #[test]
     fn edge_to_edge_root_uses_full_window_geometry_and_separate_safe_insets() {
         let root = NEXA_SHARED_COMPONENT_PRIMITIVES
-            .split("private struct NexaEdgeToEdgeRoot<Content: View>")
+            .split("struct NexaEdgeToEdgeRoot<Content: View>")
             .nth(1)
             .and_then(|source| {
                 source
-                    .split("private struct NexaEdgeToEdgeRootModifier")
+                    .split("// nexa-codegen: NexaLayoutRoot")
                     .next()
             })
             .unwrap_or_default();
@@ -5524,8 +5559,6 @@ mod tests {
         assert!(root.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"));
         assert!(!root.contains(".frame(width: 0, height: 0)"));
         assert!(root.contains(".environment(\\.nexaVisualSafeAreaInsets, containerSafeInsets)"));
-        assert!(root.contains(".environment(\\.nexaWindowSafeAreaInsets, containerSafeInsets)"));
-        assert!(root.contains(".environment(\\.nexaViewportSize, metrics.viewportSize)"));
         assert!(root.contains(".modifier(NexaEdgeToEdgeRootModifier(enabled: edgeToEdge))"));
         assert!(!root.contains(".ignoresSafeArea(.container, edges: .all)"));
         assert!(root.contains("left: insets.left"));
@@ -5588,26 +5621,13 @@ mod tests {
         assert!(probe.contains("guard insets != lastReportedInsets || windowSize != lastReportedWindowSize else { return }"));
 
         let dev_runtime = include_str!("../../../../runtime/ios/NexaDevRuntime.swift");
-        assert!(
-            dev_runtime.contains("NexaDevEdgeToEdgeRoot(edgeToEdge: !rootOwnsNavigationSafeArea)")
-        );
+        assert!(dev_runtime.contains(
+            "NexaEdgeToEdgeRoot(edgeToEdge: !rootOwnsNavigationSafeArea) { _ in"
+        ));
         assert!(dev_runtime.contains("nexaDevRootOwnsNavigationSafeArea(rootNodes)"));
-        let dev_root = dev_runtime
-            .split("private struct NexaDevEdgeToEdgeRoot<Content: View>")
-            .nth(1)
-            .and_then(|source| source.split("/// Zero-size probe").next())
-            .unwrap_or_default();
-        assert!(dev_root.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"));
-        assert!(!dev_root.contains(".frame(width: 0, height: 0)"));
-        assert!(dev_root.contains("NexaDevEdgeToEdgeRootModifier(enabled: edgeToEdge)"));
-        assert!(dev_runtime.contains("windowSize != lastReportedWindowSize"));
+        assert!(!dev_runtime.contains("NexaDevEdgeToEdgeRoot"));
+        assert!(!dev_runtime.contains("NexaDevSafeAreaInsetsProbe"));
         assert!(!dev_runtime.contains("NexaDevSafeAreaEdgePadding"));
-        assert!(
-            dev_runtime.contains(".environment(\\.nexaDevVisualSafeInsets, containerSafeInsets)")
-        );
-        assert!(dev_runtime.contains("\\.nexaWindowSafeAreaInsets,"));
-        assert!(dev_runtime.contains("left: insets.left"));
-        assert!(dev_runtime.contains("right: insets.right"));
         assert!(!dev_runtime.contains("NexaDevSafeAreaPaddingPrimitive"));
         let dev_renderer = include_str!("../../../../runtime/ios/NexaDevRenderer.swift");
         assert!(dev_renderer.contains("case \"ViewInsets\":"));
@@ -5620,7 +5640,7 @@ mod tests {
         assert!(dev_safe_area_inset.contains("safeAreaSnapshot.logical(layoutDirection)"));
         assert!(
             dev_safe_area_inset
-                .contains("safeAreaSnapshot.devRemoving(edge, direction: layoutDirection)")
+                .contains("safeAreaSnapshot.removing(edge, direction: layoutDirection)")
         );
         let dev_native_safe_area_inset = dev_safe_area_inset
             .split("if accommodatesEndpoint {")
@@ -5750,7 +5770,6 @@ mod tests {
         assert!(dev_renderer.contains("isFirstSection: isFirstFormSection"));
         assert!(dev_renderer.contains("contentPadding: formContentPadding"));
         assert!(dev_renderer.contains("margin: formMargin"));
-        assert!(dev_runtime.contains(".ignoresSafeArea(.container, edges: .all)"));
     }
 
     fn braced_block(source: &str, start: usize) -> &str {
@@ -5822,6 +5841,9 @@ mod tests {
             primitives.contains("private struct NexaNativeSegmentedControl: UIViewRepresentable")
         );
         assert!(primitives.contains("control.setTitleTextAttributes"));
+        assert!(primitives.contains("if coordinator.items != items"));
+        assert!(primitives.contains("if usesDefaultStyle && coordinator.appliedDefaultStyle"));
+        assert!(!primitives.contains("control.titleForSegment(at:"));
         assert!(primitives.contains("control.layer.backgroundColor = color.cgColor"));
         assert!(primitives.contains("control.selectedSegmentTintColor = tint.map { UIColor($0) }"));
     }
@@ -5941,10 +5963,13 @@ mod tests {
     #[test]
     fn date_picker_uses_native_controls_and_a_committable_range_sheet() {
         let primitives = shared_component_primitives(false);
-        let date_picker = primitives
+        let date_picker_source =
+            nexa_codegen::source_sections::reachable(&primitives, "NexaDatePickerPrimitive()");
+        assert!(!date_picker_source.contains("struct NexaTextInputPrimitive"));
+        let date_picker = date_picker_source
             .split("struct NexaDatePickerPrimitive: View {")
             .nth(1)
-            .unwrap_or_default();
+            .expect("standalone date picker must include its native primitive");
 
         assert!(date_picker.contains("DatePicker(\"\", selection: selectedDate"));
         assert!(date_picker.contains(".labelsHidden()"));
@@ -6139,6 +6164,41 @@ mod tests {
         assert!(native.contains("field.textAlignment = .natural"));
         assert!(native.contains("owner.onSubmitAction?()"));
         assert!(native.contains("guard value != proposal else { return true }"));
+        assert!(native.contains("let previousNSString = previous as NSString"));
+        assert!(native.contains("replacement.unicodeScalars.contains"));
+        assert!(
+            native.contains(
+                "if owner.maxLength == nil && (!owner.multiline || owner.maxLines == nil)"
+            )
+        );
+        assert!(native.contains("publish(proposed)"));
+        assert!(native.contains("configuredFieldPlaceholderText != owner.placeholder"));
+        assert!(native.contains("if field.keyboardType != owner.keyboard"));
+        assert!(native.contains("if needsLayout {\n            invalidateIntrinsicContentSize()"));
+        let single_line_measurement = native
+            .split("    func measuredSize(width: CGFloat?) -> CGSize {")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("        guard let view = textView else")
+                    .next()
+            })
+            .unwrap_or_default();
+        assert!(
+            single_line_measurement
+                .contains("if let width { return CGSize(width: width, height: height) }")
+        );
+        assert!(
+            single_line_measurement
+                .find("if let width {")
+                .unwrap_or(usize::MAX)
+                < single_line_measurement
+                    .find("field.sizeThatFits")
+                    .unwrap_or(0)
+        );
+        assert!(native.contains(
+            "if let width {\n            availableWidth = max(1, width)\n        } else {"
+        ));
     }
 
     #[test]
@@ -6252,6 +6312,8 @@ mod tests {
     fn shared_picker_primitive_owns_all_native_picker_variants() {
         let primitives = shared_component_primitives(false);
         assert!(primitives.contains("struct NexaPickerPrimitive<LabelContent: View>"));
+        assert!(primitives.contains(r"ForEach(items.indices, id: \.self)"));
+        assert!(!primitives.contains("Array(items.enumerated())"));
         assert!(primitives.contains("func nexaPickerTint(_ tint: Color?)"));
         assert!(primitives.contains(".nexaPickerTint(tint)"));
         assert!(primitives.contains("if hasLabel {"));
@@ -6298,8 +6360,9 @@ mod tests {
         assert!(ring.contains("private var normalizedProgress: Double?"));
         assert!(ring.contains("guard let progress else { return nil }"));
         assert!(ring.contains("guard progress.isFinite else { return 0 }"));
-        assert!(ring.contains(".trim(from: 0, to: normalizedProgress)"));
-        assert!(ring.contains("if normalizedProgress >= 1"));
+        assert!(ring.contains("let progress = normalizedProgress"));
+        assert!(ring.contains(".trim(from: 0, to: progress)"));
+        assert!(ring.contains("if progress >= 1"));
         assert!(ring.contains("private var indicatorSize: CGFloat { max(size ?? 40, 0) }"));
         assert!(ring.contains(
             "private var indicatorThickness: CGFloat { min(max(thickness ?? 4, 0), indicatorSize) }"
@@ -6314,8 +6377,14 @@ mod tests {
         assert!(ring.contains("let tint: Color?"));
         assert!(ring.contains("let trackColor: Color?"));
         assert!(ring.contains(".accessibilityLabel(\"Progress\")"));
-        assert!(ring.contains(".accessibilityValue(normalizedProgress.map"));
+        assert!(ring.contains(".accessibilityValue(progress.map"));
         assert!(!ring.contains(".progressViewStyle(.circular)"));
+        let (determinate, indeterminate) = ring
+            .split_once("private struct IndeterminateArc: View")
+            .expect("ring has an indeterminate arc");
+        assert!(!determinate.contains("isAnimating"));
+        assert!(indeterminate.contains("@State private var isAnimating"));
+        assert!(indeterminate.contains(".repeatForever(autoreverses: false)"));
     }
 
     #[test]
@@ -6333,7 +6402,15 @@ mod tests {
         assert!(bar.contains("guard let progress else { return nil }"));
         assert!(bar.contains("guard progress.isFinite else { return 0 }"));
         assert!(bar.contains("ProgressView(value: normalizedProgress, total: 1)"));
-        assert!(bar.contains("private func indeterminateBar(tint: Color) -> some View"));
+        let (native, custom) = bar
+            .split_once("private struct DeterminateTrack: View")
+            .expect("custom track has a separate view");
+        let (determinate, indeterminate) = custom
+            .split_once("private struct IndeterminateTrack: View")
+            .expect("indeterminate track has a separate view");
+        assert!(!native.contains("accessibilityReduceMotion"));
+        assert!(!determinate.contains("isVisible"));
+        assert!(indeterminate.contains("@State private var isVisible"));
         assert!(bar.contains("let shouldAnimate = isVisible && !reduceMotion"));
         assert!(bar.contains(".accessibilityRepresentation { ProgressView() }"));
         assert!(bar.contains("if let normalizedProgress {"));
@@ -6465,7 +6542,7 @@ mod tests {
 
         assert!(primitives.contains("Rectangle()"));
         assert!(primitives.contains(".fill(color)"));
-        assert!(primitives.contains(".frame(height: max(0, thickness))"));
+        assert!(primitives.contains(".frame(height: thickness)"));
     }
 
     #[test]
@@ -7259,7 +7336,8 @@ mod tests {
             .split("struct NexaScreen0: View")
             .next()
             .expect("navigation host is emitted before screen declarations");
-        assert!(app_body.contains("NexaEdgeToEdgeRoot(edgeToEdge: false)"));
+        assert!(app_body.contains("NexaLayoutRoot(edgeToEdge: false)"));
+        assert!(!swift.contains("class NexaSafeAreaInsetsProbeView"));
         let appearance_position = app_body
             .find("NexaAppearancePrimitive(mode: \"dark\")")
             .expect("root appearance is hoisted to the navigation host");

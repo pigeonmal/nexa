@@ -83,7 +83,7 @@ pub(super) fn lower_scroll_view_component(
         axis,
         hide_horizontal_scrollbar,
         hide_vertical_scrollbar,
-        style: lower_style(style, themes, &cx.exprs(false))?,
+        style: lower_style(style, cx.target, themes, &cx.exprs(false))?,
         component_ref,
         children: lower_nodes(children, &child_cx)?,
     })

@@ -134,16 +134,17 @@ app WelcomeIndicator {
 
 | Option | Type | Required | Default | Behavior |
 |---|---|---:|---|---|
-| `shape` | `Capsule \| Circle \| Rounded(radius: Double)` | Yes | — | Selects the native path. `Rounded` uses a logical-point radius. |
-| `width` | `Double` | Yes | — | Shape width in logical points. |
-| `height` | `Double` | Yes | — | Shape height in logical points. |
+| `shape` | `Capsule \| Circle \| Rounded(radius: Float64)` | Yes | — | `Circle` centers a circle within the requested frame. `Capsule` rounds the ends of the full frame. `Rounded` uses a logical-point radius. |
+| `width` | `Float64` | Yes | — | Frame width in logical units. Accepts a numeric expression. |
+| `height` | `Float64` | Yes | — | Frame height in logical units. Accepts a numeric expression. |
 | `fill` | `Color` | Yes | — | Static or adaptive fill color. |
+| `animation` | Animation specification | No | No Shape animation | Animates changes to expression-driven dimensions with the authored timing. |
 
-`Shape` has no child block or component-specific dot modifiers. SwiftUI receives a concrete `Capsule`, `Circle`, or `RoundedRectangle`; Compose paints a sized `Spacer` with the matching shape.
+`Shape` has no child block or component-specific dot modifiers. SwiftUI receives a concrete `Capsule`, `Circle`, or `RoundedRectangle`. Compose paints the matching outline inside the measured frame. Without a Shape animation, parent animation behavior follows the native platform.
 
 ### Spacer
 
-`Spacer()` expands along its parent layout axis. Give it a fixed `width` or `height` to express a gap without an empty layout container; dimensions use points on iOS and dp on Android.
+`Spacer()` expands along the parent axis in a `Row` or `Column`. The same rule applies when a plain `if` or `when` branch contributes just one spacer. Inside a `Stack`, a dimensionless spacer leaves the overlay at its content size. Give a spacer a fixed `width` or `height` to express a gap without an empty layout container. Dimensions use points on iOS and dp on Android.
 
 ```nx
 app OnboardingLayout {
@@ -159,6 +160,12 @@ app OnboardingLayout {
     }
 }
 ```
+
+### Divider
+
+`Divider(color: "#8E8E93", thickness: 0.5)` draws a horizontal separator. Both parameters are required. `color` accepts `#RGB`, `#RRGGBB`, `#RRGGBBAA`, or a theme color. `thickness` accepts a nonnegative number or theme spacing token in points on iOS and dp on Android.
+
+In app screens, `thickness: 0` emits no separator, so a plain divider adds no layout spacing. Divider accepts the common `padding`, `margin`, and accessibility parameters. It has no child content or component-specific modifiers.
 
 ### Unified dimensions, padding, and margin
 

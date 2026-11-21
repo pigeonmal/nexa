@@ -2247,6 +2247,7 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
     let uses_expressive_material3 = dev_runtime
         || features.uses_expressive_menus
         || features.uses_expressive_motion
+        || features.uses_slider
         || features.uses_wavy_progress_bar
         || features.uses_wavy_progress_ring;
     let material3_version = if uses_expressive_material3 {
@@ -2300,6 +2301,10 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
     if dev_runtime || features.uses_system_icons {
         dependencies.push_str(
             "    implementation(\"androidx.compose.material:material-icons-extended\")\n",
+        );
+    } else if features.uses_navigation {
+        dependencies.push_str(
+            "    implementation(\"androidx.compose.material:material-icons-core\")\n",
         );
     }
     if has_widgets {

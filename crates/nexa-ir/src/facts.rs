@@ -204,6 +204,18 @@ pub struct UiFacts {
     pub navigation_link: bool,
 }
 
+impl UiFacts {
+    /// Whether generated UI needs the window viewport or safe-area snapshot.
+    pub fn observes_window_metrics(&self) -> bool {
+        self.app.window_metrics
+            || self.screens.values().any(|scope| scope.window_metrics)
+            || self.components.values().any(|scope| scope.window_metrics)
+            || self.layout.safe_area_inset
+            || self.status_bar
+            || self.bottom_bar.present
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct BottomBarFacts {
     pub present: bool,
@@ -249,6 +261,7 @@ pub struct ListFacts {
     pub page_snap: bool,
     pub horizontal: bool,
     pub grid: bool,
+    pub masonry: bool,
     /// A flat sticky header (sectioned headers are reported separately).
     pub sticky_header: bool,
     pub section_header: bool,
@@ -1128,7 +1141,6 @@ fn observe_node(
         Node::FormSection { children, .. } => record_child_layout(children, ui),
         Node::TextInput {
             secure,
-            clearable,
             capitalization,
             autofill,
             return_key,
@@ -1144,10 +1156,6 @@ fn observe_node(
             if *searchable {
                 ui.system_icons
                     .insert(SystemIcon::Shared("search".to_owned()));
-            }
-            if *clearable {
-                ui.system_icons
-                    .insert(SystemIcon::Shared("cancel".to_owned()));
             }
             ui.text_input.focus |= focused.is_some() || component_ref.is_some();
             ui.text_input.secure |= *secure;
@@ -1440,7 +1448,10 @@ fn observe_node(
                 ListAxis::Horizontal => ui.lists.horizontal = true,
                 ListAxis::Grid { .. } => ui.lists.grid = true,
                 ListAxis::AutoGrid { .. } => ui.lists.grid = true,
-                ListAxis::Masonry { .. } => ui.lists.grid = true,
+                ListAxis::Masonry { .. } => {
+                    ui.lists.grid = true;
+                    ui.lists.masonry = true;
+                }
             }
             ui.lists.sticky_header |= plan.sticky_header().is_some();
             ui.lists.section_header |= plan.section_header().is_some();

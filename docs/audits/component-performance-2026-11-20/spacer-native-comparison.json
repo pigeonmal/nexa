@@ -1,0 +1,761 @@
+{
+  "scope": "Release AOT layout stress. CPU and memory are whole-process metrics.",
+  "baseRevision": "18cedbec",
+  "workload": {
+    "spacers": 192,
+    "warmupSeconds": 2,
+    "sampleSeconds": 5,
+    "dimensions": [
+      5,
+      3
+    ],
+    "update": "Each frame callback alternates a neighboring shape width between 8 and 10 logical units in every cell.",
+    "comparison": "Change only the benchmark Spacer call from two native sizing modifiers to a single SwiftUI frame or Compose size.",
+    "source": "component BenchCell(size: Float64) {\n    body {\n        Row(gap: 1) {\n            Shape(width: size, height: 3, shape: Rounded(1), fill: \"#356EAF\")\n            Spacer(width: 5, height: 3)\n        }\n    }\n}\ncomponent BenchRow(size: Float64) {\n    body {\n        Row(gap: 3) {\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n            BenchCell(size: size)\n        }\n    }\n}\napp ColumnBench {\n    state tileWidth: Float64 = 8.0\n    body {\n        Column(gap: 3) {\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        BenchRow(size: tileWidth)\n        }\n    }\n}\n"
+  },
+  "platforms": {
+    "ios": "iPhone 18 Pro Max simulator, iOS 27.0, arm64; display link target 60 Hz",
+    "android": "emulator-5554, Android 12 API 31; ART speed compilation after each installation; most recent gfxinfo frame records"
+  },
+  "iosGeometryCheck": {
+    "caseCount": 36,
+    "layouts": [
+      "standalone",
+      "horizontal",
+      "vertical"
+    ],
+    "proposals": [
+      [
+        4,
+        4
+      ],
+      [
+        35,
+        20
+      ],
+      [
+        80,
+        80
+      ]
+    ],
+    "sizes": [
+      [
+        0,
+        0
+      ],
+      [
+        10,
+        3
+      ],
+      [
+        5,
+        11
+      ],
+      [
+        40,
+        16
+      ]
+    ],
+    "result": "Identical measured sizes and neighboring rendered pixels."
+  },
+  "artifacts": {
+    "before": {
+      "iosSimulatorExecutableBytes": 516088,
+      "iosSimulatorAppBytes": 516852,
+      "androidApkBytes": 743123,
+      "androidAabBytes": 1739140
+    },
+    "after": {
+      "iosSimulatorExecutableBytes": 515816,
+      "iosSimulatorAppBytes": 516580,
+      "androidApkBytes": 743123,
+      "androidAabBytes": 1739241
+    }
+  },
+  "measurements": {
+    "ios": [
+      {
+        "variant": "before",
+        "residentBytesStart": 181174272,
+        "displayLinkP95Ms": 16.677291656378657,
+        "residentBytesEveryFiveSeconds": [],
+        "residentBytesEnd": 180584448,
+        "wallSeconds": 5.00000066665234,
+        "cpuSeconds": 1.5282550000000001,
+        "displayLinkIntervals": 300
+      },
+      {
+        "variant": "after",
+        "residentBytesEnd": 178913280,
+        "residentBytesEveryFiveSeconds": [],
+        "cpuSeconds": 1.427003,
+        "displayLinkIntervals": 300,
+        "wallSeconds": 5.016666875046212,
+        "displayLinkP95Ms": 16.67666668072343,
+        "residentBytesStart": 179077120
+      },
+      {
+        "variant": "after",
+        "residentBytesEnd": 178929664,
+        "residentBytesStart": 179093504,
+        "cpuSeconds": 1.3155160000000001,
+        "wallSeconds": 5.0166492916760035,
+        "displayLinkIntervals": 300,
+        "displayLinkP95Ms": 16.676333325449377,
+        "residentBytesEveryFiveSeconds": []
+      },
+      {
+        "variant": "before",
+        "displayLinkP95Ms": 16.677791660185903,
+        "cpuSeconds": 1.5116080000000003,
+        "residentBytesEveryFiveSeconds": [],
+        "residentBytesStart": 179322880,
+        "wallSeconds": 5.016647458309308,
+        "residentBytesEnd": 179191808,
+        "displayLinkIntervals": 300
+      }
+    ],
+    "android": [
+      {
+        "variant": "after",
+        "wallSeconds": 5.063002587,
+        "cpuMillis": 3495,
+        "pssKiBStart": 33633,
+        "pssKiBEnd": 28245,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 178,
+        "composeClockP95Ms": 65.26125,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 37.860964081283484,
+          "frameDurationP95Ms": 114.526575
+        }
+      },
+      {
+        "variant": "before",
+        "wallSeconds": 5.005240878,
+        "cpuMillis": 3689,
+        "pssKiBStart": 36609,
+        "pssKiBEnd": 30806,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 198,
+        "composeClockP95Ms": 61.855041,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 40.2272743363637,
+          "frameDurationP95Ms": 106.060237
+        }
+      },
+      {
+        "variant": "before",
+        "wallSeconds": 5.021710087,
+        "cpuMillis": 3371,
+        "pssKiBStart": 38352,
+        "pssKiBEnd": 30598,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 192,
+        "composeClockP95Ms": 69.577166,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 41.64706048941183,
+          "frameDurationP95Ms": 85.417376
+        }
+      },
+      {
+        "variant": "after",
+        "wallSeconds": 5.010709086,
+        "cpuMillis": 3143,
+        "pssKiBStart": 32527,
+        "pssKiBEnd": 27156,
+        "pssKiBEveryFiveSeconds": [],
+        "composeClockIntervals": 182,
+        "composeClockP95Ms": 75.408083,
+        "gfxInfoFrameStats": {
+          "records": 116,
+          "lastIntervalFps": 36.31579092631585,
+          "frameDurationP95Ms": 96.500601
+        }
+      }
+    ]
+  },
+  "retention": {
+    "seconds": 45,
+    "intervalSeconds": 5,
+    "afterSamples": {
+      "ios": {
+        "displayLinkIntervals": 2700,
+        "residentBytesEveryFiveSeconds": [
+          173146112,
+          173047808,
+          173047808,
+          173047808,
+          173047808,
+          173031424,
+          172883968,
+          172785664,
+          172785664
+        ],
+        "residentBytesEnd": 172834816,
+        "displayLinkP95Ms": 16.690124990418553,
+        "wallSeconds": 45.00005616666749,
+        "residentBytesStart": 173260800,
+        "cpuSeconds": 12.9768
+      },
+      "android": {
+        "wallSeconds": 45.015611689,
+        "cpuMillis": 25710,
+        "pssKiBStart": 31083,
+        "pssKiBEnd": 29762,
+        "pssKiBEveryFiveSeconds": [
+          27792,
+          29435,
+          28666,
+          29450,
+          29906,
+          30866,
+          29886,
+          29102,
+          29762
+        ],
+        "composeClockIntervals": 1799,
+        "composeClockP95Ms": 61.753541,
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 36.4285110055667,
+          "frameDurationP95Ms": 149.468324
+        }
+      }
+    },
+    "scope": "Simulators ran concurrently for the memory samples. Long-run CPU and frame numbers are excluded from the paired comparisons."
+  },
+  "parameterProbes": [
+    {
+      "width": "omitted",
+      "height": "omitted",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer() Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22512,
+          "android": 37749
+        },
+        "after": {
+          "ios": 22512,
+          "android": 37749
+        }
+      }
+    },
+    {
+      "width": "omitted",
+      "height": "fixed",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(height: 4) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22357,
+          "android": 37751
+        },
+        "after": {
+          "ios": 22357,
+          "android": 37751
+        }
+      }
+    },
+    {
+      "width": "omitted",
+      "height": "parent",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(height: 20%) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24872,
+          "android": 40028
+        },
+        "after": {
+          "ios": 24872,
+          "android": 40028
+        }
+      }
+    },
+    {
+      "width": "omitted",
+      "height": "viewport",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(height: screenHeightFraction(0.2)) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22399,
+          "android": 37806
+        },
+        "after": {
+          "ios": 22399,
+          "android": 37806
+        }
+      }
+    },
+    {
+      "width": "omitted",
+      "height": "fill",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(height: Fill) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22368,
+          "android": 37754
+        },
+        "after": {
+          "ios": 22368,
+          "android": 37754
+        }
+      }
+    },
+    {
+      "width": "fixed",
+      "height": "omitted",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 8) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22356,
+          "android": 37750
+        },
+        "after": {
+          "ios": 22356,
+          "android": 37750
+        }
+      }
+    },
+    {
+      "width": "fixed",
+      "height": "fixed",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 8, height: 4) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22373,
+          "android": 37763
+        },
+        "after": {
+          "ios": 22367,
+          "android": 37772
+        }
+      }
+    },
+    {
+      "width": "fixed",
+      "height": "parent",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 8, height: 20%) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24888,
+          "android": 40040
+        },
+        "after": {
+          "ios": 24888,
+          "android": 40040
+        }
+      }
+    },
+    {
+      "width": "fixed",
+      "height": "viewport",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 8, height: screenHeightFraction(0.2)) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22415,
+          "android": 37818
+        },
+        "after": {
+          "ios": 22409,
+          "android": 37827
+        }
+      }
+    },
+    {
+      "width": "fixed",
+      "height": "fill",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 8, height: Fill) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22384,
+          "android": 37766
+        },
+        "after": {
+          "ios": 22384,
+          "android": 37766
+        }
+      }
+    },
+    {
+      "width": "parent",
+      "height": "omitted",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 30%) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24871,
+          "android": 40027
+        },
+        "after": {
+          "ios": 24871,
+          "android": 40027
+        }
+      }
+    },
+    {
+      "width": "parent",
+      "height": "fixed",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 30%, height: 4) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24888,
+          "android": 40040
+        },
+        "after": {
+          "ios": 24888,
+          "android": 40040
+        }
+      }
+    },
+    {
+      "width": "parent",
+      "height": "parent",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 30%, height: 20%) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24884,
+          "android": 40042
+        },
+        "after": {
+          "ios": 24884,
+          "android": 40042
+        }
+      }
+    },
+    {
+      "width": "parent",
+      "height": "viewport",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 30%, height: screenHeightFraction(0.2)) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24930,
+          "android": 40095
+        },
+        "after": {
+          "ios": 24930,
+          "android": 40095
+        }
+      }
+    },
+    {
+      "width": "parent",
+      "height": "fill",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: 30%, height: Fill) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24899,
+          "android": 40043
+        },
+        "after": {
+          "ios": 24899,
+          "android": 40043
+        }
+      }
+    },
+    {
+      "width": "viewport",
+      "height": "omitted",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: screenWidthFraction(0.1)) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22397,
+          "android": 37804
+        },
+        "after": {
+          "ios": 22397,
+          "android": 37804
+        }
+      }
+    },
+    {
+      "width": "viewport",
+      "height": "fixed",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: screenWidthFraction(0.1), height: 4) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22414,
+          "android": 37817
+        },
+        "after": {
+          "ios": 22408,
+          "android": 37826
+        }
+      }
+    },
+    {
+      "width": "viewport",
+      "height": "parent",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: screenWidthFraction(0.1), height: 20%) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24929,
+          "android": 40094
+        },
+        "after": {
+          "ios": 24929,
+          "android": 40094
+        }
+      }
+    },
+    {
+      "width": "viewport",
+      "height": "viewport",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: screenWidthFraction(0.1), height: screenHeightFraction(0.2)) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22456,
+          "android": 37872
+        },
+        "after": {
+          "ios": 22450,
+          "android": 37881
+        }
+      }
+    },
+    {
+      "width": "viewport",
+      "height": "fill",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: screenWidthFraction(0.1), height: Fill) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22425,
+          "android": 37820
+        },
+        "after": {
+          "ios": 22425,
+          "android": 37820
+        }
+      }
+    },
+    {
+      "width": "fill",
+      "height": "omitted",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: Fill) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22367,
+          "android": 37753
+        },
+        "after": {
+          "ios": 22367,
+          "android": 37753
+        }
+      }
+    },
+    {
+      "width": "fill",
+      "height": "fixed",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: Fill, height: 4) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22384,
+          "android": 37766
+        },
+        "after": {
+          "ios": 22384,
+          "android": 37766
+        }
+      }
+    },
+    {
+      "width": "fill",
+      "height": "parent",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: Fill, height: 20%) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 24899,
+          "android": 40043
+        },
+        "after": {
+          "ios": 24899,
+          "android": 40043
+        }
+      }
+    },
+    {
+      "width": "fill",
+      "height": "viewport",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: Fill, height: screenHeightFraction(0.2)) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22426,
+          "android": 37821
+        },
+        "after": {
+          "ios": 22426,
+          "android": 37821
+        }
+      }
+    },
+    {
+      "width": "fill",
+      "height": "fill",
+      "source": "app SpacerAudit { body { Row { Text(\"Departure\") Spacer(width: Fill, height: Fill) Text(\"Arrival\") } } }",
+      "generatedSourceBytes": {
+        "before": {
+          "ios": 22395,
+          "android": 37769
+        },
+        "after": {
+          "ios": 22395,
+          "android": 37769
+        }
+      }
+    }
+  ],
+  "separateFlexibleOwnerIssue": {
+    "source": "app SpacerOwnerAudit { body { Stack { Text(\"Airport information\") Spacer() } } }",
+    "target": "android",
+    "schema": "build-v520",
+    "buildStatus": "failed",
+    "diagnostic": "NexaGenerated.kt:99:48 Unresolved reference 'weight'.",
+    "fix": {
+      "schema": "build-v522",
+      "fixture": "app SpacerOwnership {\n    state showGap: Bool = true\n    body {\n        Column(gap: 10, padding: Insets(top: SystemInsets.top + 10)) {\n            Stack { Text(\"Stack content\"); Spacer(); if showGap { Spacer() } }\n            Row { Stack { Text(\"Nested stack\"); Spacer() } }\n            Row(width: 240) {\n                Text(\"Row start\")\n                if showGap { Spacer() }\n                Text(\"Row end\")\n            }\n            Column(height: 140) {\n                Text(\"Column start\")\n                when showGap { true: { Spacer() } false: { Text(\"Closed\") } }\n                Text(\"Column end\")\n            }\n            Row(width: 240) { Text(\"Direct start\"); Spacer(); Text(\"Direct end\") }\n        }\n    }\n}\n",
+      "androidReleaseApkBytes": 828827,
+      "androidReleaseAabBytes": 1953963,
+      "androidEmulator": "emulator-5554",
+      "androidAotGeometry": {
+        "package": "dev.nexa.spacerowner",
+        "boundsPx": {
+          "Stack content": [
+            191,
+            173,
+            470,
+            227
+          ],
+          "Nested stack": [
+            196,
+            255,
+            464,
+            309
+          ],
+          "Row start": [
+            0,
+            337,
+            197,
+            391
+          ],
+          "Row end": [
+            485,
+            337,
+            660,
+            391
+          ],
+          "Column start": [
+            198,
+            419,
+            463,
+            473
+          ],
+          "Column end": [
+            209,
+            750,
+            452,
+            804
+          ],
+          "Direct start": [
+            0,
+            832,
+            227,
+            886
+          ],
+          "Direct end": [
+            454,
+            832,
+            660,
+            886
+          ]
+        },
+        "distances": {
+          "conditionalRowGapPx": 288,
+          "conditionalColumnGapPx": 277,
+          "directRowGapPx": 227
+        }
+      },
+      "androidDevRuntimeGeometry": {
+        "package": "dev.nexa.spacerowner.dev",
+        "boundsPx": {
+          "Stack content": [
+            401,
+            173,
+            680,
+            227
+          ],
+          "Nested stack": [
+            406,
+            255,
+            674,
+            309
+          ],
+          "Row start": [
+            210,
+            337,
+            407,
+            391
+          ],
+          "Row end": [
+            695,
+            337,
+            870,
+            391
+          ],
+          "Column start": [
+            408,
+            419,
+            673,
+            473
+          ],
+          "Column end": [
+            419,
+            750,
+            662,
+            804
+          ],
+          "Direct start": [
+            210,
+            832,
+            437,
+            886
+          ],
+          "Direct end": [
+            664,
+            832,
+            870,
+            886
+          ]
+        },
+        "distances": {
+          "conditionalRowGapPx": 288,
+          "conditionalColumnGapPx": 277,
+          "directRowGapPx": 227
+        }
+      },
+      "scope": "Accessibility labels and relative gap geometry. The two hosts have different absolute horizontal placement for the intrinsic root fixture.",
+      "swiftNativeProbe": {
+        "proposalPt": [
+          180,
+          100
+        ],
+        "childPt": [
+          40,
+          10
+        ],
+        "stackPt": [
+          40,
+          10
+        ],
+        "columnPt": [
+          40,
+          100
+        ],
+        "rowPt": [
+          180,
+          10
+        ]
+      }
+    }
+  }
+}

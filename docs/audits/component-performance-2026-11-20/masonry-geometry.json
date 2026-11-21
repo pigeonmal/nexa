@@ -1,0 +1,148 @@
+{
+  "fixture": {
+    "source": "app ColumnBench {\n    state tick: Float64 = 8.0\n    body {\n        Column(gap: 4) {\n            Text(\"Sample \\(tick)\")\n            FastList(count: 12000, axis: Masonry(3), gap: 8) {\n                index in\n                Column(gap: 4, padding: 8) {\n                    Text(\"Card \\(index)\")\n                    if index % 3 == 0 { Text(\"Extra information about this card.\") }\n                }\n            }\n        }\n    }\n}\n",
+    "target": "iPhone 18 Pro Max simulator, iOS 27.0",
+    "configuration": "AOT Release",
+    "warmupSeconds": 2,
+    "driver": "Updates the native collection view offset with a 600 pt/s wall-clock trajectory and lays out the viewport on each display callback.",
+    "baseline": "The earlier generated layout with the shared scroll helpers included so standalone Masonry can link."
+  },
+  "releaseSamples": [
+    {
+      "run": 0,
+      "variant": "fixed-before",
+      "counters": {
+        "displayLinkIntervals": 175,
+        "residentBytesStart": 245694464,
+        "residentBytesEnd": 251674624,
+        "cpuSeconds": 7.0569679999999995,
+        "residentBytesEveryFiveSeconds": [
+          251117568
+        ],
+        "wallSeconds": 9.013518000021577,
+        "displayLinkP95Ms": 116.65191664360464
+      }
+    },
+    {
+      "run": 1,
+      "variant": "fixed-after",
+      "counters": {
+        "residentBytesStart": 221495296,
+        "residentBytesEnd": 222003200,
+        "residentBytesEveryFiveSeconds": [
+          221986816
+        ],
+        "displayLinkIntervals": 498,
+        "displayLinkP95Ms": 16.7092916672118,
+        "cpuSeconds": 2.654013,
+        "wallSeconds": 9.000010666670278
+      }
+    },
+    {
+      "run": 2,
+      "variant": "fixed-after",
+      "counters": {
+        "residentBytesStart": 221233152,
+        "wallSeconds": 9.012933499994688,
+        "residentBytesEveryFiveSeconds": [
+          221593600
+        ],
+        "displayLinkIntervals": 501,
+        "residentBytesEnd": 221790208,
+        "displayLinkP95Ms": 16.730458301026374,
+        "cpuSeconds": 2.379142
+      }
+    },
+    {
+      "run": 3,
+      "variant": "fixed-before",
+      "counters": {
+        "wallSeconds": 9.033328916702885,
+        "residentBytesEnd": 256229376,
+        "cpuSeconds": 7.513381000000001,
+        "residentBytesEveryFiveSeconds": [
+          255934464
+        ],
+        "residentBytesStart": 240467968,
+        "displayLinkIntervals": 167,
+        "displayLinkP95Ms": 133.33458331180736
+      }
+    }
+  ],
+  "callbackDrivenCrossCheck": [
+    {
+      "run": 0,
+      "variant": "before",
+      "counters": {
+        "displayLinkIntervals": 190,
+        "wallSeconds": 8.032679125026334,
+        "cpuSeconds": 6.0310060000000005,
+        "residentBytesEnd": 245202944,
+        "residentBytesEveryFiveSeconds": [
+          244711424
+        ],
+        "residentBytesStart": 229212160,
+        "displayLinkP95Ms": 100.00400000717491
+      }
+    },
+    {
+      "run": 1,
+      "variant": "current-build",
+      "counters": {
+        "residentBytesEnd": 221593600,
+        "residentBytesStart": 220856320,
+        "displayLinkIntervals": 453,
+        "displayLinkP95Ms": 16.713500022888184,
+        "residentBytesEveryFiveSeconds": [
+          221364224
+        ],
+        "cpuSeconds": 2.072755,
+        "wallSeconds": 8.016667874995619
+      }
+    },
+    {
+      "run": 2,
+      "variant": "current-build",
+      "counters": {
+        "residentBytesEveryFiveSeconds": [
+          221315072
+        ],
+        "displayLinkIntervals": 455,
+        "displayLinkP95Ms": 16.705166664905846,
+        "wallSeconds": 8.01662633329397,
+        "residentBytesEnd": 221937664,
+        "cpuSeconds": 2.025856,
+        "residentBytesStart": 220921856
+      }
+    },
+    {
+      "run": 3,
+      "variant": "before",
+      "counters": {
+        "displayLinkIntervals": 189,
+        "residentBytesEnd": 245268480,
+        "displayLinkP95Ms": 99.92366668302566,
+        "cpuSeconds": 6.042479,
+        "wallSeconds": 8.000031250005122,
+        "residentBytesStart": 228671488,
+        "residentBytesEveryFiveSeconds": [
+          244596736
+        ]
+      }
+    }
+  ],
+  "simulatorReleasePackaging": {
+    "fixed-before": {
+      "executableBytes": 987352,
+      "bundleFileBytes": 988247
+    },
+    "fixed-after": {
+      "executableBytes": 1030984,
+      "bundleFileBytes": 1031879
+    }
+  },
+  "limits": [
+    "Display-link intervals measure main-thread callback scheduling. Compositor presentation remains unverified.",
+    "RSS describes whole-process memory under this scrolling workload."
+  ]
+}

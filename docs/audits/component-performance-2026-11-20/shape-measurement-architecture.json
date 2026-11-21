@@ -1,0 +1,657 @@
+{
+  "fixture": {
+    "target": "Ajami_Android12 emulator, API 31",
+    "configuration": "AOT minified Release, compiled in speed mode on the emulator",
+    "rows": 12,
+    "tilesPerRow": 10,
+    "tileSource": "Stack(width: 32, height: 24) { Shape(width: tileWidth, height: 12, shape: Rounded(2), fill: \"#356EAF\") }",
+    "driver": "Alternates a shared width between 8 and 10. After warm-up, a coroutine targets monotonic deadlines 16.67 ms apart. Recorded update counts describe the actual sampling cadence."
+  },
+  "finalRelease": [
+    {
+      "run": 0,
+      "variant": "before",
+      "expectedSeconds": 14,
+      "counters": {
+        "wallSeconds": 14.008187091,
+        "cpuMillis": 2291,
+        "pssKiBStart": 27924,
+        "pssKiBEnd": 27750,
+        "pssKiBEveryFiveSeconds": [
+          44357,
+          28274
+        ],
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 21.389728952265894,
+          "frameDurationP95Ms": 82.004289
+        },
+        "updateIntervals": 912,
+        "updateIntervalP95Ms": 59.329625
+      }
+    },
+    {
+      "run": 1,
+      "variant": "final",
+      "expectedSeconds": 14,
+      "counters": {
+        "wallSeconds": 14.015698716,
+        "cpuMillis": 2198,
+        "pssKiBStart": 27382,
+        "pssKiBEnd": 26982,
+        "pssKiBEveryFiveSeconds": [
+          38650,
+          27302
+        ],
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 30.38297993872345,
+          "frameDurationP95Ms": 102.735455
+        },
+        "updateIntervals": 907,
+        "updateIntervalP95Ms": 63.307583
+      }
+    },
+    {
+      "run": 2,
+      "variant": "final",
+      "expectedSeconds": 14,
+      "counters": {
+        "wallSeconds": 14.013455424,
+        "cpuMillis": 2858,
+        "pssKiBStart": 27716,
+        "pssKiBEnd": 30293,
+        "pssKiBEveryFiveSeconds": [
+          40215,
+          28509
+        ],
+        "gfxInfoFrameStats": {
+          "records": 120,
+          "lastIntervalFps": 30.512821733333382,
+          "frameDurationP95Ms": 115.961034
+        },
+        "updateIntervals": 905,
+        "updateIntervalP95Ms": 61.048083
+      }
+    },
+    {
+      "run": 3,
+      "variant": "before",
+      "expectedSeconds": 14,
+      "counters": {
+        "wallSeconds": 14.000560883,
+        "cpuMillis": 3143,
+        "pssKiBStart": 28585,
+        "pssKiBEnd": 28570,
+        "pssKiBEveryFiveSeconds": [
+          45175,
+          27907
+        ],
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 24.92957846197187,
+          "frameDurationP95Ms": 108.611403
+        },
+        "updateIntervals": 907,
+        "updateIntervalP95Ms": 60.542292
+      }
+    }
+  ],
+  "compositionProbe": {
+    "method": "Counts one Compose SideEffect per tile scope after warm-up. CPU and frame counters from these instrumented runs are diagnostic.",
+    "samples": [
+      {
+        "run": 0,
+        "variant": "count-before",
+        "expectedSeconds": 5,
+        "counters": {
+          "tileCompositions": 16440,
+          "wallSeconds": 5.005995462,
+          "cpuMillis": 1171,
+          "pssKiBStart": 28125,
+          "pssKiBEnd": 45614,
+          "pssKiBEveryFiveSeconds": [],
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 25.839417091970844,
+            "frameDurationP95Ms": 90.551121
+          },
+          "updateIntervals": 317,
+          "updateIntervalP95Ms": 64.255667
+        }
+      },
+      {
+        "run": 1,
+        "variant": "count-final",
+        "expectedSeconds": 5,
+        "counters": {
+          "tileCompositions": 0,
+          "wallSeconds": 5.000416253,
+          "cpuMillis": 812,
+          "pssKiBStart": 27452,
+          "pssKiBEnd": 38015,
+          "pssKiBEveryFiveSeconds": [],
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 26.12546229963104,
+            "frameDurationP95Ms": 96.449826
+          },
+          "updateIntervals": 261,
+          "updateIntervalP95Ms": 93.78925
+        }
+      }
+    ]
+  },
+  "experimentalRelease": {
+    "discardedAlignmentProviderPruning": [
+      {
+        "run": 0,
+        "variant": "before",
+        "expectedSeconds": 11,
+        "counters": {
+          "wallSeconds": 11.00159484,
+          "cpuMillis": 11674,
+          "pssKiBStart": 36733,
+          "pssKiBEnd": 35863,
+          "pssKiBEveryFiveSeconds": [
+            33778,
+            34514
+          ],
+          "composeClockIntervals": 503,
+          "composeClockP95Ms": 28.082167,
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 47.200001888000074,
+            "frameDurationP95Ms": 66.681615
+          }
+        }
+      },
+      {
+        "run": 1,
+        "variant": "alignment-pruned",
+        "expectedSeconds": 11,
+        "counters": {
+          "wallSeconds": 11.020591881,
+          "cpuMillis": 10658,
+          "pssKiBStart": 34958,
+          "pssKiBEnd": 36249,
+          "pssKiBEveryFiveSeconds": [
+            34449,
+            33592
+          ],
+          "composeClockIntervals": 491,
+          "composeClockP95Ms": 33.379708,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 39.6666682533334,
+            "frameDurationP95Ms": 102.041215
+          }
+        }
+      },
+      {
+        "run": 2,
+        "variant": "alignment-pruned",
+        "expectedSeconds": 11,
+        "counters": {
+          "wallSeconds": 11.000964673,
+          "cpuMillis": 11047,
+          "pssKiBStart": 36045,
+          "pssKiBEnd": 35143,
+          "pssKiBEveryFiveSeconds": [
+            35007,
+            32007
+          ],
+          "composeClockIntervals": 416,
+          "composeClockP95Ms": 35.19125,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 38.18181970909097,
+            "frameDurationP95Ms": 85.150408
+          }
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "expectedSeconds": 11,
+        "counters": {
+          "wallSeconds": 11.009670423,
+          "cpuMillis": 10801,
+          "pssKiBStart": 36401,
+          "pssKiBEnd": 34278,
+          "pssKiBEveryFiveSeconds": [
+            35423,
+            38443
+          ],
+          "composeClockIntervals": 419,
+          "composeClockP95Ms": 35.273167,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 37.978724923404314,
+            "frameDurationP95Ms": 85.766791
+          }
+        }
+      }
+    ],
+    "discardedComponentArgumentDeferral": [
+      {
+        "run": 0,
+        "variant": "before",
+        "expectedSeconds": 12,
+        "counters": {
+          "wallSeconds": 12.014477923,
+          "cpuMillis": 12535,
+          "pssKiBStart": 36032,
+          "pssKiBEnd": 35397,
+          "pssKiBEveryFiveSeconds": [
+            32665,
+            35705
+          ],
+          "composeClockIntervals": 553,
+          "composeClockP95Ms": 29.089416,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 45.18987522531653,
+            "frameDurationP95Ms": 86.954743
+          }
+        }
+      },
+      {
+        "run": 1,
+        "variant": "deferred-size",
+        "expectedSeconds": 12,
+        "counters": {
+          "wallSeconds": 12.011375299,
+          "cpuMillis": 12030,
+          "pssKiBStart": 34770,
+          "pssKiBEnd": 35198,
+          "pssKiBEveryFiveSeconds": [
+            34033,
+            35118
+          ],
+          "composeClockIntervals": 567,
+          "composeClockP95Ms": 25.901834,
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 48.16326723265314,
+            "frameDurationP95Ms": 64.820634
+          }
+        }
+      },
+      {
+        "run": 2,
+        "variant": "deferred-size",
+        "expectedSeconds": 12,
+        "counters": {
+          "wallSeconds": 12.001968048,
+          "cpuMillis": 11546,
+          "pssKiBStart": 34304,
+          "pssKiBEnd": 35797,
+          "pssKiBEveryFiveSeconds": [
+            34105,
+            33893
+          ],
+          "composeClockIntervals": 480,
+          "composeClockP95Ms": 32.85925,
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 38.80434937826093,
+            "frameDurationP95Ms": 104.78837
+          }
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "expectedSeconds": 12,
+        "counters": {
+          "wallSeconds": 12.003364548,
+          "cpuMillis": 10485,
+          "pssKiBStart": 36256,
+          "pssKiBEnd": 35797,
+          "pssKiBEveryFiveSeconds": [
+            32212,
+            35907
+          ],
+          "composeClockIntervals": 415,
+          "composeClockP95Ms": 42.619333,
+          "gfxInfoFrameStats": {
+            "records": 118,
+            "lastIntervalFps": 52.78195699849633,
+            "frameDurationP95Ms": 60.902147
+          }
+        }
+      }
+    ],
+    "measurementPrototype": [
+      {
+        "run": 0,
+        "variant": "before",
+        "expectedSeconds": 12,
+        "counters": {
+          "wallSeconds": 12.016078132,
+          "cpuMillis": 2101,
+          "pssKiBStart": 28039,
+          "pssKiBEnd": 30616,
+          "pssKiBEveryFiveSeconds": [
+            50252,
+            28020
+          ],
+          "gfxInfoFrameStats": {
+            "records": 117,
+            "lastIntervalFps": 28.064517251612948,
+            "frameDurationP95Ms": 61.877917
+          },
+          "updateIntervals": 775,
+          "updateIntervalP95Ms": 46.729917
+        }
+      },
+      {
+        "run": 1,
+        "variant": "phase",
+        "expectedSeconds": 12,
+        "counters": {
+          "wallSeconds": 12.000323882,
+          "cpuMillis": 2066,
+          "pssKiBStart": 27328,
+          "pssKiBEnd": 30613,
+          "pssKiBEveryFiveSeconds": [
+            42917,
+            28805
+          ],
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 36.243656272081274,
+            "frameDurationP95Ms": 71.015965
+          },
+          "updateIntervals": 773,
+          "updateIntervalP95Ms": 49.569166
+        }
+      },
+      {
+        "run": 2,
+        "variant": "phase",
+        "expectedSeconds": 12,
+        "counters": {
+          "wallSeconds": 12.02149859,
+          "cpuMillis": 2110,
+          "pssKiBStart": 27780,
+          "pssKiBEnd": 30130,
+          "pssKiBEveryFiveSeconds": [
+            42767,
+            28906
+          ],
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 34.000109237493824,
+            "frameDurationP95Ms": 68.409986
+          },
+          "updateIntervals": 779,
+          "updateIntervalP95Ms": 53.614458
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "expectedSeconds": 12,
+        "counters": {
+          "wallSeconds": 12.04551209,
+          "cpuMillis": 2468,
+          "pssKiBStart": 27585,
+          "pssKiBEnd": 27314,
+          "pssKiBEveryFiveSeconds": [
+            48354,
+            27970
+          ],
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 23.443709547019907,
+            "frameDurationP95Ms": 72.862907
+          },
+          "updateIntervals": 778,
+          "updateIntervalP95Ms": 52.432208
+        }
+      }
+    ],
+    "inlinedMeasurement": [
+      {
+        "run": 0,
+        "variant": "before",
+        "expectedSeconds": 13,
+        "counters": {
+          "wallSeconds": 13.004151591,
+          "cpuMillis": 1981,
+          "pssKiBStart": 27436,
+          "pssKiBEnd": 28886,
+          "pssKiBEveryFiveSeconds": [
+            44403,
+            26772
+          ],
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 24.755245745454584,
+            "frameDurationP95Ms": 85.704509
+          },
+          "updateIntervals": 855,
+          "updateIntervalP95Ms": 62.44825
+        }
+      },
+      {
+        "run": 1,
+        "variant": "verified",
+        "expectedSeconds": 13,
+        "counters": {
+          "wallSeconds": 13.065671008,
+          "cpuMillis": 2017,
+          "pssKiBStart": 26896,
+          "pssKiBEnd": 27580,
+          "pssKiBEveryFiveSeconds": [
+            36918,
+            49297
+          ],
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 28.560001142400047,
+            "frameDurationP95Ms": 95.163525
+          },
+          "updateIntervals": 859,
+          "updateIntervalP95Ms": 59.972666
+        }
+      },
+      {
+        "run": 2,
+        "variant": "verified",
+        "expectedSeconds": 13,
+        "counters": {
+          "wallSeconds": 13.012783049,
+          "cpuMillis": 2127,
+          "pssKiBStart": 27299,
+          "pssKiBEnd": 29436,
+          "pssKiBEveryFiveSeconds": [
+            37292,
+            50790
+          ],
+          "gfxInfoFrameStats": {
+            "records": 119,
+            "lastIntervalFps": 28.09527633826067,
+            "frameDurationP95Ms": 112.160825
+          },
+          "updateIntervals": 857,
+          "updateIntervalP95Ms": 64.899792
+        }
+      },
+      {
+        "run": 3,
+        "variant": "before",
+        "expectedSeconds": 13,
+        "counters": {
+          "wallSeconds": 13.049906174,
+          "cpuMillis": 2399,
+          "pssKiBStart": 27763,
+          "pssKiBEnd": 29963,
+          "pssKiBEveryFiveSeconds": [
+            43664,
+            28083
+          ],
+          "gfxInfoFrameStats": {
+            "records": 120,
+            "lastIntervalFps": 22.173913930434818,
+            "frameDurationP95Ms": 93.27578
+          },
+          "updateIntervals": 858,
+          "updateIntervalP95Ms": 65.649042
+        }
+      }
+    ]
+  },
+  "releasePackaging": {
+    "before": {
+      "apkBytes": 759507,
+      "aabBytes": 1773906,
+      "aabDexBytes": 1140152,
+      "aabCompressedDexBytes": 556273
+    },
+    "verified": {
+      "apkBytes": 759507,
+      "aabBytes": 1813449,
+      "aabDexBytes": 1167824,
+      "aabCompressedDexBytes": 558181
+    },
+    "final": {
+      "apkBytes": 759507,
+      "aabBytes": 1783764,
+      "aabDexBytes": 1151296,
+      "aabCompressedDexBytes": 558292
+    }
+  },
+  "iosGeneratedAppAndTypesMatchBaseline": true,
+  "limitations": [
+    "Android gfxinfo reports recent app frame records. Compositor presentation and device-wide throughput remain unverified.",
+    "Process PSS varies over the short run. Object retention and long sessions remain unverified.",
+    "The provider and component-argument experiments used the styled tile workload and Compose frame clock rather than the fixed-deadline workload."
+  ],
+  "compiledDimensionReaderDescriptor": "()F",
+  "nativeVerification": {
+    "dimensionsFixture": "fn heightOffset() -> Float64 { return 3.0 }\n\napp ShapeMeasurementGeometry {\n    state badgeWidth: Float64 = 18.0\n    state badgeHeight: Float64 = 12.0\n    body {\n        Column(alignment: Start, gap: 8, padding: 16) {\n            Button(\"Resize badges\") {\n                withAnimation(Tween(duration: 0.24, easing: Linear)) {\n                    badgeWidth = 42.0\n                    badgeHeight = 18.0\n                }\n            }\n            Shape(shape: Capsule, width: badgeWidth, height: 12, fill: \"#356EAF\", accessibilityLabel: \"Measured width\", accessibilityRole: Image)\n            Shape(shape: Rounded(2), width: 24, height: badgeHeight + 3.0, fill: \"#356EAF\", accessibilityLabel: \"Measured height\", accessibilityRole: Image)\n            Shape(shape: Circle, width: badgeWidth + 8.0, height: badgeHeight, fill: \"#356EAF\", accessibilityLabel: \"Measured circle\", accessibilityRole: Image)\n            Shape(shape: Capsule, width: badgeWidth + 2.0, height: badgeHeight + 2.0, fill: \"#356EAF\", animation: Tween(duration: 0.2, easing: Linear), accessibilityLabel: \"Explicit animation\", accessibilityRole: Image)\n            Shape(shape: Capsule, width: badgeWidth + heightOffset(), height: badgeHeight + 3.0, fill: \"#356EAF\", accessibilityLabel: \"Function sized badge\", accessibilityRole: Image)\n        }\n    }\n}\n",
+    "androidReleaseGeometryPx": {
+      "density": 2.75,
+      "before": {
+        "Measured width": [
+          50,
+          33
+        ],
+        "Measured height": [
+          66,
+          41
+        ],
+        "Measured circle": [
+          72,
+          33
+        ],
+        "Explicit animation": [
+          55,
+          39
+        ],
+        "Function sized badge": [
+          58,
+          41
+        ]
+      },
+      "after": {
+        "Measured width": [
+          116,
+          33
+        ],
+        "Measured height": [
+          66,
+          58
+        ],
+        "Measured circle": [
+          138,
+          50
+        ],
+        "Explicit animation": [
+          121,
+          55
+        ],
+        "Function sized badge": [
+          124,
+          58
+        ]
+      }
+    },
+    "androidDevGeometryPx": {
+      "density": 2.75,
+      "before": {
+        "Measured width": [
+          50,
+          33
+        ],
+        "Measured height": [
+          66,
+          41
+        ],
+        "Measured circle": [
+          72,
+          33
+        ],
+        "Explicit animation": [
+          55,
+          39
+        ],
+        "Function sized badge": [
+          58,
+          41
+        ]
+      },
+      "after": {
+        "Measured width": [
+          116,
+          33
+        ],
+        "Measured height": [
+          66,
+          58
+        ],
+        "Measured circle": [
+          138,
+          50
+        ],
+        "Explicit animation": [
+          121,
+          55
+        ],
+        "Function sized badge": [
+          124,
+          58
+        ]
+      }
+    },
+    "androidDevGeometryAfterLiveEditsPx": {
+      "fixed": {
+        "Measured width": [
+          94,
+          33
+        ],
+        "Measured circle": [
+          138,
+          50
+        ]
+      },
+      "restored": {
+        "Measured width": [
+          116,
+          33
+        ],
+        "Measured circle": [
+          138,
+          50
+        ]
+      }
+    },
+    "iOSDevAppliedLiveEdits": [
+      "dev-ios-2",
+      "dev-ios-3"
+    ]
+  }
+}

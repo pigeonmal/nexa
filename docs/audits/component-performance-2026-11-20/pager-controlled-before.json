@@ -1,0 +1,76 @@
+{
+  "format": 2,
+  "tool": "nexa audit",
+  "performance": {
+    "dependencyResolutionMicros": 920,
+    "compilerMicros": 3616
+  },
+  "entry": "/tmp/nexa-audit-pager/App.nx",
+  "targets": [
+    {
+      "target": "android",
+      "app": "P",
+      "codegenMicros": 11319,
+      "generatedSourceBytes": 113490,
+      "capabilities": {
+        "remoteImage": false,
+        "network": false,
+        "path": false,
+        "file": false,
+        "fileAsync": false,
+        "storage": false,
+        "secureStorage": false
+      },
+      "dependencies": [
+        "androidx.activity:activity-compose",
+        "androidx.compose.material3:material3",
+        "androidx.compose.ui:ui"
+      ],
+      "nativePlugins": [],
+      "permissions": {
+        "app": [],
+        "plugins": []
+      },
+      "optimizations": null
+    }
+  ],
+  "warnings": [],
+  "releaseMeasurements": {
+    "ios": {
+      "status": "not_requested",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "nativeBuildMicros": null,
+      "mainExecutableBytes": null,
+      "appBundleBytes": null,
+      "bundleOtherBytes": null
+    },
+    "android": {
+      "status": "failed",
+      "reason": "Android Release compilation failed. Selected Kotlin diagnostics:\n595:46 Unresolved reference 'requiredWidthIn'.\n782:33 Unresolved reference 'disabled'.\n1113:61 Unresolved reference 'icons'.\n1117:61 Unresolved reference 'rotate'.\n1127:61 Unresolved reference 'icons'.\n1231:17 Unresolved reference 'selected'.\n1232:33 Unresolved reference 'disabled'.\n1325:70 Unresolved reference 'compositeOver' on receiver of type 'Color'.",
+      "configuration": "Release",
+      "gradleVersion": "Gradle 9.4.1",
+      "nativeBuildMicros": 9225442,
+      "minificationEnabled": null,
+      "resourceShrinkingEnabled": null,
+      "apkBytes": null,
+      "aabBytes": null,
+      "apkEntryCount": null,
+      "dexCompressedBytes": null,
+      "dexUncompressedBytes": null,
+      "resourcesCompressedBytes": null,
+      "resourcesUncompressedBytes": null,
+      "assetsCompressedBytes": null,
+      "assetsUncompressedBytes": null,
+      "nativeLibrariesCompressedBytes": null,
+      "nativeLibrariesUncompressedBytes": null,
+      "nativeLibrariesByAbi": null,
+      "nativeLibraries": null,
+      "otherCompressedBytes": null,
+      "r8MappingBytes": null,
+      "r8UsageReportBytes": null,
+      "resourceShrinkerReportBytes": null
+    }
+  }
+}

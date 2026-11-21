@@ -1392,6 +1392,23 @@ pub trait IrFolder: Sized {
         fold_expr_children(expr, self)
     }
 
+    fn fold_view_effects(&mut self, effects: &mut crate::ViewEffects) {
+        fold_view_effect_expressions(effects, self);
+    }
+
+    fn fold_view_style(&mut self, mut style: crate::ViewStyle) -> crate::ViewStyle {
+        if let Some(radius) = &mut style.corner_radius_expression {
+            let previous = std::mem::replace(radius.as_mut(), Expr::Bool(false));
+            **radius = self.fold_expr(previous);
+        }
+        self.fold_view_effects(&mut style.effects);
+        if let Some(marquee) = &mut style.marquee {
+            let playing = std::mem::replace(marquee.playing.as_mut(), Expr::Bool(true));
+            *marquee.playing = self.fold_expr(playing);
+        }
+        style
+    }
+
     fn fold_action(&mut self, action: Action) -> Option<Action> {
         fold_action_children(action, self)
     }
@@ -1401,6 +1418,21 @@ pub trait IrFolder: Sized {
             .into_iter()
             .filter_map(|action| self.fold_action(action))
             .collect()
+    }
+}
+
+fn fold_view_effect_expressions<F: IrFolder>(effects: &mut crate::ViewEffects, folder: &mut F) {
+    for expression in [
+        &mut effects.scale_expression,
+        &mut effects.scale_y_expression,
+        &mut effects.opacity_expression,
+        &mut effects.offset_y_expression,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let previous = std::mem::replace(expression.as_mut(), Expr::Bool(false));
+        **expression = folder.fold_expr(previous);
     }
 }
 
@@ -2427,79 +2459,29 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::Layout {
             kind,
             gap,
-            mut style,
+            style,
             children,
-        } => {
-            style.corner_radius_expression = style
-                .corner_radius_expression
-                .map(|radius| Box::new(folder.fold_expr(*radius)));
-            style.effects.scale_expression = style
-                .effects
-                .scale_expression
-                .map(|scale| Box::new(folder.fold_expr(*scale)));
-            style.effects.scale_y_expression = style
-                .effects
-                .scale_y_expression
-                .map(|scale_y| Box::new(folder.fold_expr(*scale_y)));
-            style.effects.opacity_expression = style
-                .effects
-                .opacity_expression
-                .map(|opacity| Box::new(folder.fold_expr(*opacity)));
-            style.effects.offset_y_expression = style
-                .effects
-                .offset_y_expression
-                .map(|offset_y| Box::new(folder.fold_expr(*offset_y)));
-            if let Some(marquee) = &mut style.marquee {
-                let playing = std::mem::replace(marquee.playing.as_mut(), Expr::Bool(true));
-                *marquee.playing = folder.fold_expr(playing);
-            }
-            Some(Node::Layout {
-                kind,
-                gap,
-                style,
-                children: folder.fold_nodes(children),
-            })
-        }
+        } => Some(Node::Layout {
+            kind,
+            gap,
+            style: folder.fold_view_style(style),
+            children: folder.fold_nodes(children),
+        }),
         Node::ScrollView {
             axis,
             hide_horizontal_scrollbar,
             hide_vertical_scrollbar,
-            mut style,
+            style,
             component_ref,
             children,
-        } => {
-            style.corner_radius_expression = style
-                .corner_radius_expression
-                .map(|radius| Box::new(folder.fold_expr(*radius)));
-            style.effects.scale_expression = style
-                .effects
-                .scale_expression
-                .map(|scale| Box::new(folder.fold_expr(*scale)));
-            style.effects.scale_y_expression = style
-                .effects
-                .scale_y_expression
-                .map(|scale_y| Box::new(folder.fold_expr(*scale_y)));
-            style.effects.opacity_expression = style
-                .effects
-                .opacity_expression
-                .map(|opacity| Box::new(folder.fold_expr(*opacity)));
-            style.effects.offset_y_expression = style
-                .effects
-                .offset_y_expression
-                .map(|offset_y| Box::new(folder.fold_expr(*offset_y)));
-            if let Some(marquee) = &mut style.marquee {
-                let playing = std::mem::replace(marquee.playing.as_mut(), Expr::Bool(true));
-                *marquee.playing = folder.fold_expr(playing);
-            }
-            Some(Node::ScrollView {
-                axis,
-                hide_horizontal_scrollbar,
-                hide_vertical_scrollbar,
-                style,
-                component_ref: component_ref.map(|reference| folder.fold_expr(reference)),
-                children: folder.fold_nodes(children),
-            })
-        }
+        } => Some(Node::ScrollView {
+            axis,
+            hide_horizontal_scrollbar,
+            hide_vertical_scrollbar,
+            style: folder.fold_view_style(style),
+            component_ref: component_ref.map(|reference| folder.fold_expr(reference)),
+            children: folder.fold_nodes(children),
+        }),
         Node::Toolbar {
             placement,
             children,
@@ -2765,22 +2747,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 reveal.seek_revision = folder.fold_expr(reveal.seek_revision);
                 reveal
             });
-            style.effects.scale_expression = style
-                .effects
-                .scale_expression
-                .map(|scale| Box::new(folder.fold_expr(*scale)));
-            style.effects.scale_y_expression = style
-                .effects
-                .scale_y_expression
-                .map(|scale_y| Box::new(folder.fold_expr(*scale_y)));
-            style.effects.opacity_expression = style
-                .effects
-                .opacity_expression
-                .map(|opacity| Box::new(folder.fold_expr(*opacity)));
-            style.effects.offset_y_expression = style
-                .effects
-                .offset_y_expression
-                .map(|offset_y| Box::new(folder.fold_expr(*offset_y)));
+            folder.fold_view_effects(&mut style.effects);
             Some(Node::Text {
                 value: folder.fold_expr(value),
                 style,
@@ -3121,6 +3088,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             fill,
             width_expression,
             height_expression,
+            measurement,
             animation,
         } => Some(Node::Shape {
             shape,
@@ -3129,6 +3097,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             fill,
             width_expression: width_expression.map(|expression| folder.fold_expr(expression)),
             height_expression: height_expression.map(|expression| folder.fold_expr(expression)),
+            measurement,
             animation,
         }),
         Node::Content

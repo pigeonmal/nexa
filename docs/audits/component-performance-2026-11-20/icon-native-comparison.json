@@ -1,0 +1,190 @@
+{
+  "fixtureSource": "component IconRow(tint: String) {\n    body {\n        Row(gap: 8) {\n            Icon(system: \"search\", size: 24, color: tint)\n            Icon(mazicon: \"play\", size: 24, color: tint)\n            Icon(Brand: \"heart\", size: 24, color: tint)\n            Button(\"Play\", icon: Icon(mazicon: \"play\", color: tint)) {}\n        }\n    }\n}\napp ColumnBench {\n    state buttonLabel: String = \"#4455AA\"\n    body {\n        Column(gap: 4) {\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n            IconRow(tint: buttonLabel)\n        }\n    }\n}\n",
+  "workload": "12 visible rows change tint on three standalone icon types and the Mazicon glyph embedded in a Button.",
+  "fontAssetBytes": {
+    "Brand generated font": 1000,
+    "Mazicon prebuilt font": 59832
+  },
+  "ios": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "cpuSeconds": 2.424098,
+        "displayLinkP95Ms": 16.677500039804727,
+        "displayLinkIntervals": 480,
+        "residentBytesEveryFiveSeconds": [
+          203538432
+        ],
+        "residentBytesStart": 203358208,
+        "wallSeconds": 8.013625249965116,
+        "residentBytesEnd": 203472896
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "displayLinkP95Ms": 16.679708322044462,
+        "residentBytesEnd": 201850880,
+        "residentBytesEveryFiveSeconds": [
+          201850880
+        ],
+        "wallSeconds": 8.016633666644339,
+        "residentBytesStart": 202817536,
+        "cpuSeconds": 2.035889,
+        "displayLinkIntervals": 480
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "cpuSeconds": 1.534303,
+        "residentBytesEveryFiveSeconds": [
+          202653696
+        ],
+        "displayLinkP95Ms": 16.675124992616475,
+        "residentBytesEnd": 202653696,
+        "residentBytesStart": 202817536,
+        "displayLinkIntervals": 480,
+        "wallSeconds": 8.000003958353773
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "residentBytesEnd": 202620928,
+        "residentBytesEveryFiveSeconds": [
+          202620928
+        ],
+        "cpuSeconds": 1.528937,
+        "displayLinkP95Ms": 16.67475001886487,
+        "displayLinkIntervals": 480,
+        "wallSeconds": 8.016662791662384,
+        "residentBytesStart": 202719232
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 16373221,
+      "mainExecutableBytes": 561016,
+      "appBundleBytes": 622755,
+      "bundleOtherBytes": 61739
+    },
+    "generatedSwiftBytesWithHarness": {
+      "before": 48777,
+      "after": 48132
+    }
+  },
+  "android": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 6.020688379,
+        "cpuMillis": 1159,
+        "pssKiBStart": 30438,
+        "pssKiBEnd": 39779,
+        "pssKiBEveryFiveSeconds": [
+          38487
+        ],
+        "composeClockIntervals": 163,
+        "composeClockP95Ms": 101.315376,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 26.818182890909135,
+          "frameDurationP95Ms": 164.204914
+        }
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 6.104926171,
+        "cpuMillis": 1099,
+        "pssKiBStart": 30426,
+        "pssKiBEnd": 39079,
+        "pssKiBEveryFiveSeconds": [
+          37935
+        ],
+        "composeClockIntervals": 150,
+        "composeClockP95Ms": 102.147083,
+        "gfxInfoFrameStats": {
+          "records": 118,
+          "lastIntervalFps": 24.375000975000038,
+          "frameDurationP95Ms": 126.305948
+        }
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "wallSeconds": 6.016001629,
+        "cpuMillis": 1249,
+        "pssKiBStart": 30500,
+        "pssKiBEnd": 40176,
+        "pssKiBEveryFiveSeconds": [
+          38820
+        ],
+        "composeClockIntervals": 172,
+        "composeClockP95Ms": 99.880542,
+        "gfxInfoFrameStats": {
+          "records": 119,
+          "lastIntervalFps": 27.230770320000044,
+          "frameDurationP95Ms": 137.749233
+        }
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 6.02030392,
+        "cpuMillis": 1247,
+        "pssKiBStart": 30705,
+        "pssKiBEnd": 40378,
+        "pssKiBEveryFiveSeconds": [
+          39131
+        ],
+        "composeClockIntervals": 173,
+        "composeClockP95Ms": 99.754041,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 28.178138778947414,
+          "frameDurationP95Ms": 111.436915
+        }
+      }
+    ],
+    "packageBytes": {
+      "before": {
+        "apkBytes": 964903,
+        "aabBytes": 2249256
+      },
+      "after": {
+        "apkBytes": 964903,
+        "aabBytes": 2249254
+      }
+    },
+    "enduranceSample": {
+      "wallSeconds": 45.007955689,
+      "cpuMillis": 13841,
+      "pssKiBStart": 30486,
+      "pssKiBEnd": 33082,
+      "pssKiBEveryFiveSeconds": [
+        39924,
+        49469,
+        33307,
+        34287,
+        33123,
+        33114,
+        32838,
+        33762,
+        33082
+      ],
+      "composeClockIntervals": 1473,
+      "composeClockP95Ms": 91.254916,
+      "gfxInfoFrameStats": {
+        "records": 119,
+        "lastIntervalFps": 26.81814907565981,
+        "frameDurationP95Ms": 121.67312
+      }
+    },
+    "enduranceNotes": "Native build verification overlapped this run. Use the memory trend, not CPU or FPS, for interpretation."
+  }
+}

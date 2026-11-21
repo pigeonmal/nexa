@@ -353,7 +353,9 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("nexa_field_title:"));
     assert!(generated_source.contains("!nexa_task.nexa_field_isCompleted"));
     assert!(generated_source.contains("nexa_field_taskDescription"));
-    assert!(generated_source.contains(".navigationBarTitleDisplayMode(.inline)"));
+    assert!(generated_source.contains(".modifier(NexaNavigationTitleDisplayModeModifier(inline:"));
+    assert!(generated_source.contains(".navigationBarTitleDisplayMode(inline ? .inline : .large)"));
+    assert!(!generated_source.contains("struct NexaDatePickerPrimitive: View"));
     assert!(
         generated_source
             .contains(".presentationDragIndicator(showDragIndicator ? .visible : .hidden)")

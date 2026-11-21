@@ -20,46 +20,34 @@ pub(crate) fn render_image(
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
+    let max_height = max_height
+        .map(crate::generator::engine::utils::number)
+        .unwrap_or_else(|| "nil".to_owned());
     match source {
         ImageSource::Asset(asset) => {
             out.push_str(&format!(
-                "NexaAssetImagePrimitive(name: {}, description: {}, scale: {}, maxHeight: {}, fillMaxSize: {})",
+                "NexaAssetImagePrimitive(name: {}, description: {}, scale: {}, maxHeight: {max_height}, fillMaxSize: {fill_max_size})",
                 swift_string(asset),
                 swift_string(description),
                 image_scale(scale),
-                max_height
-                    .map(crate::generator::engine::utils::number)
-                    .unwrap_or_else(|| "nil".to_owned()),
-                fill_max_size
             ));
         }
-        ImageSource::RemoteUrl(url) => {
+        ImageSource::RemoteUrl(url) | ImageSource::LocalFile(url) => {
+            let allows_file = matches!(source, ImageSource::LocalFile(_));
+            let placeholder = if allows_file { None } else { placeholder };
+            let shared_image_arg = if shared_element.is_some() {
+                ", usesSharedElement: true"
+            } else {
+                ""
+            };
             out.push_str(&format!(
-                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: {}, showLoadingIndicator: {}, allowsFile: false, description: {}, maxHeight: {}, fillMaxSize: {})",
+                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: {}, showLoadingIndicator: {show_loading_indicator}, allowsFile: {allows_file}, description: {}, maxHeight: {max_height}, fillMaxSize: {fill_max_size}{shared_image_arg})",
                 expression(url),
                 image_scale(scale),
                 placeholder
                     .map(swift_string)
                     .unwrap_or_else(|| "nil".to_owned()),
-                show_loading_indicator,
                 swift_string(description),
-                max_height
-                    .map(crate::generator::engine::utils::number)
-                    .unwrap_or_else(|| "nil".to_owned()),
-                fill_max_size
-            ));
-        }
-        ImageSource::LocalFile(file) => {
-            out.push_str(&format!(
-                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: nil, showLoadingIndicator: {}, allowsFile: true, description: {}, maxHeight: {}, fillMaxSize: {})",
-                expression(file),
-                image_scale(scale),
-                show_loading_indicator,
-                swift_string(description),
-                max_height
-                    .map(crate::generator::engine::utils::number)
-                    .unwrap_or_else(|| "nil".to_owned()),
-                fill_max_size
             ));
         }
     }
@@ -93,8 +81,10 @@ struct NexaImageSizingModifier: ViewModifier {
                 .frame(maxWidth: scale == .fill ? .infinity : nil)
                 .frame(height: maxHeight)
                 .clipped()
+        } else if scale == .fill {
+            content.frame(maxWidth: .infinity)
         } else {
-            content.frame(maxWidth: scale == .fill ? .infinity : nil)
+            content
         }
     }
 }
@@ -149,9 +139,14 @@ struct NexaImageSizingModifier: ViewModifier {
     let description: String
     let maxHeight: CGFloat?
     let fillMaxSize: Bool
+    var usesSharedElement = false
 
     var body: some View {
-        NexaRemoteImage(url: url, scale: scale, placeholder: placeholder, showLoadingIndicator: showLoadingIndicator, allowsFile: allowsFile)
+        NexaRemoteImage(
+            url: url, scale: scale, placeholder: placeholder,
+            showLoadingIndicator: showLoadingIndicator, allowsFile: allowsFile,
+            fitHeight: scale == .fit && !fillMaxSize && !usesSharedElement ? maxHeight : nil
+        )
             .modifier(NexaImageSizingModifier(scale: scale, maxHeight: maxHeight, fillMaxSize: fillMaxSize))
             .accessibilityLabel(description)
             .accessibilityHidden(description.isEmpty)
@@ -212,5 +207,32 @@ mod tests {
         assert!(output.contains(".frame(height: maxHeight)"));
         assert!(output.contains(".clipped()"));
         assert!(output.matches(".modifier(NexaImageSizingModifier(").count() == 2);
+        assert!(output.contains(
+            "fitHeight: scale == .fit && !fillMaxSize && !usesSharedElement ? maxHeight : nil"
+        ));
+    }
+
+    #[test]
+    fn shared_images_keep_full_resolution_in_the_transition() {
+        let source = ImageSource::LocalFile(Expr::String("file:///cover.jpg".to_owned()));
+        let key = Expr::String("album-cover".to_owned());
+        let mut output = SourceWriter::new();
+        render_image(
+            &source,
+            "Album cover",
+            ImageScale::Fit,
+            None,
+            false,
+            Some(64.0),
+            false,
+            Some(&key),
+            0,
+            &mut output,
+        );
+        assert!(
+            output
+                .finish()
+                .contains("usesSharedElement: true).nexaSharedElement(id: \"album-cover\")")
+        );
     }
 }

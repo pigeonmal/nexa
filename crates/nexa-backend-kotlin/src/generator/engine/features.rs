@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use nexa_ir::{Module, Permission};
 
@@ -151,6 +151,7 @@ pub(crate) struct Features {
     /// UI and capability observations from here instead of re-walking subtrees.
     pub(crate) facts: nexa_ir::facts::ModuleFacts,
     pub(crate) font_catalog: nexa_codegen::FontCatalog,
+    pub(crate) known_drawables: BTreeSet<String>,
     component_theme: HashSet<String>,
     components_using_navigation: HashSet<String>,
     components_using_link: HashSet<String>,

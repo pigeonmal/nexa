@@ -26,20 +26,25 @@ def main():
             raise SystemExit("A booted iOS simulator is required")
         print(json.dumps({"ios": "unavailable: no simulator"}))
         return
-    source = (ROOT / "crates/nexa-backend-swift/src/generator/api/network.rs").read_text()
-    start = source.index("private func nexaDownsampleImage(")
-    end = source.index("struct NexaRemoteImage: View", start)
-    native = source[start:end]
+    api = ROOT / "crates/nexa-backend-swift/src/generator/api"
+    transport = (api / "bounded_response.swift").read_text()
+    native = (api / "remote_image.swift").read_text().split("struct NexaRemoteImage: View", 1)[0]
     fixture = (ROOT / "tests/fixtures/native-ui/ImageDecodeCheck.swift").read_text()
     with tempfile.TemporaryDirectory(prefix="nexa-native-image-decode-") as directory:
         scratch = Path(directory)
         path = scratch / "Check.swift"
-        path.write_text("import UIKit\nimport ImageIO\nimport CryptoKit\n" + native + fixture)
+        path.write_text("import UIKit\nimport ImageIO\nimport CryptoKit\nimport os\n" + transport + native + fixture)
         sdk = run(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"])
         binary = scratch / "check"
         run(["xcrun", "--sdk", "iphonesimulator", "swiftc", "-O", "-warnings-as-errors", "-swift-version", "6",
              "-parse-as-library", "-sdk", sdk, "-target", f"{platform.machine()}-apple-ios16.0-simulator", path, "-o", binary])
-        result = json.loads(run(["xcrun", "simctl", "spawn", device, binary]))
+        execution = subprocess.run(
+            ["xcrun", "simctl", "spawn", device, binary, scratch / "cover"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if execution.returncode:
+            raise RuntimeError(f"Native image check failed:\n{execution.stdout}\n{execution.stderr}")
+        result = json.loads(execution.stdout)
     print(json.dumps({"scope": "Native ImageIO decoding; no screen capture or frame-rate claim", "ios": result}, indent=2))
 
 

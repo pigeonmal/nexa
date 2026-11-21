@@ -1,0 +1,119 @@
+{
+  "fixtureSource": "component BenchRow(label: String) {\n    body {\n        Row(gap: 3) {\n            Link(url: \"https://example.com\") {\n                Text(label)\n            }\n            Link(url: \"https://example.com\") {\n                Text(label)\n            }\n            Link(url: \"https://example.com\") {\n                Text(label)\n            }\n            Link(url: \"https://example.com\") {\n                Text(label)\n            }\n        }\n    }\n}\napp ColumnBench {\n    state buttonLabel: String = \"A\"\n    body {\n        Column(gap: 1) {\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n            BenchRow(label: buttonLabel)\n        }\n    }\n}\n",
+  "workload": "40 visible links alternate between two child labels every app frame after two seconds of warmup. The driver does not open a URL.",
+  "ios": {
+    "sample": {
+      "displayLinkP95Ms": 16.678458312526345,
+      "residentBytesStart": 196935680,
+      "residentBytesEveryFiveSeconds": [
+        196575232,
+        196509696
+      ],
+      "cpuSeconds": 3.066405,
+      "displayLinkIntervals": 720,
+      "wallSeconds": 12.01183995831525,
+      "residentBytesEnd": 196509696
+    },
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 9765094,
+      "mainExecutableBytes": 296400,
+      "appBundleBytes": 297178,
+      "bundleOtherBytes": 778
+    }
+  },
+  "android": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "wallSeconds": 6.022751045,
+        "cpuMillis": 1343,
+        "pssKiBStart": 35371,
+        "pssKiBEnd": 33341,
+        "pssKiBEveryFiveSeconds": [
+          33674
+        ],
+        "composeClockIntervals": 182,
+        "composeClockP95Ms": 98.019834,
+        "gfxInfoFrameStats": {
+          "records": 112,
+          "lastIntervalFps": 28.956606775871656,
+          "frameDurationP95Ms": 103.344764
+        }
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "wallSeconds": 6.029965045,
+        "cpuMillis": 1495,
+        "pssKiBStart": 36483,
+        "pssKiBEnd": 36225,
+        "pssKiBEveryFiveSeconds": [
+          39045
+        ],
+        "composeClockIntervals": 165,
+        "composeClockP95Ms": 99.724208,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 27.294118738823574,
+          "frameDurationP95Ms": 144.058279
+        }
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "wallSeconds": 6.027383337,
+        "cpuMillis": 1841,
+        "pssKiBStart": 35995,
+        "pssKiBEnd": 34565,
+        "pssKiBEveryFiveSeconds": [
+          46585
+        ],
+        "composeClockIntervals": 190,
+        "composeClockP95Ms": 101.667792,
+        "gfxInfoFrameStats": {
+          "records": 117,
+          "lastIntervalFps": 34.117704045423906,
+          "frameDurationP95Ms": 100.09316
+        }
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "wallSeconds": 6.045787879,
+        "cpuMillis": 1811,
+        "pssKiBStart": 34809,
+        "pssKiBEnd": 39731,
+        "pssKiBEveryFiveSeconds": [
+          43051
+        ],
+        "composeClockIntervals": 181,
+        "composeClockP95Ms": 98.785209,
+        "gfxInfoFrameStats": {
+          "records": 116,
+          "lastIntervalFps": 29.613735090128802,
+          "frameDurationP95Ms": 107.886791
+        }
+      }
+    ],
+    "packageBytes": {
+      "before": {
+        "apkBytes": 857811,
+        "aabBytes": 2063649
+      },
+      "after": {
+        "apkBytes": 857811,
+        "aabBytes": 2063437
+      }
+    },
+    "generatedKotlinBytesWithHarness": {
+      "before": 34589,
+      "after": 33912
+    }
+  }
+}

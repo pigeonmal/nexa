@@ -30,6 +30,85 @@ private class NexaMarqueeClock {
     var configuration: NexaMarqueeConfiguration? = null
 }
 
+// nexa-codegen: NexaMarqueeSystemMotion
+private object NexaMarqueeSystemMotion {
+    var stationary by androidx.compose.runtime.mutableStateOf(true)
+        private set
+    private var subscribers = 0
+    private var stopObserving: (() -> Unit)? = null
+
+    // DisposableEffect and both native listeners run on the main thread.
+    fun attach(context: android.content.Context) {
+        subscribers++
+        if (subscribers != 1) return
+        val resolver = context.contentResolver
+        val accessibility = context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+        val durationScale = android.provider.Settings.Global.ANIMATOR_DURATION_SCALE
+        fun animationsDisabled(): Boolean = !(android.provider.Settings.Global.getFloat(resolver, durationScale, 1f) > 0f)
+
+        var reduceMotion = animationsDisabled()
+        var screenReader = accessibility?.isTouchExplorationEnabled == true
+        val listener = android.view.accessibility.AccessibilityManager.TouchExplorationStateChangeListener {
+            screenReader = it
+            stationary = screenReader || reduceMotion
+        }
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                reduceMotion = animationsDisabled()
+                stationary = screenReader || reduceMotion
+            }
+        }
+        accessibility?.addTouchExplorationStateChangeListener(listener)
+        resolver.registerContentObserver(android.provider.Settings.Global.getUriFor(durationScale), false, observer)
+        stationary = screenReader || reduceMotion
+        stopObserving = {
+            accessibility?.removeTouchExplorationStateChangeListener(listener)
+            resolver.unregisterContentObserver(observer)
+        }
+    }
+
+    fun detach() {
+        subscribers--
+        if (subscribers != 0) return
+        stopObserving?.invoke()
+        stopObserving = null
+        stationary = true
+    }
+}
+
+// nexa-codegen: NexaMarqueeLifecycle
+private object NexaMarqueeLifecycle {
+    private class Entry(lifecycle: androidx.lifecycle.Lifecycle) {
+        val resumed = androidx.compose.runtime.mutableStateOf(
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        )
+        val observer = androidx.lifecycle.LifecycleEventObserver { owner, _ ->
+            resumed.value = owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        }
+        var subscribers = 0
+    }
+
+    private val entries = java.util.IdentityHashMap<androidx.lifecycle.Lifecycle, Entry>()
+
+    // Lifecycle registration, state delivery, and disposal all run on the main thread.
+    fun attach(lifecycle: androidx.lifecycle.Lifecycle): androidx.compose.runtime.State<Boolean> {
+        val entry = entries.getOrPut(lifecycle) {
+            Entry(lifecycle).also { lifecycle.addObserver(it.observer) }
+        }
+        entry.subscribers++
+        return entry.resumed
+    }
+
+    fun detach(lifecycle: androidx.lifecycle.Lifecycle) {
+        val entry = entries[lifecycle] ?: return
+        entry.subscribers--
+        if (entry.subscribers == 0) {
+            entries.remove(lifecycle)
+            lifecycle.removeObserver(entry.observer)
+        }
+    }
+}
+
 // nexa-codegen: NexaMarqueePrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaMarqueePrimitive(
@@ -46,39 +125,24 @@ internal fun NexaMarqueePrimitive(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
     val view = androidx.compose.ui.platform.LocalView.current
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    val accessibility = view.context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
-    var screenReader by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(accessibility?.isTouchExplorationEnabled == true) }
-    androidx.compose.runtime.DisposableEffect(accessibility) {
-        val listener = android.view.accessibility.AccessibilityManager.TouchExplorationStateChangeListener { screenReader = it }
-        accessibility?.addTouchExplorationStateChangeListener(listener)
-        onDispose { accessibility?.removeTouchExplorationStateChangeListener(listener) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    val appContext = view.context.applicationContext
+    androidx.compose.runtime.DisposableEffect(appContext) {
+        NexaMarqueeSystemMotion.attach(appContext)
+        onDispose { NexaMarqueeSystemMotion.detach() }
     }
     val offset = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
     val clock = androidx.compose.runtime.remember { NexaMarqueeClock() }
     val geometry = androidx.compose.runtime.remember { NexaMarqueeGeometry() }
-    var resumed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(
-        lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-    ) }
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->
-            resumed = lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    var lifecycleState by androidx.compose.runtime.remember(lifecycle) {
+        androidx.compose.runtime.mutableStateOf<androidx.compose.runtime.State<Boolean>?>(null)
     }
-    val resolver = view.context.contentResolver
-    fun systemAnimationsEnabled(): Boolean = android.provider.Settings.Global.getFloat(
-        resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
-    var animationsEnabled by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(systemAnimationsEnabled()) }
-    androidx.compose.runtime.DisposableEffect(resolver) {
-        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) { animationsEnabled = systemAnimationsEnabled() }
-        }
-        resolver.registerContentObserver(android.provider.Settings.Global.getUriFor(android.provider.Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
-        onDispose { resolver.unregisterContentObserver(observer) }
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        lifecycleState = NexaMarqueeLifecycle.attach(lifecycle)
+        onDispose { NexaMarqueeLifecycle.detach(lifecycle) }
     }
-    val stationary = screenReader || !animationsEnabled
+    val resumed = lifecycleState?.value ?: false
+    val stationary = NexaMarqueeSystemMotion.stationary
     androidx.compose.runtime.LaunchedEffect(horizontal, speed, gap, delaySeconds, revision,
         playing, resumed, stationary, density.density, density.fontScale, direction) {
         geometry.updates.collectLatest { metrics ->

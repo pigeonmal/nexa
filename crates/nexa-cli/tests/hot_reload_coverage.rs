@@ -621,7 +621,7 @@ fn android_dev_node_dispatch_is_split_into_art_jittable_composable_families() {
         .split_once("internal fun NexaDevNode(")
         .expect("find Android DevRuntime node dispatcher")
         .1
-        .split_once("internal fun nexaDevTabToolbars(")
+        .split_once("internal data class NexaDevToolbarLayout(")
         .expect("find Android DevRuntime node dispatcher end")
         .0;
 
@@ -686,7 +686,9 @@ fn omitted_progress_survives_dev_ir_and_uses_native_indeterminate_primitives() {
 
     let swift_dev = SwiftBackend.generate_for_dev(&module);
     let (kotlin_dev, _) = KotlinBackend.generate_for_dev_with_project_features(&module);
-    assert!(swift_dev.contains("indeterminateBar(tint: Color.accentColor)"));
+    assert!(
+        swift_dev.contains("IndeterminateTrack(\n                tint: tint ?? Color.accentColor,")
+    );
     assert!(swift_dev.contains(".accessibilityRepresentation { ProgressView() }"));
     assert!(kotlin_dev.contains("if (normalizedProgress == null)"));
     assert!(kotlin_dev.contains("androidx.compose.material3.LinearProgressIndicator("));
@@ -930,6 +932,53 @@ fn component_parity_app_exercises_every_catalog_component() {
     let source = fs::read_to_string(root.join("../../examples/component-parity/App.nx"))
         .expect("read component parity app");
     let app = nexa_syntax::parse(&source).expect("parse component parity app");
+    let text_route = source
+        .split_once("screen TextCases {")
+        .and_then(|(_, route)| {
+            route
+                .split_once("\n    screen TextInputCases {")
+                .map(|(route, _)| route)
+        })
+        .expect("find the TextCases route source");
+    assert!(text_route.contains("Gilroy Regular · Normal"));
+    assert!(text_route.contains("Gilroy Medium request · Regular fallback"));
+    assert!(text_route.contains("Gilroy Semibold · exact face"));
+    assert!(text_route.contains("Gilroy Bold request · Semibold fallback"));
+    for weight in ["Normal", "Medium", "Semibold", "Bold"] {
+        assert!(
+            text_route.contains(&format!("fontFamily: \"Gilroy\", fontWeight: {weight}")),
+            "TextCases must show the discovered Gilroy face decision for {weight}"
+        );
+    }
+
+    let icon_route = source
+        .split_once("screen IconCases {")
+        .and_then(|(_, route)| {
+            route
+                .split_once("\n    screen ImageCases {")
+                .map(|(route, _)| route)
+        })
+        .expect("find the IconCases route source");
+    assert!(icon_route.contains("Icon(system: \"search\""));
+    assert!(icon_route.contains("Icon(mazicon: \"play\""));
+    assert!(icon_route.contains("Icon(Brand: \"heart\""));
+    assert!(icon_route.contains("Button(\"Search\", icon: Icon(system: \"search\"))"));
+    assert!(icon_route.contains("Button(\"Play audio\", icon: Icon(mazicon: \"play\"))"));
+    assert!(icon_route.contains("Button(\"Save favorite\", icon: Icon(Brand: \"heart\""));
+    assert!(
+        icon_route
+            .contains("itemIcons: [\"search\", Icon(mazicon: \"play\"), Icon(Brand: \"heart\")")
+    );
+    assert!(icon_route.contains("ContentUnavailable("));
+    assert!(icon_route.contains("title: \"No saved favorites\""));
+    assert!(
+        root.join("../../examples/component-parity/assets/icons/Brand/heart.svg")
+            .is_file()
+    );
+    assert!(
+        root.join("../../examples/component-parity/assets/fonts/mazicon.icons.json")
+            .is_file()
+    );
     let mut found = BTreeSet::new();
     let mut arguments = BTreeMap::new();
     let mut enum_arguments = BTreeMap::new();
@@ -1518,6 +1567,10 @@ fn component_parity_app_generates_release_code_for_both_targets() {
     assert!(swift.contains(".datePickerStyle(.automatic)"));
     assert!(swift.contains(".datePickerStyle(.compact)"));
     assert!(swift.contains(".frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)"));
+    assert!(swift.contains("fontFamily: \"Mazicon\""));
+    assert!(swift.contains("fontFamily: \"Brand_"));
+    assert!(kotlin.contains("R.font.mazicon"));
+    assert!(kotlin.contains("R.font.brand_"));
     let bounds = swift
         .find(".frame(minWidth: 220, maxWidth: 260, minHeight: 64, maxHeight: 80, alignment: .top)")
         .expect("ColumnCases should exercise bounded dimensions");
@@ -1823,7 +1876,10 @@ fn row_horizontal_arrangement_is_present_in_aot_and_both_dev_runtimes() {
         .expect("read Android DevRuntime renderer");
 
     assert!(swift_aot.contains("horizontalArrangement: .center"));
-    assert!(swift_aot.contains("horizontalArrangement.frameAlignment"));
+    for source in [&swift_aot, &swift_dev] {
+        assert!(source.contains("horizontalArrangement?.frameAlignment"));
+        assert!(source.contains(".frame(maxWidth: .infinity, alignment: frameAlignment)"));
+    }
     assert!(swift_dev.contains("enum NexaRowArrangement"));
     assert!(swift_runtime.contains("horizontalArrangement: horizontalArrangement"));
     assert!(swift_runtime.contains("style[\"horizontal_arrangement\"]"));
@@ -2215,7 +2271,7 @@ fn android_aot_and_dev_runtime_share_refresh_control_layout() {
         .split_once("@Composable\n@OptIn")
         .expect("find end of Android DevRuntime column child renderer")
         .0;
-    assert!(column_children.contains("child.has(\"Spacer\") -> Modifier.weight(1f)"));
+    assert!(column_children.contains("nexaDevAcceptsSpacerWeight(child) -> Modifier.weight(1f)"));
     assert!(column_children.contains("child.has(\"NavigationStack\") -> Modifier.fillMaxSize()"));
     assert!(!column_children.contains("child.has(\"RefreshControl\")"));
     assert!(!column_children.contains("child.has(\"FastList\")"));
@@ -3572,16 +3628,16 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
     let swift_font_icons = section(&swift, "case \"FontIcon\":", "case \"LinearGradient\":");
     let kotlin_font_icons = section(&kotlin, "\"FontIcon\" -> {", "\"LinearGradient\" -> {");
     for (kind, swift_key, kotlin_key) in [
-        ("shared", "icon[\"shared\"]", "selection.has(\"shared\")"),
+        ("shared", "system[\"shared\"]", "system.has(\"shared\")"),
         (
             "SF Symbol",
-            "icon[\"sf_symbol\"]",
-            "selection.has(\"sf_symbol\")",
+            "system[\"sf_symbol\"]",
+            "system.has(\"sf_symbol\")",
         ),
         (
             "Material Symbol",
-            "icon[\"material_symbol\"]",
-            "selection.has(\"material_symbol\")",
+            "system[\"material_symbol\"]",
+            "system.has(\"material_symbol\")",
         ),
     ] {
         assert!(
@@ -3663,7 +3719,7 @@ fn ios_dev_spacer_has_no_implicit_minimum_gap() {
         .expect("read iOS dev renderer");
     let spacer = section(&swift, "case \"Spacer\":", "case \"Divider\":");
     assert!(spacer.contains("Spacer(minLength: 0).layoutPriority(-1)"));
-    assert!(spacer.contains("spacerView = AnyView(Color.clear)"));
+    assert!(spacer.contains("return AnyView(Color.clear.frame(width: width, height: height))"));
 }
 
 #[test]
@@ -4112,7 +4168,7 @@ fn pressable_double_tap_actions_are_consumed_by_both_dev_renderers() {
     assert!(swift.contains("TapGesture(count: 2)"));
     assert!(swift.contains("store.perform(doubleTapActions"));
     assert!(kotlin.contains("fields.optJSONArray(\"double_tap_actions\")"));
-    assert!(kotlin.contains("onDoubleClick = {"));
+    assert!(kotlin.contains("onDoubleClick = if (hasDoubleTap) {"));
     assert!(kotlin.contains("store.perform(doubleTapActions"));
 }
 
@@ -4137,10 +4193,31 @@ fn pressable_long_press_duration_is_consumed_by_both_dev_renderers() {
     let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android renderer");
 
-    assert!(swift.contains("fields[NexaDevKeys.longPressDurationMs]"));
+    assert!(swift.contains("if hasLongPress {\n                let durationMs = fields[NexaDevKeys.longPressDurationMs].flatMap"));
     assert!(swift.contains("LongPressGesture(minimumDuration: longPressMinimumDuration)"));
     assert!(kotlin.contains("NexaDevKeys.LONG_PRESS_DURATION_MS"));
     assert!(kotlin.contains("override val longPressTimeoutMillis: Long = longPressDurationMs"));
+}
+
+#[test]
+fn android_dev_pressable_avoids_unused_interaction_sources_and_empty_action_dispatch() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+    let pressable = renderer
+        .split_once("private fun NexaDevRenderPressableNode(")
+        .expect("find Pressable renderer")
+        .1
+        .split_once("private fun NexaDevRenderTextInputNode(")
+        .expect("find end of Pressable renderer")
+        .0;
+
+    assert!(!pressable.contains("MutableInteractionSource()"));
+    assert!(
+        pressable.contains("interactionSource = null,\n                    indication = null,")
+    );
+    assert!(pressable.contains(r#"fields.optJSONArray("actions")?.takeIf { it.length() > 0 }"#));
+    assert!(pressable.contains("if (tapActions != null) store.perform(tapActions, scope, locals)"));
 }
 
 #[test]
@@ -4322,7 +4399,9 @@ fn android_dev_conditional_bodies_match_aot_child_grouping() {
     )
     .expect("read Kotlin backend child renderer");
 
-    assert!(backend.contains("[node] => render_node(node, module, features, depth, out)"));
+    assert!(backend.contains(
+        "[node] => render_node_with_linear_parent(node, module, features, depth, out, linear_parent)"
+    ));
     assert!(backend.contains("LayoutKind::Column,\n            0.0,"));
 
     let helper = kotlin
@@ -4330,11 +4409,15 @@ fn android_dev_conditional_bodies_match_aot_child_grouping() {
         .nth(1)
         .expect("Android conditional child grouping helper");
     assert!(helper.contains("0 -> Unit"));
-    assert!(helper.contains("1 -> RenderChildren(nodes, module, store, locals, scope)"));
+    assert!(helper.contains("1 -> androidx.compose.runtime.key(0)"));
+    assert!(helper.contains("spacerWeight !== Modifier && nexaDevAcceptsSpacerWeight(child)"));
+    assert!(helper.contains("NexaDevNode(child, module, store, locals, scope, modifier)"));
     assert!(helper.contains("else -> NexaColumnPrimitive("));
     assert!(helper.contains("spacing = 0f"));
     assert!(helper.contains("horizontalAlignment = Alignment.CenterHorizontally"));
     assert!(helper.contains("RenderColumnChildren(nodes, module, store, locals, scope)"));
+    assert!(kotlin.contains("key(condition) {\n                    RenderConditionalChildren("));
+    assert!(kotlin.contains("key(matchingIndex) {\n        RenderConditionalChildren("));
 
     assert_eq!(
         kotlin.matches("RenderConditionalChildren(").count(),
@@ -5780,15 +5863,24 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
     );
     assert!(android.contains("import androidx.compose.runtime.saveable.rememberSaveable\n"));
     assert!(android.contains(
-        "var endReached by rememberSaveable(count, sourceItems?.size, sourceSections?.size) {\n                mutableStateOf(false)\n            }"
+        "rememberSaveable(count, sourceItems?.size, sourceSections?.size) { mutableStateOf(false) }"
     ));
     assert!(android.contains("val tabStateHolder = rememberSaveableStateHolder()"));
     assert!(
         android.contains("tabStateHolder.SaveableStateProvider(key = \"nexa-tab-$activeIndex\")")
     );
     assert!(android.contains("if (!isInitialPosition && onScroll != null"));
-    assert!(android.contains("endReached = true"));
-    assert!(!android.contains("endReached = reached"));
+    let end_only_observer = android
+        .split_once("if (!watchesPosition) {")
+        .expect("find the end-only observer")
+        .1
+        .split_once("} else {")
+        .expect("find the combined observer after it")
+        .0;
+    assert!(end_only_observer.contains("currentEndReached.value?.invoke()"));
+    assert!(!end_only_observer.contains("currentReadLeading"));
+    assert!(android.contains("endReached.value = true"));
+    assert!(!android.contains("endReached.value = reached"));
     assert!(android.contains("private fun nexaDevLeadingVisibleDataItemIndex("));
     assert!(android.contains("nexaDevLeadingVisibleDataItemIndex("));
     assert!(android.contains("return nexaLeadingVisibleDataItemIndex("));
@@ -5802,19 +5894,20 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
         scroll_observation.contains("end <= viewportStartOffset || offset >= viewportEndOffset")
     );
     assert!(android.contains(
-        "reverseLayout,\n                                                layoutInfo.viewportStartOffset,\n                                                layoutInfo.viewportEndOffset,"
+        "stickyHeaderOffset, reverseLayout, layout.viewportStartOffset, layout.viewportEndOffset,"
     ));
     assert!(android.contains("viewportStartOffset: Int,\n    viewportEndOffset: Int,"));
-    assert!(android.contains(
-        "if (item.offset + item.size <= viewportStartOffset || item.offset >= viewportEndOffset) return false"
-    ));
+    assert!(
+        scroll_observation
+            .contains("if (end <= viewportStartOffset || start >= viewportEndOffset) continue")
+    );
     assert!(android.contains(
         "val requestedLayoutPosition = if (stickyHeaderOffset > 0 && requestedPosition == 0) {"
     ));
     assert!(
         scroll_observation.contains("hasStickyHeader && offset < stickyEnd && end > stickyStart")
     );
-    assert!(android.contains("nexaDevListItemIsUnobscuredByStickyHeader("));
+    assert!(android.contains("nexaListEndIsVisible("));
     assert!(android.contains("nativeScrollPositionEcho = logicalFirstVisible"));
     assert!(
         android.contains("val isNativePositionEcho = requestedIndex == nativeScrollPositionEcho")
@@ -5871,7 +5964,7 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
         .find("let canAcceptPosition = reachedProgrammaticTarget || !suppressesProgrammaticScrollCallbacks")
         .expect("the observer should distinguish settled native scrolls from programmatic updates");
     let native_callback = scroll_position_callback
-        .find("onScrollPositionChanged(visibleIndex)")
+        .find("onScrollPositionChanged?(visibleIndex)")
         .expect("native scroll-position callback should remain present");
     assert!(position_guard < native_callback);
     assert!(ios_fast_list.contains("isAtEnd && endReachedGate.claim(count: count)"));
@@ -5905,7 +5998,7 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
     assert!(ios.contains(".simultaneousGesture(DragGesture(minimumDistance: 4)"));
     assert!(ios.contains("guard scrollPositionCommandRevision == commandRevision else { return }"));
     let ios_list_callbacks = ios
-        .split_once("onScrollPositionChanged: { index in")
+        .split_once("onScrollPositionChanged: scrollPositionName.map")
         .expect("find iOS DevRuntime list callback bindings")
         .1
         .split_once("isRefreshing:")
@@ -5919,7 +6012,7 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
         "UIKit already defers these callbacks until after delegate/layout updates; queueing them again can apply stale scroll positions"
     );
     assert!(ios.contains(
-        "lastReportedVisibleIndex = visibleIndex\n                        if !isInitialPosition && (canReportScroll || reachedProgrammaticTarget) {\n                            onScrollPositionChanged(visibleIndex)\n                            onScroll?(visibleIndex)"
+        "lastReportedVisibleIndex = visibleIndex\n                        if !isInitialPosition && (canReportScroll || reachedProgrammaticTarget) {\n                            onScrollPositionChanged?(visibleIndex)\n                            onScroll?()"
     ));
 }
 
@@ -6091,8 +6184,9 @@ fn development_button_shape_defaults_match_on_both_platforms() {
     assert!(swift.contains("else { shape = .capsule }"));
     assert!(kotlin.contains("shape = buttonShape,"));
     assert!(kotlin.contains(
-        "val style = fields.opt(\"style\")\n                ?.toString()\n                ?.takeIf { it.isNotBlank() && it != \"null\" }"
+        "fields.opt(\"style\")?.toString()?.takeIf { it.isNotBlank() && it != \"null\" }"
     ));
+    assert!(kotlin.contains("buttonPresentation == NexaDevButtonPresentation.ConfirmationAction && fields.isNull(\"style\")"));
     let kotlin_primitives =
         fs::read_to_string(root.join("../../crates/nexa-backend-kotlin/src/generator/mod.rs"))
             .expect("read shared Kotlin button primitive");
@@ -6326,8 +6420,9 @@ fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntim
     assert!(kotlin_runtime.contains("title = screen.optString(\"name\")"));
     assert!(kotlin_runtime.contains("fields.optString(\"title_mode\", \"Inline\") == \"Inline\""));
     assert!(kotlin_runtime.contains("\"Leading\" -> true"));
-    assert!(kotlin_runtime.contains("nexaDevTabToolbars(screenNodes)"));
-    assert!(kotlin_runtime.contains("nexaDevWithoutTabToolbars(screenNodes)"));
+    assert!(kotlin_runtime.contains("nexaDevToolbarLayout(screenNodes)"));
+    assert!(kotlin_runtime.contains("remember(module, screenNodes)"));
+    assert!(kotlin_renderer.contains("return filtered ?: source"));
     assert!(kotlin_renderer.contains("NexaNavigationLinkPrimitive("));
     assert!(kotlin_renderer.contains("staticallyDisabled"));
 }

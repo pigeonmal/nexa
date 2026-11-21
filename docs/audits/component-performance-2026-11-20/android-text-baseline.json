@@ -1,0 +1,57 @@
+{
+  "platform": "Android 12 emulator-5554",
+  "workload": "Release FastList with 10,000 Text rows. Each cycle swipes from (540,1760) to (540,600) three times, then back three times, on a 1080x2340 display. Each requested swipe lasts 330 ms. Process samples include FastList and host overhead. The legacy and modern gfxinfo counters disagree.",
+  "apkBytes": 969087,
+  "aabBytes": 2345574,
+  "cycles": [
+    {
+      "wallSeconds": 6.339,
+      "processCpuTicks": 265,
+      "memoryBefore": {
+        "pssKiB": 24499,
+        "rssKiB": 126904
+      },
+      "memoryAfter": {
+        "pssKiB": 25842,
+        "rssKiB": 128680
+      },
+      "renderedFrames": 38,
+      "legacyJankyFrames": 38,
+      "modernJankyFrames": 0,
+      "gfxInfoFrameTimeP95Ms": 500
+    },
+    {
+      "wallSeconds": 2.334,
+      "processCpuTicks": 81,
+      "memoryBefore": {
+        "pssKiB": 25066,
+        "rssKiB": 127904
+      },
+      "memoryAfter": {
+        "pssKiB": 26666,
+        "rssKiB": 129788
+      },
+      "renderedFrames": 41,
+      "legacyJankyFrames": 32,
+      "modernJankyFrames": 0,
+      "gfxInfoFrameTimeP95Ms": 150
+    },
+    {
+      "wallSeconds": 2.642,
+      "processCpuTicks": 137,
+      "memoryBefore": {
+        "pssKiB": 25626,
+        "rssKiB": 128748
+      },
+      "memoryAfter": {
+        "pssKiB": 27710,
+        "rssKiB": 131052
+      },
+      "renderedFrames": 56,
+      "legacyJankyFrames": 53,
+      "modernJankyFrames": 0,
+      "gfxInfoFrameTimeP95Ms": 150
+    }
+  ],
+  "processCpuTicksPerSecond": 100
+}

@@ -4,8 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-struct ProjectImage {
-    name: String,
+pub(super) struct ProjectImage {
+    pub(super) name: String,
     source: PathBuf,
     extension: String,
 }
@@ -80,10 +80,9 @@ fn ios_asset_extension(image: &ProjectImage) -> &str {
 }
 
 pub(super) fn copy_android_project_images(
-    source_root: &Path,
+    images: &[ProjectImage],
     output_root: &Path,
 ) -> Result<(), String> {
-    let images = project_images(source_root)?;
     let resources = output_root.join("android/app/src/main/res/drawable-nodpi");
     let marker = output_root.join("android/app/src/main/res/.nexa-project-images");
     let generated = images
@@ -98,7 +97,7 @@ pub(super) fn copy_android_project_images(
         })
         .collect::<BTreeSet<_>>();
     remove_stale_generated(&resources, &marker, &generated, false)?;
-    for image in &images {
+    for image in images {
         let filename = if image.extension == "jpeg" {
             format!("{}.jpg", image.name)
         } else {
@@ -111,6 +110,71 @@ pub(super) fn copy_android_project_images(
         copy_if_changed(&image.source, &destination)?;
     }
     write_marker(&marker, &generated)
+}
+
+pub(super) fn write_android_image_keep_rules(
+    output_root: &Path,
+    package: &str,
+    module: &nexa_ir::Module,
+    known_drawables: &BTreeSet<String>,
+) -> Result<(), String> {
+    let mut references = BTreeSet::new();
+    let bodies = std::iter::once(module.body.as_slice())
+        .chain(module.screens.iter().map(|screen| screen.body.as_slice()))
+        .chain(
+            module
+                .components
+                .iter()
+                .map(|component| component.body.as_slice()),
+        )
+        .chain(module.widgets.iter().map(|widget| widget.body.as_slice()));
+    for body in bodies {
+        nexa_ir::walk::walk_ir(
+            body,
+            &mut |node| {
+                if let nexa_ir::Node::Image {
+                    source,
+                    placeholder,
+                    ..
+                } = node
+                {
+                    if let nexa_ir::ImageSource::Asset(name) = source
+                        && valid_image_asset_name(name)
+                        && !known_drawables.contains(name)
+                    {
+                        references.insert(format!("@drawable/{name}"));
+                    }
+                    if let Some(name) = placeholder
+                        && valid_image_asset_name(name)
+                        && !known_drawables.contains(name)
+                    {
+                        references.insert(format!("@drawable/{name}"));
+                    }
+                }
+            },
+            &mut |_| {},
+        );
+    }
+    let path = output_root
+        .join("android/app/src/main/res/raw")
+        .join(format!(
+            "{}_nexa_image_keep.xml",
+            package.to_ascii_lowercase().replace('.', "_")
+        ));
+    if references.is_empty() {
+        return match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("{}: {error}", path.display())),
+        };
+    }
+    write_if_changed(
+        &path,
+        &format!(
+            "<resources xmlns:tools=\"http://schemas.android.com/tools\" tools:keep=\"{}\" />\n",
+            references.into_iter().collect::<Vec<_>>().join(",")
+        ),
+    )
 }
 
 /// Copies registered app fonts into both native targets' resource layouts.
@@ -419,7 +483,7 @@ pub(super) fn copy_android_localizations(
     write_marker(&marker, &generated)
 }
 
-fn project_images(root: &Path) -> Result<Vec<ProjectImage>, String> {
+pub(super) fn project_images(root: &Path) -> Result<Vec<ProjectImage>, String> {
     let directory = root.join("assets/images");
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,

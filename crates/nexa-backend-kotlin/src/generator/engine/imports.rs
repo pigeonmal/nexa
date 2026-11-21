@@ -48,7 +48,6 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
         "androidx.compose.runtime.setValue",
         "androidx.compose.ui.draw.clipToBounds",
         "androidx.compose.ui.draw.drawWithContent",
-        "androidx.compose.ui.draw.drawWithCache",
         "androidx.compose.ui.graphics.graphicsLayer",
         "androidx.compose.ui.layout.onGloballyPositioned",
         "androidx.compose.ui.layout.boundsInWindow",
@@ -60,6 +59,10 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     ] {
         imports.add(marquee, import);
     }
+    imports.add(
+        marquee || context.features.uses_picker,
+        "androidx.compose.ui.draw.drawWithCache",
+    );
 
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
@@ -85,6 +88,15 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.foundation.rememberScrollState");
     let uses_date_picker =
         context.include_all_shared_primitives || context.features.uses_date_picker;
+    imports.add(uses_date_picker, "androidx.compose.ui.Modifier");
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.ui.graphics.compositeOver",
+    );
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.material.icons.filled.ChevronRight",
+    );
     imports.add(uses_date_picker, "androidx.compose.ui.unit.dp");
     // Date and time picker primitives are available in every DevRuntime host;
     // their local edited values use Compose state delegates even when the
@@ -93,7 +105,13 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(uses_date_picker, "androidx.compose.runtime.setValue");
     let uses_bottom_sheet =
         context.include_all_shared_primitives || context.features.uses_bottom_sheet;
+    let uses_keyboard_aware =
+        context.include_all_shared_primitives || context.features.uses_keyboard_aware;
     imports.add(uses_bottom_sheet, "androidx.compose.ui.unit.dp");
+    imports.add(
+        uses_keyboard_aware,
+        "androidx.compose.foundation.layout.requiredSize",
+    );
     imports.add(
         uses_bottom_sheet,
         "androidx.compose.foundation.gestures.anchoredDraggable",
@@ -140,7 +158,14 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
         "androidx.compose.ui.input.pointer.pointerInput",
     );
     imports.add(
-        uses_date_picker,
+        uses_date_picker
+            || context.features.uses_scroll_header
+            || context.features.uses_button
+            || context.features.uses_content_unavailable
+            || context.features.uses_picker
+            || context.features.uses_adaptive_tabs
+            || context.features.facts.ui.font_icons
+            || !context.features.facts.ui.system_icons.is_empty(),
         "androidx.compose.ui.semantics.clearAndSetSemantics",
     );
     imports.add(uses_date_picker, "androidx.compose.ui.semantics.disabled");
@@ -268,7 +293,11 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::dialogs::imports(context.features, &mut imports);
     crate::generator::components::images::imports(context.features, &mut imports);
     crate::generator::components::system_icons::imports(context.features, &mut imports);
-    crate::generator::components::input::imports(context.features, &mut imports);
+    crate::generator::components::input::imports(
+        context.features,
+        context.include_all_shared_primitives,
+        &mut imports,
+    );
     crate::generator::components::keyboard::imports(context.features, &mut imports);
     crate::generator::components::layout::imports(context.features, &mut imports);
     crate::generator::components::links::imports(context.features, &mut imports);
@@ -358,6 +387,9 @@ mod tests {
         let mut date_picker_features = Features::default();
         date_picker_features.uses_date_picker = true;
         let imports = render_features(&date_picker_features);
+        assert!(imports.contains("import androidx.compose.ui.Modifier\n"));
+        assert!(imports.contains("import androidx.compose.ui.graphics.compositeOver\n"));
+        assert!(imports.contains("import androidx.compose.material.icons.filled.ChevronRight\n"));
         assert!(imports.contains("import androidx.compose.ui.unit.dp\n"));
         assert!(imports.contains("import androidx.compose.runtime.getValue\n"));
         assert!(imports.contains("import androidx.compose.runtime.setValue\n"));
@@ -387,11 +419,48 @@ mod tests {
     }
 
     #[test]
+    fn aot_buttons_keep_the_shared_icon_semantics_import() {
+        let mut features = Features::default();
+        features.uses_button = true;
+        assert!(
+            render_features(&features)
+                .contains("import androidx.compose.ui.semantics.clearAndSetSemantics\n")
+        );
+    }
+
+    #[test]
+    fn focus_requester_import_follows_the_shared_text_input_helper() {
+        let mut text_input = Features::default();
+        text_input.uses_text_input = true;
+        let focus_requester = "import androidx.compose.ui.focus.focusRequester\n";
+
+        assert!(!render_features(&Features::default()).contains(focus_requester));
+        assert!(render_features(&text_input).contains(focus_requester));
+        assert!(
+            render_features_with_shared_primitives(&Features::default(), true)
+                .contains(focus_requester)
+        );
+    }
+
+    #[test]
     fn dev_runtime_imports_state_delegates_for_shared_picker_helpers() {
         let imports = render_features_with_shared_primitives(&Features::default(), true);
 
         assert!(imports.contains("import androidx.compose.runtime.getValue\n"));
         assert!(imports.contains("import androidx.compose.runtime.setValue\n"));
+    }
+
+    #[test]
+    fn keyboard_probe_size_import_is_gated_for_aot_and_kept_for_dev_runtime() {
+        let minimal = render_features(&Features::default());
+        let mut keyboard_features = Features::default();
+        keyboard_features.uses_keyboard_aware = true;
+        let aot_keyboard = render_features(&keyboard_features);
+        let dev_runtime = render_features_with_shared_primitives(&Features::default(), true);
+
+        assert!(!minimal.contains("androidx.compose.foundation.layout.requiredSize"));
+        assert!(aot_keyboard.contains("import androidx.compose.foundation.layout.requiredSize\n"));
+        assert!(dev_runtime.contains("import androidx.compose.foundation.layout.requiredSize\n"));
     }
 
     #[test]
@@ -469,6 +538,7 @@ mod tests {
         let imports = render_features(&features);
 
         assert!(imports.contains("import androidx.compose.foundation.text.KeyboardOptions\n"));
+        assert!(imports.contains("import androidx.compose.ui.Modifier\n"));
         assert!(imports.contains(
             "import androidx.compose.ui.text.input.KeyboardType as NativeKeyboardType\n"
         ));

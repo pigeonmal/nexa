@@ -7,31 +7,41 @@ use nexa_testkit::TestProject;
 fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_targets() {
     let project = TestProject::new("nexa-project-custom-icon-font");
     project.write(
-        "assets/fonts/Mazicon.ttf",
-        include_bytes!("../../../examples/component-parity/assets/fonts/Mazicon.ttf"),
+        "assets/fonts/mazicon.ttf",
+        include_bytes!("../../../examples/component-parity/assets/fonts/mazicon.ttf"),
     );
     project.write(
-        "assets/fonts/Mazicon.icons.json",
-        br#"{"mazica_play":"0xF100"}"#,
+        "assets/fonts/mazicon.icons.json",
+        include_bytes!("../../../examples/component-parity/assets/fonts/mazicon.icons.json"),
     );
-    project.write_config("config { assets { icon: \"assets/icon.png\" } }");
+    project.write(
+        "assets/icons/Brand/heart.svg",
+        br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#E11D48" d="M12 21 3.7 13a5.1 5.1 0 0 1 0-7.2 5.2 5.2 0 0 1 7.3 0L12 6.8l1-1a5.2 5.2 0 0 1 7.3 0 5.1 5.1 0 0 1 0 7.2z"/></svg>"##,
+    );
     let entry = project.write_app(
         r##"component PlayButton() {
-            body { Button("Play", icon: Icon(Mazicon: "mazica_play")) {} }
+            body {
+                Button("Play", icon: Icon(mazicon: "play")) {}
+                Button("Save", icon: Icon(Brand: "heart")) {}
+            }
         }
         app Demo {
             state selected: String = "First"
             state selectedTab: Int32 = 0
             body {
                 PlayButton()
-                Picker(items: ["First"], selected: selected, icon: Icon(Mazicon: "mazica_play"), itemIcons: ["search", Icon(Mazicon: "mazica_play")])
-                ContentUnavailable(title: "Empty", icon: Icon(Mazicon: "mazica_play"))
-                Icon(Mazicon: "mazica_play", description: "Play", size: 24, color: "#FFFFFF")
+                Button("Search", icon: Icon(system: "search")) {}
+                Button("Save", icon: Icon(Brand: "heart")) {}
+                Picker(items: ["First", "Play", "Saved"], selected: selected, icon: Icon(system: "search"), itemIcons: ["search", Icon(mazicon: "play"), Icon(Brand: "heart")])
+                ContentUnavailable(title: "Empty", icon: Icon(Brand: "heart"))
+                Icon(system: "search", description: "Search", size: 24)
+                Icon(mazicon: "play", description: "Play", size: 24, color: "#FFFFFF")
+                Icon(Brand: "heart", description: "Heart", size: 24)
                 Pressable() { Text("Row") }
                     .onTap { }
-                    .contextMenu { Button("Play", icon: Icon(Mazicon: "mazica_play")) {} }
+                    .contextMenu { Button("Play", icon: Icon(mazicon: "play")) {} }
                 AppBottomBar(selected: selectedTab) {
-                    Tab(index: 0, label: "Play", icon: Icon(Mazicon: "mazica_play")) { Text("Main") }
+                    Tab(index: 0, label: "Saved", icon: Icon(Brand: "heart")) { Text("Main") }
                 }
             }
         }"##,
@@ -40,30 +50,75 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
     for target in [Target::Swift, Target::Kotlin] {
         let module = nexa_compiler::compile_file_for_target(&entry, target)
             .expect("project icon sets should resolve during semantic lowering");
-        let expected = nexa_ir::IconSpec::font_glyph("Mazicon", "Mazicon", 0xF100);
+        let expected = nexa_ir::IconSpec::font_glyph("Mazicon", "mazicon", 0xF100);
+        let brand_icon = module
+            .body
+            .iter()
+            .find_map(|node| match node {
+                nexa_ir::Node::FontIcon {
+                    font_family,
+                    font_resource,
+                    layers,
+                    ..
+                } if font_family.starts_with("Brand_") => {
+                    Some((font_family.clone(), font_resource.clone(), layers.clone()))
+                }
+                _ => None,
+            })
+            .expect("SVG icon should resolve to a content-versioned generated font");
+        assert!(
+            !brand_icon.2.is_empty(),
+            "the SVG conversion should retain its source-color glyph layers"
+        );
+        let is_brand_icon = |icon: &nexa_ir::IconSpec| {
+            matches!(
+                &icon.source,
+                nexa_ir::IconSource::FontGlyph { font_family, layers, .. }
+                    if font_family.starts_with("Brand_") && !layers.is_empty()
+            )
+        };
+        let is_mazicon = |icon: &nexa_ir::IconSpec| icon == &expected;
+        let is_system_search = |icon: &nexa_ir::IconSpec| {
+            matches!(
+                &icon.source,
+                nexa_ir::IconSource::System(nexa_ir::SystemIcon::Shared(name))
+                    if name == "search"
+            )
+        };
         let play_button = module
             .components
             .iter()
             .find(|component| component.name == "PlayButton")
             .expect("component lowered");
-        assert!(matches!(
-            play_button.body.as_slice(),
-            [nexa_ir::Node::Button { icon: Some(icon), .. }] if *icon == expected
-        ));
+        assert!(play_button.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::Button { icon: Some(icon), .. } if is_mazicon(icon)
+        )));
+        assert!(play_button.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::Button { icon: Some(icon), .. } if is_brand_icon(icon)
+        )));
+        assert!(module.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::Button { icon: Some(icon), .. } if is_system_search(icon)
+        )));
+        assert!(module.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::Button { icon: Some(icon), .. } if is_brand_icon(icon)
+        )));
         assert!(module.body.iter().any(|node| matches!(
             node,
             nexa_ir::Node::Picker {
                 icon: Some(icon),
                 item_icons,
                 ..
-            } if *icon == expected && matches!(item_icons.as_slice(), [
-                nexa_ir::IconSpec { source: nexa_ir::IconSource::System(nexa_ir::SystemIcon::Shared(name)), .. },
-                custom,
-            ] if name == "search" && custom == &expected)
+            } if is_system_search(icon) && matches!(item_icons.as_slice(), [
+                system, font, svg,
+            ] if is_system_search(system) && is_mazicon(font) && is_brand_icon(svg))
         )));
         assert!(module.body.iter().any(|node| matches!(
             node,
-            nexa_ir::Node::ContentUnavailable { icon, .. } if *icon == expected
+            nexa_ir::Node::ContentUnavailable { icon, .. } if is_brand_icon(icon)
         )));
         assert!(module.body.iter().any(|node| matches!(
             node,
@@ -71,13 +126,24 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
         )));
         assert!(module.body.iter().any(|node| matches!(
             node,
+            nexa_ir::Node::SystemIcon {
+                icon: nexa_ir::SystemIcon::Shared(name),
+                ..
+            } if name == "search"
+        )));
+        assert!(module.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::Button { icon: Some(icon), .. } if is_brand_icon(icon)
+        )));
+        assert!(module.body.iter().any(|node| matches!(
+            node,
             nexa_ir::Node::Pressable { context_menu, .. }
-                if matches!(context_menu.as_slice(), [nexa_ir::Node::Button { icon: Some(icon), .. }] if *icon == expected)
+                if matches!(context_menu.as_slice(), [nexa_ir::Node::Button { icon: Some(icon), .. }] if is_mazicon(icon))
         )));
         assert!(matches!(
             module.body.iter().find(|node| matches!(node, nexa_ir::Node::AppBottomBar { .. })),
             Some(nexa_ir::Node::AppBottomBar { tabs, .. })
-                if matches!(tabs.as_slice(), [tab] if tab.icon.as_ref() == Some(&expected))
+                if matches!(tabs.as_slice(), [tab] if tab.icon.as_ref().is_some_and(is_brand_icon))
         ));
         match target {
             Target::Swift => {
@@ -86,6 +152,14 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
                     unit.contents
                         .contains("NexaIconSpec(glyph: Int32(61696), fontFamily: \"Mazicon\", preservesColor: true)")
                 }));
+                assert!(generated.units.iter().any(|unit| {
+                    unit.contents
+                        .contains(&format!("fontFamily: \"{}\"", brand_icon.0))
+                }));
+                assert!(generated.units.iter().any(|unit| {
+                    unit.contents
+                        .contains(&format!("glyph: Int32({})", brand_icon.2[0].glyph))
+                }));
             }
             Target::Kotlin => {
                 let generated =
@@ -93,6 +167,13 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
                 assert!(
                     generated
                         .contains("NexaIconSpec(glyph = 61696, fontResource = R.font.mazicon, preservesColor = true)")
+                );
+                assert!(generated.contains(&format!(
+                    "fontResource = R.font.{}",
+                    nexa_codegen::names::font_resource_name(&brand_icon.1)
+                )));
+                assert!(
+                    generated.contains(&format!("NexaIconLayer(glyph = {}", brand_icon.2[0].glyph))
                 );
             }
             Target::All => unreachable!("test compiles one target at a time"),

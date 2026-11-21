@@ -1,3 +1,4 @@
+// nexa-codegen: NexaDatePickerPrimitive
 struct NexaDatePickerPrimitive: View {
     private let timestamp: Binding<Int64>?
     private let startTimestamp: Binding<Int64>?

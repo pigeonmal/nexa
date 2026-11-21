@@ -1,0 +1,32 @@
+{
+  "format": 2,
+  "tool": "nexa audit",
+  "performance": {"dependencyResolutionMicros": 837, "compilerMicros": 3620},
+  "entry": "/tmp/nexa-audit-date/App.nx",
+  "targets": [
+    {
+      "target": "ios",
+      "app": "DateAudit",
+      "codegenMicros": 5995,
+      "generatedSourceBytes": 39356,
+      "capabilities": {
+        "remoteImage": false,
+        "network": false,
+        "path": false,
+        "file": false,
+        "fileAsync": false,
+        "storage": false,
+        "secureStorage": false
+      },
+      "dependencies": ["Foundation", "SwiftUI", "UIKit"],
+      "nativePlugins": [],
+      "permissions": {"app": [], "plugins": []},
+      "optimizations": null
+    }
+  ],
+  "warnings": [],
+  "releaseMeasurements": {
+      "ios": {"status": "measured", "reason": null, "sdk": "iphoneos", "configuration": "Release", "xcodeVersion": "Xcode 27.2; Build version 27B52", "nativeBuildMicros": 5842238, "mainExecutableBytes": 611432, "appBundleBytes": 612190, "bundleOtherBytes": 758},
+      "android": {"status": "not_requested", "reason": null, "configuration": "Release", "gradleVersion": null, "nativeBuildMicros": null, "minificationEnabled": null, "resourceShrinkingEnabled": null, "apkBytes": null, "aabBytes": null, "apkEntryCount": null, "dexCompressedBytes": null, "dexUncompressedBytes": null, "resourcesCompressedBytes": null, "resourcesUncompressedBytes": null, "assetsCompressedBytes": null, "assetsUncompressedBytes": null, "nativeLibrariesCompressedBytes": null, "nativeLibrariesUncompressedBytes": null, "nativeLibrariesByAbi": null, "nativeLibraries": null, "otherCompressedBytes": null, "r8MappingBytes": null, "r8UsageReportBytes": null, "resourceShrinkerReportBytes": null}
+    }
+}

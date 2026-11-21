@@ -211,16 +211,12 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.runtime.snapshotFlow",
     );
     imports.add(
-        features.uses_list_end_reached
-            || features.uses_list_scroll_position
-            || features.uses_list_scroll_events,
+        features.uses_list_scroll_position || features.uses_list_scroll_events,
         "kotlinx.coroutines.flow.collect",
     );
     imports.add(
-        features.uses_list_end_reached
-            || features.uses_list_scroll_position
-            || features.uses_list_scroll_events,
-        "kotlinx.coroutines.flow.distinctUntilChanged",
+        features.uses_list_end_reached,
+        "kotlinx.coroutines.flow.first",
     );
     imports.add(
         features.uses_list_scroll_events,
@@ -1503,73 +1499,41 @@ fn render_list_observers(
             depth,
             format_args!("LaunchedEffect({list_state}, {list_count}) {{"),
         );
+        out.line_at(
+            depth + 1,
+            format_args!("if ({list_count} > 0 && {marker} != {list_count}) {{"),
+        );
+        out.line_at(depth + 2, format_args!("snapshotFlow {{"));
         if pieces.page_snap {
-            out.line_at(depth + 1, format_args!("snapshotFlow {{ {list_state}.isScrollInProgress }}.distinctUntilChanged().collect {{ isScrolling ->"
-            ));
-            out.line_at(depth + 2, format_args!("if (!isScrolling) {{"));
-            let end_visible = if pieces.page_snap {
-                format!("{list_state}.settledPage >= {list_count} - 1")
-            } else if sticky_header_offset > 0 {
-                let final_item = format!("{list_count} + {sticky_header_offset} - 1");
-                format!(
-                    "run {{ val layoutInfo = {list_state}.layoutInfo; val visibleItems = layoutInfo.visibleItemsInfo; val stickyHeader = visibleItems.firstOrNull {{ it.index == 0 }}; visibleItems.any {{ item -> item.index >= {final_item} && item.offset < layoutInfo.viewportEndOffset && item.offset + item.size > layoutInfo.viewportStartOffset && (stickyHeader == null || item.offset + item.size <= stickyHeader.offset || item.offset >= stickyHeader.offset + stickyHeader.size) }} }}"
-                )
-            } else {
-                let final_item = format!("{list_count} + {sticky_header_offset} - 1");
-                format!(
-                    "run {{ val layoutInfo = {list_state}.layoutInfo; layoutInfo.visibleItemsInfo.any {{ item -> item.index >= {final_item} && item.offset < layoutInfo.viewportEndOffset && item.offset + item.size > layoutInfo.viewportStartOffset }} }}"
-                )
-            };
             out.line_at(
                 depth + 3,
-                format_args!("val finalItemVisible = {end_visible}"),
+                format_args!("!{list_state}.isScrollInProgress && {list_state}.settledPage >= {list_count} - 1"),
             );
-            out.line_at(
-                depth + 3,
-                format_args!(
-                    "if ({list_count} > 0 && finalItemVisible && {marker} != {list_count}) {{"
-                ),
-            );
-            if let Some(task_scope) = list_task_scope.as_deref() {
-                out.line_at(depth + 4, format_args!("val nexaTaskScope = {task_scope}"));
-            }
-            out.line_at(depth + 4, format_args!("{marker} = {list_count}"));
-            render_actions(actions, depth + 4, out);
-            indent(out, depth + 3);
-            out.push_str("}\n");
-            indent(out, depth + 2);
-            out.push_str("}\n");
         } else {
-            let final_item = format!("{list_count} + {sticky_header_offset} - 1");
-            let final_visible_expression = if sticky_header_offset > 0 {
-                format!(
-                    "run {{ val layoutInfo = {list_state}.layoutInfo; val visibleItems = layoutInfo.visibleItemsInfo; val stickyHeader = visibleItems.firstOrNull {{ it.index == 0 }}; visibleItems.any {{ item -> item.index >= {final_item} && item.offset < layoutInfo.viewportEndOffset && item.offset + item.size > layoutInfo.viewportStartOffset && (stickyHeader == null || item.offset + item.size <= stickyHeader.offset || item.offset >= stickyHeader.offset + stickyHeader.size) }} }}"
-                )
-            } else {
-                format!(
-                    "run {{ val layoutInfo = {list_state}.layoutInfo; layoutInfo.visibleItemsInfo.any {{ item -> item.index >= {final_item} && item.{item_offset} < layoutInfo.viewportEndOffset && item.{item_offset} + item.{item_size} > layoutInfo.viewportStartOffset }} }}"
-                )
-            };
-            out.line_at(depth + 1, format_args!("snapshotFlow {{ {final_visible_expression} }}.distinctUntilChanged().collect {{ finalItemVisible ->"
+            let has_sticky_header = sticky_header_offset > 0;
+            out.line_at(
+                depth + 3,
+                format_args!("val layoutInfo = {list_state}.layoutInfo"),
+            );
+            out.line_at(depth + 3, format_args!("nexaListEndIsVisible("));
+            out.line_at(depth + 4, format_args!(
+                "layoutInfo.visibleItemsInfo, {list_count} + {sticky_header_offset} - 1, {has_sticky_header},"
             ));
             out.line_at(
-                depth + 2,
-                format_args!(
-                    "if ({list_count} > 0 && finalItemVisible && {marker} != {list_count}) {{"
-                ),
+                depth + 4,
+                format_args!("layoutInfo.viewportStartOffset, layoutInfo.viewportEndOffset,"),
             );
-            if let Some(task_scope) = list_task_scope.as_deref() {
-                out.line_at(depth + 3, format_args!("val nexaTaskScope = {task_scope}"));
-            }
-            out.line_at(depth + 3, format_args!("{marker} = {list_count}"));
-            render_actions(actions, depth + 3, out);
-            indent(out, depth + 2);
-            out.push_str("}\n");
+            out.line_at(depth + 4, format_args!("itemIndex = {{ it.index }}, itemOffset = {{ it.{item_offset} }}, itemSize = {{ it.{item_size} }},"));
+            out.line_at(depth + 3, format_args!(")"));
         }
-        indent(out, depth + 1);
-        out.push_str("}\n");
-        indent(out, depth);
-        out.push_str("}\n");
+        out.line_at(depth + 2, format_args!("}}.first {{ it }}"));
+        out.line_at(depth + 2, format_args!("{marker} = {list_count}"));
+        if let Some(task_scope) = list_task_scope.as_deref() {
+            out.line_at(depth + 2, format_args!("val nexaTaskScope = {task_scope}"));
+        }
+        render_actions(actions, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(depth, format_args!("}}"));
     }
     if scroll_position.is_some() || scroll_actions.is_some() {
         let scroll_marker = scroll_actions.map(|_| format!("nexaScrollEvent{list_state}"));
@@ -1600,7 +1564,7 @@ fn render_list_observers(
         }
         out.line_at(depth, format_args!("LaunchedEffect({list_state}) {{"));
         if pieces.page_snap {
-            out.line_at(depth + 1, format_args!("snapshotFlow {{ if ({list_state}.isScrollInProgress) -1 else {list_state}.settledPage }}.distinctUntilChanged().collect {{ firstVisiblePosition ->"
+            out.line_at(depth + 1, format_args!("snapshotFlow {{ if ({list_state}.isScrollInProgress) -1 else {list_state}.settledPage }}.collect {{ firstVisiblePosition ->"
             ));
             out.line_at(depth + 2, format_args!("if (firstVisiblePosition >= 0) {{"));
             indent(out, depth + 3);
@@ -1615,10 +1579,10 @@ fn render_list_observers(
             );
             let first_visible_expression = "leadingVisibleDataItemIndex()";
             if scroll_actions.is_some() {
-                out.line_at(depth + 1, format_args!("snapshotFlow {{ {list_state}.isScrollInProgress to {first_visible_expression} }}.distinctUntilChanged().collect {{ (isScrollInProgress, firstVisiblePosition) ->"
+                out.line_at(depth + 1, format_args!("snapshotFlow {{ {list_state}.isScrollInProgress to {first_visible_expression} }}.collect {{ (isScrollInProgress, firstVisiblePosition) ->"
                 ));
             } else {
-                out.line_at(depth + 1, format_args!("snapshotFlow {{ {first_visible_expression} }}.distinctUntilChanged().collect {{ firstVisiblePosition ->"
+                out.line_at(depth + 1, format_args!("snapshotFlow {{ {first_visible_expression} }}.collect {{ firstVisiblePosition ->"
                 ));
             }
             indent(out, depth + 2);
@@ -2548,9 +2512,13 @@ mod tests {
                 .contains("val nexaTaskScope = nexaListTaskScopenexaListState0")
         );
         assert!(generated.as_str().contains("nexaTaskScope.launch("));
-        assert!(generated.as_str().contains(
-            "layoutInfo.visibleItemsInfo.any { item -> item.index >= nexaListCount0 + 0 - 1 && item.offset < layoutInfo.viewportEndOffset && item.offset + item.size > layoutInfo.viewportStartOffset }"
-        ));
+        assert!(
+            generated
+                .as_str()
+                .contains("if (nexaListCount0 > 0 && nexaEndReached0 != nexaListCount0)")
+        );
+        assert!(generated.as_str().contains("}.first { it }"));
+        assert!(generated.as_str().contains("nexaListEndIsVisible("));
     }
 
     #[test]
@@ -2610,9 +2578,9 @@ mod tests {
                 generated.as_str()
             );
             assert!(
-                generated.as_str().contains(
-                    "item.offset.y < layoutInfo.viewportEndOffset && item.offset.y + item.size.height > layoutInfo.viewportStartOffset"
-                ),
+                generated
+                    .as_str()
+                    .contains("layoutInfo.visibleItemsInfo, nexaGridCount0 + 0 - 1, false,"),
                 "{axis:?}: {}",
                 generated.as_str()
             );

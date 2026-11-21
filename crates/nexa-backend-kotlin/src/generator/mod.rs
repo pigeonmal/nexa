@@ -66,6 +66,7 @@ fn project_features_from_analysis(
         uses_remote_image: features.uses_remote_image,
         uses_system_icons: !features.facts.ui.system_icons.is_empty()
             || features.uses_picker
+            || features.uses_date_picker
             || features.uses_navigation_link,
         uses_coroutines: features.facts.ui.style.marquee
             || features.uses_network_transport()
@@ -90,6 +91,7 @@ fn project_features_from_analysis(
             .any(state::uses_saveable_state),
         uses_expressive_menus: features.uses_picker || features.uses_context_menu,
         uses_expressive_motion: features.uses_segmented_control,
+        uses_slider: features.uses_slider,
         uses_wavy_progress_bar: features.uses_wavy_progress_bar,
         uses_wavy_progress_ring: features.uses_wavy_progress_ring,
         uses_compose_animation: features.facts.ui.style.marquee
@@ -149,10 +151,7 @@ pub(super) fn generate_units_with_font_catalog_and_project_features(
     module: &Module,
     font_catalog: nexa_codegen::FontCatalog,
 ) -> (GeneratedSources, crate::KotlinProjectFeatures) {
-    let features = features::Features::analyze_with_font_catalog(module, font_catalog);
-    let project_features = project_features_from_analysis(module, &features);
-    let generated = generate_units(module, &features);
-    (generated, project_features)
+    generate_project_units(module, font_catalog, Default::default(), false)
 }
 
 pub(super) fn generate_units_with_network_and_project_features(
@@ -168,9 +167,19 @@ pub(super) fn generate_units_with_network_and_font_catalog_and_project_features(
     module: &Module,
     font_catalog: nexa_codegen::FontCatalog,
 ) -> (GeneratedSources, crate::KotlinProjectFeatures) {
+    generate_project_units(module, font_catalog, Default::default(), true)
+}
+
+pub(super) fn generate_project_units(
+    module: &Module,
+    font_catalog: nexa_codegen::FontCatalog,
+    known_drawables: std::collections::BTreeSet<String>,
+    plugin_requires_network: bool,
+) -> (GeneratedSources, crate::KotlinProjectFeatures) {
     let mut features = features::Features::analyze_with_font_catalog(module, font_catalog);
-    features.uses_network_api = true;
-    features.uses_native_library = true;
+    features.known_drawables = known_drawables;
+    features.uses_network_api |= plugin_requires_network;
+    features.uses_native_library |= plugin_requires_network;
     let project_features = project_features_from_analysis(module, &features);
     let generated = generate_units(module, &features);
     (generated, project_features)
@@ -923,11 +932,14 @@ internal fun NexaFastListDividerPrimitive() {
     NexaSystemDividerPrimitive()
 }
 
-// nexa-codegen: NexaTextPrimitive
+// nexa-codegen: LocalNexaLayoutOverflowAlignment
 // Fixed-size children retain their own shape when a parent crops overflow.
 internal val LocalNexaLayoutOverflowAlignment = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.ui.Alignment.Vertical> { androidx.compose.ui.Alignment.Top }
+
+// nexa-codegen: LocalNexaTextAlignment
 internal val LocalNexaTextAlignment = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.ui.text.style.TextAlign?> { null }
 
+// nexa-codegen: NexaGlyphShadow
 internal data class NexaGlyphShadow(
     val color: androidx.compose.ui.graphics.Color,
     val radius: androidx.compose.ui.unit.Dp,
@@ -935,6 +947,7 @@ internal data class NexaGlyphShadow(
     val y: androidx.compose.ui.unit.Dp,
 )
 
+// nexa-codegen: NexaTextPrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaTextPrimitive(
     text: String,
@@ -2204,7 +2217,9 @@ private fun NexaKeyboardAwareTransitionObserver(
             )
             probe
         },
-        modifier = androidx.compose.ui.Modifier.size(0.dp),
+        // Keep the inset observer out of layout even when its parent
+        // propagates tight minimum constraints to every child.
+        modifier = androidx.compose.ui.Modifier.requiredSize(0.dp),
         update = {},
     )
 }
@@ -2270,8 +2285,10 @@ internal fun NexaKeyboardAwareColumnPrimitive(
             }
         }
     }
-    NexaKeyboardAwareTransitionObserver { showing, event ->
-        if (showing) onShow?.invoke(event) else onHide?.invoke(event)
+    if (onShow != null || onHide != null) {
+        NexaKeyboardAwareTransitionObserver { showing, event ->
+            if (showing) onShow?.invoke(event) else onHide?.invoke(event)
+        }
     }
 }
 
@@ -2327,8 +2344,10 @@ internal fun NexaKeyboardAwareOwnerPrimitive(
             }
         }
     }
-    NexaKeyboardAwareTransitionObserver { showing, event ->
-        if (showing) onShow?.invoke(event) else onHide?.invoke(event)
+    if (onShow != null || onHide != null) {
+        NexaKeyboardAwareTransitionObserver { showing, event ->
+            if (showing) onShow?.invoke(event) else onHide?.invoke(event)
+        }
     }
 }
 
@@ -2417,30 +2436,34 @@ internal fun NexaSliderPrimitive(
     val rangeIsValid = minValue.isFinite() && maxValue.isFinite() && maxValue > minValue
     val lowerBound = if (minValue.isFinite()) minValue else 0f
     val upperBound = if (maxValue.isFinite() && maxValue > lowerBound) maxValue else lowerBound + 1f
-    val interactionEditing = androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(false)
-    }
     val interactionSource = androidx.compose.runtime.remember {
         androidx.compose.foundation.interaction.MutableInteractionSource()
     }
-    androidx.compose.runtime.LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            if (interaction is androidx.compose.foundation.interaction.DragInteraction.Start) {
-                if (!interactionEditing.value) {
-                    interactionEditing.value = true
-                    onEditingChanged?.invoke(true)
-                }
-            } else if (
-                interaction is androidx.compose.foundation.interaction.DragInteraction.Stop ||
-                interaction is androidx.compose.foundation.interaction.DragInteraction.Cancel
-            ) {
-                if (interactionEditing.value) {
-                    interactionEditing.value = false
-                    onEditingChanged?.invoke(false)
+    val interactionEditing = if (onEditingChanged != null) {
+        val editing = androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+        val editingCallback = androidx.compose.runtime.rememberUpdatedState(onEditingChanged)
+        androidx.compose.runtime.LaunchedEffect(interactionSource) {
+            interactionSource.interactions.collect { interaction ->
+                if (interaction is androidx.compose.foundation.interaction.DragInteraction.Start) {
+                    if (!editing.value) {
+                        editing.value = true
+                        editingCallback.value(true)
+                    }
+                } else if (
+                    interaction is androidx.compose.foundation.interaction.DragInteraction.Stop ||
+                    interaction is androidx.compose.foundation.interaction.DragInteraction.Cancel
+                ) {
+                    if (editing.value) {
+                        editing.value = false
+                        editingCallback.value(false)
+                    }
                 }
             }
         }
-    }
+        editing
+    } else null
     val intervals = if (step > 0f) ((upperBound - lowerBound) / step).let {
         kotlin.math.round(it).toInt().coerceAtLeast(1)
     } else 0
@@ -2456,7 +2479,7 @@ internal fun NexaSliderPrimitive(
             trackRange = lowerBound..upperBound,
         )
     }
-    androidx.compose.runtime.LaunchedEffect(safeValue) {
+    androidx.compose.runtime.LaunchedEffect(safeValue, sliderState) {
         sliderState.value = safeValue
     }
     val sliderColors = androidx.compose.material3.SliderDefaults.colors(
@@ -2475,12 +2498,14 @@ internal fun NexaSliderPrimitive(
         },
         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
         enabled = rangeIsValid,
-        onValueChangeFinished = {
-            if (interactionEditing.value) {
-                interactionEditing.value = false
-                onEditingChanged?.invoke(false)
+        onValueChangeFinished = if (interactionEditing != null) {
+            {
+                if (interactionEditing.value) {
+                    interactionEditing.value = false
+                    onEditingChanged?.invoke(false)
+                }
             }
-        },
+        } else null,
         interactionSource = interactionSource,
         colors = sliderColors,
         track = { state ->
@@ -2488,11 +2513,13 @@ internal fun NexaSliderPrimitive(
                 androidx.compose.material3.SliderDefaults.Track(
                     sliderState = state,
                     colors = sliderColors,
+                    enabled = rangeIsValid,
                 )
             } else {
                 androidx.compose.material3.SliderDefaults.Track(
                     sliderState = state,
                     colors = sliderColors,
+                    enabled = rangeIsValid,
                     drawTick = { _, _ -> },
                 )
             }
@@ -2577,17 +2604,73 @@ internal fun NexaProgressRingPrimitive(
     __NEXA_ANDROID_WAVE_RING_INDICATOR__
 }
 
+// nexa-codegen: NexaMeasuredShapePrimitive
+internal fun interface NexaShapeDimension {
+    fun points(): Float
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaMeasuredShapePrimitive(
+    fill: androidx.compose.ui.graphics.Color,
+    shape: androidx.compose.ui.graphics.Shape,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    width: androidx.compose.ui.unit.Dp = 0.dp,
+    height: androidx.compose.ui.unit.Dp = 0.dp,
+    widthReader: NexaShapeDimension? = null,
+    heightReader: NexaShapeDimension? = null,
+) {
+    androidx.compose.ui.layout.Layout(content = {}, modifier = modifier.background(fill, shape)) { _, constraints ->
+        val widthDp = if (widthReader == null) width else widthReader.points().dp
+        val heightDp = if (heightReader == null) height else heightReader.points().dp
+        val widthPx = nexaShapeDimensionPixels(widthDp, constraints.minWidth, constraints.maxWidth)
+        val heightPx = nexaShapeDimensionPixels(heightDp, constraints.minHeight, constraints.maxHeight)
+        layout(widthPx, heightPx) {}
+    }
+}
+
+private fun androidx.compose.ui.unit.Density.nexaShapeDimensionPixels(
+    size: androidx.compose.ui.unit.Dp,
+    minimum: Int,
+    maximum: Int,
+): Int {
+    if (size.value.isNaN()) return minimum
+    val pixels = size.roundToPx()
+    // A positive infinite Dp leaves the size modifier unbounded. The empty
+    // shape still respects any minimum imposed by its parent.
+    return if (pixels == Int.MAX_VALUE) minimum else pixels.coerceIn(minimum, maximum)
+}
+
+// nexa-codegen: NexaCenteredCircleShape
+internal object NexaCenteredCircleShape : androidx.compose.ui.graphics.Shape {
+    override fun createOutline(
+        size: androidx.compose.ui.geometry.Size,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: androidx.compose.ui.unit.Density,
+    ): androidx.compose.ui.graphics.Outline {
+        val diameter = minOf(size.width, size.height)
+        val left = (size.width - diameter) * 0.5f
+        val top = (size.height - diameter) * 0.5f
+        return androidx.compose.ui.graphics.Outline.Rounded(
+            androidx.compose.ui.geometry.RoundRect(
+                left = left,
+                top = top,
+                right = left + diameter,
+                bottom = top + diameter,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(diameter * 0.5f),
+            ),
+        )
+    }
+}
+
 // nexa-codegen: NexaDividerPrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaDividerPrimitive(color: androidx.compose.ui.graphics.Color, thickness: androidx.compose.ui.unit.Dp) {
-    if (thickness > androidx.compose.ui.unit.Dp(0f)) {
-        androidx.compose.foundation.layout.Box(
-            modifier = androidx.compose.ui.Modifier
-                .fillMaxWidth()
-                .height(thickness)
-                .background(color)
-        )
-    }
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxWidth()
+            .height(thickness)
+            .background(color)
+    )
 }
 
 // nexa-codegen: NexaSystemDividerPrimitive
@@ -2651,13 +2734,13 @@ internal fun NexaSegmentedControlPrimitive(
         contentAlignment = androidx.compose.ui.Alignment.Center,
     ) {
         val segmentWidth = maxWidth / items.size
-        val selectedIndex = items.indexOf(selected).coerceAtLeast(0)
+        val selectedIndex = items.indexOf(selected)
         val expressiveSpatialMotion = androidx.compose.runtime.remember {
             androidx.compose.material3.MotionScheme.expressive()
                 .defaultSpatialSpec<androidx.compose.ui.unit.Dp>()
         }
         val indicatorOffset = androidx.compose.animation.core.animateDpAsState(
-            targetValue = segmentWidth * selectedIndex,
+            targetValue = segmentWidth * selectedIndex.coerceAtLeast(0),
             animationSpec = animation
                 ?: expressiveSpatialMotion,
             label = "segmentedControlSelection",
@@ -2675,7 +2758,7 @@ internal fun NexaSegmentedControlPrimitive(
                     shape = segmentTrackShape,
                 ),
         ) {}
-        if (items.isNotEmpty() && selected in items) {
+        if (selectedIndex >= 0) {
             androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier
                     .align(androidx.compose.ui.Alignment.CenterStart)
@@ -2783,23 +2866,28 @@ internal fun NexaFontIconPrimitive(
         "" -> androidx.compose.ui.Modifier.clearAndSetSemantics { }
         else -> androidx.compose.ui.Modifier.semantics { contentDescription = description }
     }
-    val glyphText = androidx.compose.runtime.remember(glyph) {
-        if (java.lang.Character.isValidCodePoint(glyph)) {
-            String(java.lang.Character.toChars(glyph))
-        } else {
-            "�"
-        }
-    }
     val fontSize = size?.let { (it.value / androidx.compose.ui.platform.LocalDensity.current.fontScale).sp }
         ?: androidx.compose.ui.unit.TextUnit.Unspecified
+    val iconModifier = if (size == null) {
+        modifier
+    } else {
+        modifier.size(size)
+    }
     androidx.compose.foundation.layout.Box(
-        modifier = modifier.then(accessibilityModifier),
+        modifier = iconModifier.then(accessibilityModifier),
         contentAlignment = androidx.compose.ui.Alignment.Center,
     ) {
         if (layers.isEmpty()) {
+            val glyphText = androidx.compose.runtime.remember(glyph) {
+                if (java.lang.Character.isValidCodePoint(glyph)) {
+                    String(java.lang.Character.toChars(glyph))
+                } else {
+                    "�"
+                }
+            }
             androidx.compose.material3.Text(
                 text = glyphText,
-                color = tint ?: androidx.compose.ui.graphics.Color.Unspecified,
+                color = tint ?: androidx.compose.material3.LocalContentColor.current,
                 fontSize = fontSize,
                 fontFamily = resolvedFontFamily,
                 maxLines = 1,
@@ -2920,6 +3008,11 @@ internal fun NexaContentUnavailablePrimitive(
     iconTint: androidx.compose.ui.graphics.Color? = null,
     background: androidx.compose.ui.graphics.Color? = null,
 ) {
+    val colors = androidx.compose.material3.MaterialTheme.colorScheme
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    val titleStyle = androidx.compose.runtime.remember(typography.titleLarge) {
+        typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+    }
     androidx.compose.foundation.layout.Column(
         modifier = androidx.compose.ui.Modifier
             .fillMaxSize()
@@ -2932,21 +3025,21 @@ internal fun NexaContentUnavailablePrimitive(
             icon = icon,
             description = iconDescription,
             size = androidx.compose.ui.unit.Dp(58f),
-            tint = iconTint ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = iconTint ?: colors.onSurfaceVariant,
         )
         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(androidx.compose.ui.unit.Dp(16f)))
         androidx.compose.material3.Text(
             title,
-            style = androidx.compose.material3.MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-            color = titleColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+            style = titleStyle,
+            color = titleColor ?: colors.onSurface,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         if (!description.isNullOrEmpty()) {
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(androidx.compose.ui.unit.Dp(8f)))
             androidx.compose.material3.Text(
                 description,
-                style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
-                color = descriptionColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                style = typography.bodyLarge,
+                color = descriptionColor ?: colors.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
         }
@@ -3106,6 +3199,13 @@ internal fun NexaAccessibilityPrimitive(
 }
 
 // nexa-codegen: NexaLinkPrimitive
+internal fun nexaLaunchLink(context: android.content.Context, uri: android.net.Uri) {
+    try {
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+    } catch (_: android.content.ActivityNotFoundException) {
+    }
+}
+
 @androidx.compose.runtime.Composable
 internal fun NexaLinkPrimitive(
     onClick: () -> Unit,
@@ -3300,27 +3400,26 @@ internal fun NexaPickerPrimitive(
                         softWrap = false,
                     )
                     androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(4f)))
-                    androidx.compose.foundation.Canvas(
-                        modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(16f)),
-                    ) {
-                        val path = androidx.compose.ui.graphics.Path().apply {
-                            moveTo(size.width * 0.28f, size.height * 0.39f)
-                            lineTo(size.width * 0.5f, size.height * 0.18f)
-                            lineTo(size.width * 0.72f, size.height * 0.39f)
-                            moveTo(size.width * 0.28f, size.height * 0.61f)
-                            lineTo(size.width * 0.5f, size.height * 0.82f)
-                            lineTo(size.width * 0.72f, size.height * 0.61f)
-                        }
-                        drawPath(
-                            path = path,
-                            color = resolvedTint,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = size.minDimension * 0.1f,
-                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                                join = androidx.compose.ui.graphics.StrokeJoin.Round,
-                            ),
-                        )
-                    }
+                    androidx.compose.foundation.layout.Spacer(
+                        modifier = androidx.compose.ui.Modifier
+                            .size(androidx.compose.ui.unit.Dp(16f))
+                            .drawWithCache {
+                                val path = androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(size.width * 0.28f, size.height * 0.39f)
+                                    lineTo(size.width * 0.5f, size.height * 0.18f)
+                                    lineTo(size.width * 0.72f, size.height * 0.39f)
+                                    moveTo(size.width * 0.28f, size.height * 0.61f)
+                                    lineTo(size.width * 0.5f, size.height * 0.82f)
+                                    lineTo(size.width * 0.72f, size.height * 0.61f)
+                                }
+                                val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = size.minDimension * 0.1f,
+                                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                                )
+                                onDrawBehind { drawPath(path, resolvedTint, style = stroke) }
+                            },
+                    )
                 }
             }
             androidx.compose.material3.MaterialExpressiveTheme(
@@ -4238,6 +4337,7 @@ fn shared_component_primitives_with_wave(
         source.replace(token, value)
     });
     source.push_str(include_str!("components/date_picker.kt"));
+    source.push_str(assets::DRAWABLE_PRIMITIVES);
     source.push_str(include_str!("components/text_input.kt"));
     source.push_str(include_str!("components/text_input_edit.kt"));
     source.push_str(include_str!("components/scroll_view.kt"));
@@ -4766,10 +4866,16 @@ public class NexaBottomSheetRef {
                 components::navigation::render_screen_functions(module, features, 1, out);
                 out.push('\n');
             }
-            out.push_str("    NexaSafeAreaProvider {\n");
-            let mut body_base_depth = 2;
+            let observes_window = features.expose_permissions_to_dev_runtime
+                || features.facts.ui.observes_window_metrics();
+            let mut body_base_depth = 1;
+            if observes_window {
+                out.push_str("    NexaSafeAreaProvider {\n");
+                body_base_depth += 1;
+            }
             if features.uses_shared_elements {
-                out.push_str("        NexaSharedTransitionContent {\n");
+                out.indent(body_base_depth);
+                out.push_str("NexaSharedTransitionContent {\n");
                 body_base_depth += 1;
             }
             let follows_locale = features.facts.capabilities.uses_locale_api
@@ -4821,9 +4927,15 @@ public class NexaBottomSheetRef {
                 out.push('}');
             }
             if features.uses_shared_elements {
-                out.push_str("\n        }");
+                body_base_depth -= usize::from(follows_locale);
+                out.push('\n');
+                out.indent(body_base_depth - 1);
+                out.push('}');
             }
-            out.push_str("\n    }\n}\n");
+            if observes_window {
+                out.push_str("\n    }");
+            }
+            out.push_str("\n}\n");
     });
 
     if features.uses_shared_elements {
@@ -4888,11 +5000,6 @@ public class NexaBottomSheetRef {
     }
     if features.facts.capabilities.uses_clipboard_api {
         units.write("clipboard", api::clipboard::render);
-    }
-    if features.uses_asset || features.uses_placeholder || features.uses_remote_image {
-        units.write("assets", |out| {
-            assets::render(out);
-        });
     }
     if features.uses_permissions {
         units.write("permissions", |out| {
@@ -5062,6 +5169,14 @@ mod tests {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaKeyboardAwareColumnPrimitive("));
         assert!(primitives.contains("internal fun NexaKeyboardAwareOwnerPrimitive("));
+        assert!(primitives.contains("androidx.compose.ui.Modifier.requiredSize(0.dp)"));
+        assert_eq!(
+            primitives
+                .matches("if (onShow != null || onHide != null)")
+                .count(),
+            2,
+            "keyboard transition observers should only be attached when a handler is used"
+        );
         let keyboard_toolbar_layouts = primitives
             .split("// nexa-codegen: NexaKeyboardAwareColumnPrimitive")
             .nth(1)
@@ -5170,7 +5285,7 @@ mod tests {
         assert!(kotlin.contains(
             "LazyRow(modifier = nexaSafeAreaScrollViewportModifier(\"Horizontal\").then(Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary)), contentPadding = LocalNexaScrollContentPadding.current, state = nexaListState0, userScrollEnabled = (nexaListState0.canScrollForward || nexaListState0.canScrollBackward))"
         ));
-        assert!(kotlin.contains("NexaSafeAreaProvider {"));
+        assert!(!kotlin.contains("NexaSafeAreaProvider {"));
         assert!(kotlin.contains("object NexaHorizontalListScrollBoundary"));
         assert!(
             kotlin.contains("androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput")
@@ -5381,10 +5496,7 @@ mod tests {
         assert!(kotlin.contains("fun leadingVisibleDataItemIndex(): Int"));
         assert!(kotlin.contains("visibleItems = layoutInfo.visibleItemsInfo,"));
         assert!(kotlin.contains("(reverseLayout && index > leadingIndex)"));
-        assert!(
-            kotlin
-                .contains("snapshotFlow { leadingVisibleDataItemIndex() }.distinctUntilChanged()")
-        );
+        assert!(kotlin.contains("snapshotFlow { leadingVisibleDataItemIndex() }.collect"));
         assert!(kotlin.contains(
             "val target = (nexaListCount0 - 1 - nexa_listPosition).coerceIn(0, (nexaListCount0 - 1).coerceAtLeast(0))"
         ));
@@ -5410,13 +5522,9 @@ mod tests {
         let observed_kotlin = generate(&observed_module);
         assert!(observed_kotlin.contains("remember(nexaListState0) { booleanArrayOf(false) }"));
         assert!(observed_kotlin.contains("if (!isInitialScrollPosition) {"));
+        assert!(observed_kotlin.contains("nexaListEndIsVisible("));
         assert!(
-            observed_kotlin
-                .contains("val stickyHeader = visibleItems.firstOrNull { it.index == 0 }")
-        );
-        assert!(
-            observed_kotlin
-                .contains("item.index >= nexaListCount0 + 1 - 1 && item.offset < layoutInfo.viewportEndOffset && item.offset + item.size > layoutInfo.viewportStartOffset && (stickyHeader == null")
+            observed_kotlin.contains("layoutInfo.visibleItemsInfo, nexaListCount0 + 1 - 1, true,")
         );
         let reverse_target = "(nexaListCount0 - 1 - nexa_listPosition.coerceAtLeast(0)).coerceIn(0, (nexaListCount0 - 1).coerceAtLeast(0))";
         assert!(observed_kotlin.contains(&format!(
@@ -5429,12 +5537,11 @@ mod tests {
     }
 
     #[test]
-    fn divider_primitive_zero_thickness_is_invisible_on_compose() {
+    fn divider_primitive_paints_the_authored_height_on_compose() {
         let primitives = shared_component_primitives();
 
         assert!(primitives.contains("internal fun NexaDividerPrimitive("));
-        assert!(primitives.contains("if (thickness > androidx.compose.ui.unit.Dp(0f))"));
-        assert!(primitives.contains(".height(thickness)\n                .background(color)"));
+        assert!(primitives.contains(".height(thickness)\n            .background(color)"));
         assert!(!primitives.contains("HorizontalDivider(color = color, thickness = thickness)"));
     }
 
@@ -5487,6 +5594,8 @@ mod tests {
     #[test]
     fn segmented_control_fills_its_container_and_equalizes_each_choice() {
         let primitives = shared_component_primitives();
+        assert!(primitives.contains("val selectedIndex = items.indexOf(selected)"));
+        assert!(primitives.contains("if (selectedIndex >= 0)"));
 
         assert!(primitives.contains(
             "val outerHeight = maxOf(androidx.compose.ui.unit.Dp(48f), segmentTrackHeight)"
@@ -5587,6 +5696,21 @@ mod tests {
         assert!(!generated.contains("import androidx.compose.material.icons.filled.ChevronRight"));
         assert!(!project_features.uses_navigation);
         assert!(!project_features.uses_system_icons);
+    }
+
+    #[test]
+    fn font_icon_primitive_uses_component_tint_and_requested_icon_bounds() {
+        let primitives = shared_component_primitives();
+        let font_icon = primitives
+            .split("// nexa-codegen: NexaFontIconPrimitive")
+            .nth(1)
+            .unwrap_or_default()
+            .split("internal data class NexaIconLayer")
+            .next()
+            .unwrap_or_default();
+
+        assert!(font_icon.contains("modifier.size(size)"));
+        assert!(font_icon.contains("tint ?: androidx.compose.material3.LocalContentColor.current"));
     }
 
     #[test]
@@ -5713,10 +5837,13 @@ mod tests {
         };
 
         let kotlin = generate(&module);
-        assert!(kotlin.contains("import android.content.ActivityNotFoundException"));
-        assert!(kotlin.contains("Intent(Intent.ACTION_VIEW, Uri.parse(\"https://example.com\"))"));
-        assert!(kotlin.contains("nexaLinkContext.startActivity(nexaLinkIntent)"));
-        assert!(kotlin.contains("catch (_: ActivityNotFoundException)"));
+        assert!(kotlin.contains(
+            "nexaLaunchLink(nexaLinkContext, android.net.Uri.parse(\"https://example.com\"))"
+        ));
+        assert!(kotlin.contains(
+            "context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))"
+        ));
+        assert!(kotlin.contains("catch (_: android.content.ActivityNotFoundException)"));
         assert!(!kotlin.contains("resolveActivity(nexaLinkContext.packageManager)"));
     }
 
@@ -5977,11 +6104,39 @@ mod tests {
         assert!(input.contains("clearable: Boolean = false"));
         assert!(input.contains("NexaTextInputClearButtonSlot(visible = value.isNotEmpty())"));
         assert!(input.contains("acceptEdit(\"\")"));
-        assert!(input.contains("Icons.Filled.Cancel"));
+        assert!(input.contains("Canvas("));
+        assert!(input.contains("contentDescription = \"Clear text\""));
+        assert!(!input.contains("Icons.Filled.Cancel"));
         assert!(input.contains("modifier = inputFocusModifier.fillMaxWidth()"));
         assert!(input.contains(
             "modifier = androidx.compose.ui.Modifier.weight(1f).then(inputFocusModifier)"
         ));
+    }
+
+    #[test]
+    fn text_input_reuses_styles_and_secure_keyboard_options_between_edits() {
+        let input = include_str!("components/text_input.kt");
+
+        assert!(input.contains("remember(secure, keyboardOptions) {"));
+        assert!(
+            input.contains("remember(textStyle, effectiveTextColor) {\n        textStyle.copy(")
+        );
+        assert!(input.contains(
+            "remember(stableInputStyle, effectivePlaceholderColor) {\n        stableInputStyle.copy(color = effectivePlaceholderColor)"
+        ));
+        assert!(input.contains("remember(primaryColor) {"));
+        assert!(input.contains("remember(secure) {"));
+        assert!(!input.contains("val inputStyle = textStyle.copy("));
+    }
+
+    #[test]
+    fn layout_context_locals_are_reachable_without_the_text_primitive() {
+        let primitives = shared_component_primitives();
+        let column = nexa_codegen::source_sections::reachable(&primitives, "NexaColumnPrimitive()");
+
+        assert!(column.contains("internal val LocalNexaTextAlignment ="));
+        assert!(column.contains("internal val LocalNexaLayoutOverflowAlignment ="));
+        assert!(!column.contains("internal fun NexaTextPrimitive("));
     }
 
     #[test]
@@ -6076,6 +6231,19 @@ mod tests {
         assert!(primitives.contains("onValueChange = onCheckedChange,"));
         assert!(primitives.contains("onCheckedChange = null,"));
         assert!(primitives.contains("textAlign = androidx.compose.ui.text.style.TextAlign.Start,"));
+    }
+
+    #[test]
+    fn date_picker_and_page_pager_are_reachable_independently() {
+        let primitives = shared_component_primitives();
+        let pager = nexa_codegen::source_sections::reachable(&primitives, "NexaPageIndicatorRow()");
+        let date =
+            nexa_codegen::source_sections::reachable(&primitives, "NexaDatePickerPrimitive()");
+
+        assert!(pager.contains("internal fun NexaPageIndicatorRow("));
+        assert!(!pager.contains("internal fun NexaDatePickerPrimitive("));
+        assert!(date.contains("internal fun NexaDatePickerPrimitive("));
+        assert!(!date.contains("internal fun NexaPageIndicatorRow("));
     }
 
     #[test]
@@ -6214,7 +6382,10 @@ mod tests {
             .next()
             .unwrap_or_default();
         assert!(slider.contains("androidx.compose.material3.Slider("));
-        assert!(slider.contains("onValueChangeFinished = {"));
+        assert!(slider.contains("trackRange = lowerBound..upperBound,"));
+        assert!(slider.contains("val interactionEditing = if (onEditingChanged != null)"));
+        assert!(slider.contains("rememberUpdatedState(onEditingChanged)"));
+        assert!(slider.contains("onValueChangeFinished = if (interactionEditing != null)"));
         assert!(!slider.contains("awaitEachGesture"));
         assert!(!slider.contains("drawCircle("));
         assert!(bottom_sheet.contains("NexaCustomBottomSheetPrimitive("));
@@ -6616,6 +6787,8 @@ mod tests {
             .next()
             .unwrap_or_default();
         assert!(empty_state_primitive.contains("if (!description.isNullOrEmpty())"));
+        assert!(empty_state_primitive.contains("remember(typography.titleLarge)"));
+        assert!(empty_state_primitive.contains("style = titleStyle,"));
         assert_eq!(
             kotlin
                 .matches("Box(modifier = Modifier.weight(1f).fillMaxWidth())")

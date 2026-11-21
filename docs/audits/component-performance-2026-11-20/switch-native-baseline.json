@@ -1,0 +1,92 @@
+{
+  "fixtureSource": "app ColumnBench {\n    state buttonLabel: Bool = false\n    body {\n        Column(gap: 0) {\n            Switch(value: buttonLabel, label: \"Setting 1\")\n            Switch(value: buttonLabel, label: \"Setting 2\")\n            Switch(value: buttonLabel, label: \"Setting 3\")\n            Switch(value: buttonLabel, label: \"Setting 4\")\n            Switch(value: buttonLabel, label: \"Setting 5\")\n            Switch(value: buttonLabel, label: \"Setting 6\")\n            Switch(value: buttonLabel, label: \"Setting 7\")\n            Switch(value: buttonLabel, label: \"Setting 8\")\n            Switch(value: buttonLabel, label: \"Setting 9\")\n            Switch(value: buttonLabel, label: \"Setting 10\")\n            Switch(value: buttonLabel, label: \"Setting 11\")\n            Switch(value: buttonLabel, label: \"Setting 12\")\n        }\n    }\n}\n",
+  "workload": "12 native switches bound to the same Boolean. The driver alternates that Boolean on each app frame callback after two seconds of warmup. This bypasses the input callback.",
+  "ios": {
+    "samples": [
+      {
+        "order": 0,
+        "variant": "before",
+        "residentBytesEveryFiveSeconds": [
+          333086720
+        ],
+        "displayLinkP95Ms": 16.68687496567145,
+        "residentBytesEnd": 327008256,
+        "cpuSeconds": 0.9058919999999997,
+        "residentBytesStart": 333758464,
+        "displayLinkIntervals": 480,
+        "wallSeconds": 8.015153750020545
+      },
+      {
+        "order": 1,
+        "variant": "after",
+        "displayLinkIntervals": 480,
+        "residentBytesEveryFiveSeconds": [
+          332480512
+        ],
+        "residentBytesEnd": 331579392,
+        "displayLinkP95Ms": 16.696999955456704,
+        "wallSeconds": 8.009993249957915,
+        "cpuSeconds": 1.4606410000000003,
+        "residentBytesStart": 332726272
+      },
+      {
+        "order": 2,
+        "variant": "after",
+        "cpuSeconds": 1.7748890000000004,
+        "residentBytesStart": 332677120,
+        "residentBytesEnd": 332513280,
+        "residentBytesEveryFiveSeconds": [
+          332578816
+        ],
+        "displayLinkIntervals": 480,
+        "displayLinkP95Ms": 16.703250003047287,
+        "wallSeconds": 8.004340208310168
+      },
+      {
+        "order": 3,
+        "variant": "before",
+        "residentBytesEveryFiveSeconds": [
+          332742656
+        ],
+        "displayLinkP95Ms": 16.702583350706846,
+        "displayLinkIntervals": 480,
+        "wallSeconds": 8.012116958328988,
+        "residentBytesStart": 332840960,
+        "cpuSeconds": 1.8716289999999995,
+        "residentBytesEnd": 332693504
+      }
+    ],
+    "unsignedRelease": {
+      "status": "measured",
+      "reason": null,
+      "sdk": "iphoneos",
+      "configuration": "Release",
+      "xcodeVersion": "Xcode 27.2; Build version 27B52",
+      "nativeBuildMicros": 5999399,
+      "mainExecutableBytes": 271728,
+      "appBundleBytes": 272714,
+      "bundleOtherBytes": 986
+    }
+  },
+  "android": {
+    "sample": {
+      "wallSeconds": 12.00224734,
+      "cpuMillis": 2492,
+      "pssKiBStart": 28876,
+      "pssKiBEnd": 32148,
+      "pssKiBEveryFiveSeconds": [
+        44563,
+        29301
+      ],
+      "composeClockIntervals": 448,
+      "composeClockP95Ms": 73.78975,
+      "gfxInfoFrameStats": {
+        "records": 110,
+        "lastIntervalFps": 33.711341554639226,
+        "frameDurationP95Ms": 81.859102
+      }
+    },
+    "apkBytes": 904935,
+    "aabBytes": 2139895
+  }
+}

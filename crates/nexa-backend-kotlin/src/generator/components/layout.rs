@@ -143,16 +143,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.fillMaxHeight",
     );
     imports.add(
-        features.uses_spacer,
-        "androidx.compose.foundation.layout.width",
-    );
-    imports.add(
-        features.uses_spacer,
-        "androidx.compose.foundation.layout.height",
-    );
-    imports.add(features.uses_spacer, "androidx.compose.ui.Modifier");
-    imports.add(features.uses_spacer, "androidx.compose.ui.unit.dp");
-    imports.add(
         features.uses_divider,
         "androidx.compose.material3.HorizontalDivider",
     );
@@ -449,7 +439,14 @@ fn render_layout_inner(
             render_node(child, scope.module, scope.features, depth + 2, out);
             out.line_at(depth + 1, format_args!("}}"));
         } else {
-            render_node(child, scope.module, scope.features, depth + 1, out);
+            super::node_renderer::render_node_with_linear_parent(
+                child,
+                scope.module,
+                scope.features,
+                depth + 1,
+                out,
+                matches!(kind, LayoutKind::Column),
+            );
         }
         rendered_content += 1;
         if rendered_content < children.len() - usize::from(has_toolbars) {
@@ -529,7 +526,14 @@ fn render_toolbar_row(
                 if rendered_items > 0 {
                     out.push('\n');
                 }
-                render_node(child, scope.module, scope.features, depth + 2, out);
+                super::node_renderer::render_node_with_linear_parent(
+                    child,
+                    scope.module,
+                    scope.features,
+                    depth + 2,
+                    out,
+                    true,
+                );
                 rendered_items += 1;
             }
         }

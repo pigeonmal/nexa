@@ -80,7 +80,7 @@ pub(super) fn lower_text_component(
     let underline = optional_bool(underline, false, "underline")?;
     let selectable = optional_bool(selectable, false, "selectable")?;
     let opacity = lower_opacity(opacity)?;
-    let effects = lower_view_effects(
+    let mut effects = lower_view_effects(
         args.remove("scale"),
         args.remove("scaleY"),
         args.remove("rotation"),
@@ -93,6 +93,7 @@ pub(super) fn lower_text_component(
         themes,
         &cx.exprs(false),
     )?;
+    crate::optimize::normalize_view_effects(&mut effects, cx.target);
     Ok(Node::Text {
         value,
         style: TextStyle {

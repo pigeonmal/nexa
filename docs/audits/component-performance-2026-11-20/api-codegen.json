@@ -1,0 +1,306 @@
+{
+  "baseRevision": "18cedbec",
+  "worktree": "dirty",
+  "metricScope": "Whole-fixture generated source, dependencies and capability reachability",
+  "fixtures": {
+    "examples/background_task.nx": {
+      "ios": {
+        "generatedSourceBytes": 35813,
+        "dependencies": [
+          "Dispatch",
+          "Foundation",
+          "SwiftUI",
+          "UIKit"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": true,
+          "secureStorage": false
+        }
+      },
+      "android": {
+        "generatedSourceBytes": 61122,
+        "dependencies": [
+          "androidx.activity:activity-compose",
+          "androidx.compose.material3:material3",
+          "androidx.compose.ui:ui",
+          "org.jetbrains.kotlinx:kotlinx-coroutines-android"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": true,
+          "secureStorage": false
+        }
+      }
+    },
+    "examples/network_status.nx": {
+      "ios": {
+        "generatedSourceBytes": 39399,
+        "dependencies": [
+          "Foundation",
+          "Network",
+          "SwiftUI",
+          "UIKit"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      },
+      "android": {
+        "generatedSourceBytes": 60089,
+        "dependencies": [
+          "androidx.activity:activity-compose",
+          "androidx.compose.material3:material3",
+          "androidx.compose.ui:ui"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      }
+    },
+    "examples/network_caching.nx": {
+      "ios": {
+        "generatedSourceBytes": 68486,
+        "dependencies": [
+          "CryptoKit",
+          "Foundation",
+          "Security",
+          "SwiftUI",
+          "UIKit",
+          "os"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": true,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      },
+      "android": {
+        "generatedSourceBytes": 86143,
+        "dependencies": [
+          "androidx.activity:activity-compose",
+          "androidx.compose.material3:material3",
+          "androidx.compose.ui:ui",
+          "com.google.android.gms:play-services-cronet",
+          "org.jetbrains.kotlinx:kotlinx-coroutines-android"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": true,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      }
+    },
+    "examples/file_api.nx": {
+      "ios": {
+        "generatedSourceBytes": 47935,
+        "dependencies": [
+          "Foundation",
+          "SwiftUI",
+          "UIKit"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": true,
+          "file": true,
+          "fileAsync": true,
+          "storage": false,
+          "secureStorage": false
+        }
+      },
+      "android": {
+        "generatedSourceBytes": 65806,
+        "dependencies": [
+          "androidx.activity:activity-compose",
+          "androidx.compose.material3:material3",
+          "androidx.compose.ui:ui",
+          "org.jetbrains.kotlinx:kotlinx-coroutines-android"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": true,
+          "file": true,
+          "fileAsync": true,
+          "storage": false,
+          "secureStorage": false
+        }
+      }
+    },
+    "examples/clipboard.nx": {
+      "ios": {
+        "generatedSourceBytes": 65929,
+        "dependencies": [
+          "Foundation",
+          "SwiftUI",
+          "UIKit"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      },
+      "android": {
+        "generatedSourceBytes": 79788,
+        "dependencies": [
+          "androidx.activity:activity-compose",
+          "androidx.compose.material3:material3",
+          "androidx.compose.ui:ui"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      }
+    },
+    "examples/typed_storage.nx": {
+      "ios": {
+        "generatedSourceBytes": 58192,
+        "dependencies": [
+          "Foundation",
+          "SwiftUI",
+          "UIKit"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": true,
+          "secureStorage": false
+        }
+      },
+      "android": {
+        "generatedSourceBytes": 78534,
+        "dependencies": [
+          "androidx.activity:activity-compose",
+          "androidx.compose.material3:material3",
+          "androidx.compose.ui:ui"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": true,
+          "secureStorage": false
+        }
+      }
+    },
+    "examples/crypto.nx": {
+      "ios": {
+        "generatedSourceBytes": 24173,
+        "dependencies": [
+          "CryptoKit",
+          "Foundation",
+          "Security",
+          "SwiftUI",
+          "UIKit"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      },
+      "android": {
+        "generatedSourceBytes": 32764,
+        "dependencies": [
+          "androidx.activity:activity-compose",
+          "androidx.compose.material3:material3",
+          "androidx.compose.ui:ui"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      }
+    },
+    "examples/json.nx": {
+      "ios": {
+        "generatedSourceBytes": 53433,
+        "dependencies": [
+          "Foundation",
+          "SwiftUI",
+          "UIKit"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      },
+      "android": {
+        "generatedSourceBytes": 72043,
+        "dependencies": [
+          "androidx.activity:activity-compose",
+          "androidx.compose.material3:material3",
+          "androidx.compose.ui:ui"
+        ],
+        "capabilities": {
+          "remoteImage": false,
+          "network": false,
+          "path": false,
+          "file": false,
+          "fileAsync": false,
+          "storage": false,
+          "secureStorage": false
+        }
+      }
+    }
+  }
+}

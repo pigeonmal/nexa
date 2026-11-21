@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use nexa_codegen::SourceWriter;
 use nexa_ir::{ImageScale, ImageSource};
 
@@ -39,6 +41,7 @@ pub(crate) fn render_image(
     max_height: Option<f32>,
     fill_max_size: bool,
     shared_element: Option<&nexa_ir::Expr>,
+    known_drawables: &BTreeSet<String>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -63,18 +66,21 @@ pub(crate) fn render_image(
     let indent = "    ".repeat(depth);
     match source {
         ImageSource::Asset(asset) => out.push_str(&format!(
-            "NexaAssetImagePrimitive(\n{indent}    name = {},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    fillMaxSize = {fill_max_size},\n{indent}    modifier = {modifier},\n{indent})",
-            kotlin_string(asset),
+            "NexaAssetImagePrimitive(\n{indent}    resourceId = {},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    fillMaxSize = {fill_max_size},\n{indent}    modifier = {modifier},\n{indent})",
+            super::assets::drawable_id(asset, known_drawables),
         )),
-        ImageSource::RemoteUrl(url) => out.push_str(&format!(
-            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = false,\n{indent}    placeholder = {},\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    fillMaxSize = {fill_max_size},\n{indent}    modifier = {modifier},\n{indent})",
-            expression(url),
-            placeholder.map(kotlin_string).unwrap_or_else(|| "null".to_owned()),
-        )),
-        ImageSource::LocalFile(file) => out.push_str(&format!(
-            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = true,\n{indent}    placeholder = null,\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    fillMaxSize = {fill_max_size},\n{indent}    modifier = {modifier},\n{indent})",
-            expression(file),
-        )),
+        ImageSource::RemoteUrl(url) | ImageSource::LocalFile(url) => {
+            let allows_file = matches!(source, ImageSource::LocalFile(_));
+            let placeholder = if allows_file { None } else { placeholder };
+            let placeholder_id = placeholder.map_or_else(
+                || "null".to_owned(),
+                |name| super::assets::drawable_id(name, known_drawables),
+            );
+            out.push_str(&format!(
+                "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = {allows_file},\n{indent}    placeholderResourceId = {placeholder_id},\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    fillMaxSize = {fill_max_size},\n{indent}    modifier = {modifier},\n{indent})",
+                expression(url),
+            ));
+        }
     }
 }
 
@@ -83,7 +89,7 @@ pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: 
         out.push_str(
             r#"@Composable
 internal fun NexaAssetImagePrimitive(
-    name: String,
+    resourceId: Int,
     contentDescription: String?,
     contentScale: androidx.compose.ui.layout.ContentScale,
     maxHeight: androidx.compose.ui.unit.Dp?,
@@ -95,7 +101,7 @@ internal fun NexaAssetImagePrimitive(
             ?: androidx.compose.ui.Modifier
     ).then(if (fillMaxSize) Modifier.fillMaxSize() else Modifier)
     androidx.compose.foundation.Image(
-        painter = nexaDrawablePainter(name),
+        painter = nexaDrawablePainter(resourceId),
         contentDescription = contentDescription,
         contentScale = contentScale,
         modifier = imageModifier,
@@ -111,7 +117,7 @@ internal fun NexaAssetImagePrimitive(
 internal fun NexaRemoteImagePrimitive(
     url: String,
     allowsFile: Boolean,
-    placeholder: String?,
+    placeholderResourceId: Int?,
     showLoadingIndicator: Boolean,
     contentDescription: String?,
     contentScale: androidx.compose.ui.layout.ContentScale,
@@ -124,7 +130,7 @@ internal fun NexaRemoteImagePrimitive(
     } else {
         url.takeIf { it.startsWith("https://", ignoreCase = true) }
     }
-    val placeholderPainter = if (placeholder == null) null else nexaDrawablePainter(placeholder)
+    val placeholderPainter = placeholderResourceId?.let { nexaDrawablePainter(it) }
     val imageModifier = modifier.then(
         maxHeight?.let { androidx.compose.ui.Modifier.heightIn(max = it) }
             ?: androidx.compose.ui.Modifier
@@ -177,6 +183,8 @@ internal fun NexaRemoteImagePrimitive(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use nexa_codegen::SourceWriter;
     use nexa_ir::{ImageScale, ImageSource};
 
@@ -188,7 +196,7 @@ mod tests {
         render_primitives(true, false, &mut output);
 
         assert!(output.contains("internal fun NexaAssetImagePrimitive("));
-        assert!(output.contains("painter = nexaDrawablePainter(name)"));
+        assert!(output.contains("painter = nexaDrawablePainter(resourceId)"));
         assert!(output.contains("Modifier.heightIn(max = it)"));
         assert!(output.contains("contentDescription = contentDescription"));
         assert!(!output.contains("NexaRemoteImagePrimitive("));
@@ -229,6 +237,7 @@ mod tests {
             Some(80.0),
             false,
             None,
+            &BTreeSet::new(),
             0,
             &mut output,
         );

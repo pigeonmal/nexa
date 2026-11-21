@@ -86,3 +86,51 @@ fn native_image_transport_and_sectioned_swipe_bindings_compile_without_warnings(
         .join("../../tests/fixtures/native-ui/image-network-quality.nx");
     compile_aot_quality(&entry, "ImageNetworkQuality");
 }
+
+#[test]
+fn standalone_masonry_uses_a_native_layout_and_scroll_references() {
+    let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/native-ui/masonry-only-quality.nx");
+    compile_aot_quality(&entry, "MasonryQuality");
+}
+
+#[test]
+fn sparse_masonry_matches_sequential_placement() {
+    if !cfg!(target_os = "macos")
+        || !Command::new("xcrun")
+            .args(["--sdk", "macosx", "--show-sdk-path"])
+            .output()
+            .is_ok_and(|output| output.status.success())
+    {
+        eprintln!("skipping native masonry geometry check: macOS Swift SDK is required");
+        return;
+    }
+
+    let scratch = nexa_testkit::TestProject::new("nexa-masonry-geometry");
+    let source = scratch.path().join("main.swift");
+    let geometry =
+        include_str!("../../nexa-backend-swift/src/generator/components/masonry_geometry.swift");
+    let probe = include_str!("../../../tests/fixtures/native-ui/masonry-geometry.swift");
+    std::fs::write(&source, format!("import CoreGraphics\n{geometry}\n{probe}"))
+        .expect("write native geometry probe");
+    let executable = scratch.path().join("geometry");
+    let compile = Command::new("xcrun")
+        .args(["--sdk", "macosx", "swiftc", "-O", "-warnings-as-errors"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("native Swift compiler should execute");
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    assert!(
+        Command::new(executable)
+            .status()
+            .expect("run geometry probe")
+            .success(),
+        "Masonry geometry disagrees with sequential placement"
+    );
+}
