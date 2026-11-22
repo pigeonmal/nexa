@@ -23,6 +23,9 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v559` | Restores native Android top bar status insets while keeping content edge-to-edge. |
+| `build-v558` | Preserves resolved custom font faces without synthetic weight changes. |
+| `build-v557` | Extends Android navigation screen content through system insets. |
 | `build-v556` | Shares one Android marquee observer per active host lifecycle. |
 | `build-v555` | Shares Android marquee motion and accessibility listeners while marquees are mounted. |
 | `build-v554` | Reuses Android DevRuntime toolbar projections across recompositions and shares unchanged module nodes. |

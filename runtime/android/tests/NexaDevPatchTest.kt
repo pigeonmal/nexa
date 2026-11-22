@@ -20,11 +20,15 @@ import org.junit.Test
 class NexaDevPatchTest {
     @Test
     fun optionalStringTreatsJsonNullAsAbsent() {
-        val fields = JSONObject().put("focused", JSONObject.NULL)
+        val fields = JSONObject()
+            .put("focused", JSONObject.NULL)
+            .put("font_family", JSONObject.NULL)
 
         assertNull(fields.nexaDevOptionalString("focused"))
         assertNull(JSONObject().nexaDevOptionalString("focused"))
         assertEquals("emailFocused", JSONObject().put("focused", "emailFocused").nexaDevOptionalString("focused"))
+        assertNull(fields.nexaDevOptionalString("font_family"))
+        assertEquals("Gilroy", JSONObject().put("font_family", "Gilroy").nexaDevOptionalString("font_family"))
     }
 
     private fun module(

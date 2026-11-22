@@ -2607,7 +2607,7 @@ struct NexaDevNodeList: View {
                 nativeStyle = nativeStyle.withColor(color)
             }
             if let resolvedFont { nativeStyle = nativeStyle.withFont(resolvedFont) }
-            if let weight = weight ?? semanticWeight {
+            if !(style["font_family"] is String), let weight = weight ?? semanticWeight {
                 nativeStyle = nativeStyle.withWeight(weight)
             }
             if let lineLimit = style["line_limit"] as? Int {

@@ -1350,7 +1350,11 @@ fn render_text_with_catalog(
             .map(|metrics| metrics.weight)
             .filter(|weight| *weight != nexa_ir::FontWeight::Normal)
     };
-    if let Some(weight) = style.font_weight.or(semantic_weight) {
+    if let Some(weight) = style
+        .font_weight
+        .or(semantic_weight)
+        .filter(|_| style.font_family.is_none())
+    {
         style_modifiers.push(format!(".withWeight({})", swift_font_weight(weight)));
     }
     if let Some(line_limit) = style.line_limit {
@@ -1646,6 +1650,7 @@ mod text_tests {
         );
 
         assert!(output.contains(".custom(\"Inter-SemiBold\""));
+        assert!(!output.contains(".withWeight("));
     }
 
     #[test]

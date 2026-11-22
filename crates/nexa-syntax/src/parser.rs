@@ -1574,13 +1574,16 @@ impl Parser {
                 self.optional_semicolon();
             }
         }
-        self.expect(Kind::RBrace, "expected `}` to close screen")?;
+        let closing = self.expect(Kind::RBrace, "expected `}` to close screen")?;
         Ok(ScreenDecl {
             name,
             parameters,
             states,
             body,
-            span,
+            span: Span {
+                end: closing.span.end,
+                ..span
+            },
             source_file: None,
         })
     }

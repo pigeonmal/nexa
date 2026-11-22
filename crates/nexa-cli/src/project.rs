@@ -1086,14 +1086,8 @@ fn dev_kotlin_font_family_cases(catalog: &nexa_codegen::FontCatalog) -> String {
             let lower_name = kotlin_escape(&name.to_ascii_lowercase());
             weights.into_iter().filter_map(move |(label, weight)| {
                 catalog.resolve(&name, weight).map(|face| {
-                    let face_weight = match face.weight {
-                        nexa_ir::FontWeight::Normal => "Normal",
-                        nexa_ir::FontWeight::Medium => "Medium",
-                        nexa_ir::FontWeight::Semibold => "SemiBold",
-                        nexa_ir::FontWeight::Bold => "Bold",
-                    };
                     format!(
-                        "            \"{lower_name}\" to FontWeight.{label} -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.{}, weight = FontWeight.{face_weight}))",
+                        "            \"{lower_name}\" to FontWeight.{label} -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.{}, weight = FontWeight.{label}))",
                         face.android_resource_name
                     )
                 })
@@ -3616,15 +3610,19 @@ mod tests {
         assert!(swift.contains("case (\"gilroy\", \"Semibold\"): return \"Gilroy-Semibold\""));
         assert!(swift.contains("case (\"gilroy\", \"Medium\"): return \"Gilroy-Regular\""));
         assert!(swift.contains("case (\"gilroy\", \"Bold\"): return \"Gilroy-Semibold\""));
+        assert!(swift.contains("if !(style[\"font_family\"] is String), let weight = weight ?? semanticWeight"));
         assert!(swift.contains("fontFamily: family"));
         assert!(kotlin.contains("\"gilroy\" to FontWeight.SemiBold ->"));
         assert!(kotlin.contains(
-            "\"gilroy\" to FontWeight.Medium -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.gilroy_regular, weight = FontWeight.Normal))"
+            "\"gilroy\" to FontWeight.Medium -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.gilroy_regular, weight = FontWeight.Medium))"
         ));
         assert!(kotlin.contains(
-            "\"gilroy\" to FontWeight.Bold -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.gilroy_semibold, weight = FontWeight.SemiBold))"
+            "\"gilroy\" to FontWeight.Bold -> androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.gilroy_semibold, weight = FontWeight.Bold))"
         ));
         assert!(kotlin.contains("R.font.gilroy_semibold"));
+        assert!(kotlin.contains(
+            "val customFontFamily = style.nexaDevOptionalString(\"font_family\")?.takeIf(String::isNotBlank)"
+        ));
         assert!(kotlin.contains("nexaDevIconFontFamily(family)"));
         assert!(!kotlin.contains("__NEXA_ANDROID_FONT_FAMILY_CASES__"));
         assert!(!kotlin.contains("getIdentifier("));

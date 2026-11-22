@@ -1971,6 +1971,7 @@ internal fun NexaNavigationScreenPrimitive(
         modifier = androidx.compose.ui.Modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         // Form and native list primitives own their grouped surface backgrounds. Keeping the
         // navigation scaffold on the app background prevents it tinting the title bar and the
         // content above an inset Form.
@@ -3558,6 +3559,7 @@ internal fun NexaNavigationChrome(
             )
             androidx.compose.material3.Scaffold(
                 modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+                contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
                 containerColor = containerColor,
                 topBar = {
                     val titleContent: @androidx.compose.runtime.Composable () -> Unit = {
@@ -6291,6 +6293,8 @@ mod tests {
             .next()
             .unwrap_or_default();
         assert!(navigation.contains("containerColor = colorScheme.background,"));
+        assert!(navigation.contains("contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"));
+        assert!(!navigation.contains("windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"));
         assert!(!navigation.contains("groupedSurface"));
         assert!(primitives.contains("TopAppBarDefaults.exitUntilCollapsedScrollBehavior()"));
         assert!(primitives.contains("TopAppBarDefaults.pinnedScrollBehavior()"));

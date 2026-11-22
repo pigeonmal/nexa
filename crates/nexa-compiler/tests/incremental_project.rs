@@ -4,6 +4,44 @@ use nexa_compiler::{IncrementalProjectCompiler, Target};
 use nexa_testkit::TestProject;
 
 #[test]
+fn dev_screen_cache_invalidates_when_only_text_font_size_changes() {
+    let project = TestProject::new("nexa-dev-screen-font-size");
+    let source = |size| {
+        format!(
+            "app Demo {{ screen Home {{ Text(\"Text\", fontSize: {size}, fontWeight: Bold) }} body {{ NavigationStack(root: Home) }} }}"
+        )
+    };
+    let entry = project.write_app(&source(30));
+    let targets = [Target::Swift, Target::Kotlin];
+    let mut compiler = IncrementalProjectCompiler::default();
+    let first = compiler
+        .compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
+            &entry,
+            &targets,
+            &HashMap::new(),
+        )
+        .expect("initial compilation");
+    project.write_app(&source(60));
+    let second = compiler
+        .compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
+            &entry,
+            &targets,
+            &HashMap::new(),
+        )
+        .expect("updated compilation");
+    for (before, after) in first.iter().zip(&second) {
+        let nexa_ir::Node::Text { style: before, .. } = &before.module.screens[0].body[0] else {
+            panic!("expected text")
+        };
+        let nexa_ir::Node::Text { style: after, .. } = &after.module.screens[0].body[0] else {
+            panic!("expected text")
+        };
+        assert_eq!(before.font_size, Some(30.0));
+        assert_eq!(after.font_size, Some(60.0));
+    }
+}
+
+#[test]
 fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_targets() {
     let project = TestProject::new("nexa-project-custom-icon-font");
     project.write(

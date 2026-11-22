@@ -130,10 +130,9 @@ pub(crate) fn render_with_catalog(
                 let face = nexa_codegen::names::font_face_name(family, font_weight);
                 nexa_codegen::names::font_resource_name(&face)
             });
-        let face_weight = selected.map(|face| face.weight).unwrap_or(font_weight);
         out.push_str(&format!(
             ", fontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.{resource_name}, weight = {}))",
-            kotlin_font_weight(face_weight)
+            kotlin_font_weight(font_weight)
         ));
     } else if let Some(font_design) = style
         .font_design
@@ -444,6 +443,34 @@ mod tests {
         let generated = output.finish();
         assert!(generated.contains("R.font.inter_semibold"));
         assert!(generated.contains("weight = FontWeight.SemiBold"));
+    }
+
+    #[test]
+    fn fallback_font_is_registered_at_requested_weight_to_prevent_synthesis() {
+        let mut catalog = nexa_codegen::FontCatalog::default();
+        catalog.insert(nexa_codegen::FontFace {
+            family: "Inter".to_owned(),
+            weight: nexa_ir::FontWeight::Normal,
+            postscript_name: "Inter-Regular".to_owned(),
+            android_resource_name: "inter_regular".to_owned(),
+        });
+        let mut output = SourceWriter::new();
+        render_with_catalog(
+            &Expr::String("Tasks".to_owned()),
+            &TextStyle {
+                font_family: Some("Inter".to_owned()),
+                font_weight: Some(nexa_ir::FontWeight::Medium),
+                ..TextStyle::default()
+            },
+            &catalog,
+            0,
+            &mut output,
+        );
+        assert!(
+            output
+                .finish()
+                .contains("R.font.inter_regular, weight = FontWeight.Medium")
+        );
     }
 
     #[test]

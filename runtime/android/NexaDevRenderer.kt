@@ -1605,7 +1605,7 @@ private fun NexaDevRenderTextNode(
                     semanticMetrics?.first ?: nexaDevDefaultBodyFontSize.sp
                 }
                 val fontWeight = weight ?: semanticMetrics?.second ?: FontWeight.Normal
-                val customFontFamily = style.optString("font_family").takeIf(String::isNotBlank)
+                val customFontFamily = style.nexaDevOptionalString("font_family")?.takeIf(String::isNotBlank)
                 val fontFamily = if (customFontFamily != null) {
                     nexaDevFontFamily(customFontFamily, fontWeight)
                 } else {

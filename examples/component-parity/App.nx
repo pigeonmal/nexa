@@ -35,8 +35,8 @@ app ComponentParity {
     screen Catalog {
         Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
-                NavigationLink(destination: IconCases) {
-                    Text("System, font, and SVG icons")
+                NavigationLink(destination: TextCases) {
+                    Text("Text styles and sizing")
                 }
             }
             Section(title: "Layout") {
@@ -1045,205 +1045,207 @@ app ComponentParity {
         ]
         state revealPosition: Float64 = 0.65
         state revealSeekRevision: Int32 = 0
-        Column(gap: 10, padding: 16) {
-            Text("Text", fontSize: 28, fontWeight: Bold)
-            Row(gap: 12) {
-                Pressable(accessibilityLabel: "Text typography tests", accessibilityRole: Button) {
-                    Text("Typography", fontSize: 13)
-                }.onTap {
-                    textTestPage = 0
-                }
-                Pressable(accessibilityLabel: "Text layout and effects tests", accessibilityRole: Button) {
-                    Text("Layout + effects", fontSize: 13)
-                }.onTap {
-                    textTestPage = 1
-                }
-                Pressable(accessibilityLabel: "Text semantic font styles", accessibilityRole: Button) {
-                    Text("Font styles", fontSize: 13)
-                }.onTap {
-                    textTestPage = 2
-                }
-            }
-            if textTestPage == 0 {
-                ParityCard(title: "Rolling number formatting") {
-                    Text("Each changed digit rolls independently using the device locale.", fontSize: 13, color: "#777780")
-                    NumberFlow(
-                        value: rollingTotal,
-                        format: Currency,
-                        currencyCode: "EUR",
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                        animation: Spring(response: 0.35, damping: 0.82),
-                        comment: "Rolling currency total",
-                        color: "#222222",
-                        alignment: Center,
-                        fontSize: 24,
-                        fontStyle: Body,
-                        fontDesign: Default,
-                        fontFamily: "Gilroy",
-                        fontWeight: Semibold,
-                        padding: 4,
-                        opacity: 0.95,
-                        scale: 1.0,
-                        scaleY: 1.0,
-                        rotation: 0,
-                        shadow: Shadow(1, 0, 0, "#00000020"),
-                        blur: 0,
-                        clip: Rounded(4),
-                        zIndex: 1,
-                        lineLimit: 1,
-                        lineHeight: 28,
-                        letterSpacing: 0.2,
-                        strikethrough: false,
-                        italic: false,
-                        underline: false,
-                        selectable: true,
-                    )
-                    Row(gap: 8) {
-                        Button("Add €0.10") { rollingTotal = rollingTotal + 0.1 }
-                        Button("Subtract €0.10") { rollingTotal = rollingTotal - 0.1 }
+        ScrollView {
+            Column(gap: 10, padding: 0) {
+                Text("Text", fontSize: 30, fontWeight: Bold)
+                Row(gap: 12) {
+                    Pressable(accessibilityLabel: "Text typography tests", accessibilityRole: Button) {
+                        Text("Typography", fontSize: 13)
+                    }.onTap {
+                        textTestPage = 0
+                    }
+                    Pressable(accessibilityLabel: "Text layout and effects tests", accessibilityRole: Button) {
+                        Text("Layout + effects", fontSize: 13)
+                    }.onTap {
+                        textTestPage = 1
+                    }
+                    Pressable(accessibilityLabel: "Text semantic font styles", accessibilityRole: Button) {
+                        Text("Font styles", fontSize: 13)
+                    }.onTap {
+                        textTestPage = 2
                     }
                 }
-                ParityCard(title: "Font sizes, weights, and designs") {
-                    Text("Normal 14", fontSize: 14, fontWeight: Normal)
-                    Text("Medium 18", fontSize: 18, fontWeight: Medium)
-                    Text("Semibold 22", fontSize: 22, fontWeight: Semibold)
-                    Text("Bold 26", fontSize: 26, fontWeight: Bold)
-                    Text("Italic text", italic: true, fontDesign: Serif)
-                    Text("Underlined text", underline: true, fontDesign: Rounded)
-                    Text("Combined emphasis", italic: true, underline: true, strikethrough: true, fontDesign: Monospaced)
-                    Text("Default design", fontDesign: Default)
-                    Text("Gilroy custom face", fontFamily: "Gilroy")
-                    Text("Serif design", fontDesign: Serif)
-                    Text("Serif 18", fontSize: 18, fontDesign: Serif, comment: "Serif typeface at a custom size")
-                    Text("Rounded design", fontDesign: Rounded)
-                    Text("Monospaced design", fontDesign: Monospaced)
-                }
-                ParityCard(title: "Discovered font family and weight fallback") {
-                    Text("Gilroy Regular · Normal", fontFamily: "Gilroy", fontWeight: Normal)
-                    Text("Gilroy Medium request · Regular fallback", fontFamily: "Gilroy", fontWeight: Medium)
-                    Text("Gilroy Semibold · exact face", fontFamily: "Gilroy", fontWeight: Semibold)
-                    Text("Gilroy Bold request · Semibold fallback", fontFamily: "Gilroy", fontWeight: Bold)
-                }
-                ParityCard(title: "Timed karaoke and transcript highlighting") {
-                    Text("TextReveal highlights words as the playback position advances. The app supplies word timings; this preview does not play audio.", fontSize: 13, color: "#777780")
-                    TextReveal(
-                        "When the music starts tonight",
-                        segments: revealSegments,
-                        position: revealPosition,
-                        isActive: true,
-                        isPlaying: false,
-                        revealEnabled: true,
-                        seekRevision: revealSeekRevision,
-                        revealOpacity: 0.38,
-                        leadTime: 0.3,
-                        targetOffset: 0.56,
-                        smoothingDuration: 0.25,
-                        comment: "Timed lyrics or transcript preview",
-                        color: "#222222",
-                        alignment: Center,
-                        fontSize: 16,
-                        fontStyle: Body,
-                        fontDesign: Default,
-                        fontFamily: "Gilroy",
-                        fontWeight: Semibold,
-                        padding: 4,
-                        opacity: 0.95,
-                        scale: 1.0,
-                        scaleY: 1.0,
-                        rotation: 0,
-                        shadow: Shadow(1, 0, 0, "#00000020"),
-                        blur: 0,
-                        clip: Rounded(4),
-                        zIndex: 1,
-                        lineLimit: 2,
-                        lineHeight: 20,
-                        letterSpacing: 0.2,
-                        strikethrough: false,
-                        italic: false,
-                        underline: false,
-                    )
-                    Text("Playback position: \(revealPosition) s", fontSize: 13, color: "#777780")
-                    Row(gap: 8) {
-                        Button("0.0 s") {
-                            revealPosition = 0.0
-                        }
-                        Button("0.8 s") {
-                            revealPosition = 0.8
-                        }
-                        Button("1.8 s") {
-                            revealPosition = 1.8
+                if textTestPage == 0 {
+                    ParityCard(title: "Rolling number formatting") {
+                        Text("Each changed digit rolls independently using the device locale.", fontSize: 13, color: "#777780")
+                        NumberFlow(
+                            value: rollingTotal,
+                            format: Currency,
+                            currencyCode: "EUR",
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                            animation: Spring(response: 0.35, damping: 0.82),
+                            comment: "Rolling currency total",
+                            color: "#222222",
+                            alignment: Center,
+                            fontSize: 24,
+                            fontStyle: Body,
+                            fontDesign: Default,
+                            fontFamily: "Gilroy",
+                            fontWeight: Semibold,
+                            padding: 4,
+                            opacity: 0.95,
+                            scale: 1.0,
+                            scaleY: 1.0,
+                            rotation: 0,
+                            shadow: Shadow(1, 0, 0, "#00000020"),
+                            blur: 0,
+                            clip: Rounded(4),
+                            zIndex: 1,
+                            lineLimit: 1,
+                            lineHeight: 28,
+                            letterSpacing: 0.2,
+                            strikethrough: false,
+                            italic: false,
+                            underline: false,
+                            selectable: true,
+                        )
+                        Row(gap: 8) {
+                            Button("Add €0.10") { rollingTotal = rollingTotal + 0.1 }
+                            Button("Subtract €0.10") { rollingTotal = rollingTotal - 0.1 }
                         }
                     }
-                }
-                ParityCard(title: "Typed numeric interpolation · device locale") {
-                    Text("Float64: \(textInterpolationFloat64)")
-                    Text("Float32: \(textInterpolationFloat32)")
-                    Text("Int32: \(textInterpolationInteger)")
-                    Row(gap: 8) {
-                        Button("Use boundary values") {
-                            textInterpolationFloat64 = - 0.2
-                            textInterpolationFloat32 = 1.5
-                            textInterpolationInteger = - 7
+                    ParityCard(title: "Font sizes, weights, and designs") {
+                        Text("Normal 14", fontSize: 14, fontWeight: Normal)
+                        Text("Medium 18", fontSize: 18, fontWeight: Medium)
+                        Text("Semibold 22", fontSize: 22, fontWeight: Semibold)
+                        Text("Bold 26", fontSize: 26, fontWeight: Bold)
+                        Text("Italic text", italic: true, fontDesign: Serif)
+                        Text("Underlined text", underline: true, fontDesign: Rounded)
+                        Text("Combined emphasis", italic: true, underline: true, strikethrough: true, fontDesign: Monospaced)
+                        Text("Default design", fontDesign: Default)
+                        Text("Gilroy custom face", fontFamily: "Gilroy")
+                        Text("Serif design", fontDesign: Serif)
+                        Text("Serif 18", fontSize: 18, fontDesign: Serif, comment: "Serif typeface at a custom size")
+                        Text("Rounded design", fontDesign: Rounded)
+                        Text("Monospaced design", fontDesign: Monospaced)
+                    }
+                    ParityCard(title: "Discovered font family and weight fallback") {
+                        Text("Gilroy Regular · Normal", fontFamily: "Gilroy", fontWeight: Normal)
+                        Text("Gilroy Medium request · Regular fallback", fontFamily: "Gilroy", fontWeight: Medium)
+                        Text("Gilroy Semibold · exact face", fontFamily: "Gilroy", fontWeight: Semibold)
+                        Text("Gilroy Bold request · Semibold fallback", fontFamily: "Gilroy", fontWeight: Bold)
+                    }
+                    ParityCard(title: "Timed karaoke and transcript highlighting") {
+                        Text("TextReveal highlights words as the playback position advances. The app supplies word timings; this preview does not play audio.", fontSize: 13, color: "#777780")
+                        TextReveal(
+                            "When the music starts tonight",
+                            segments: revealSegments,
+                            position: revealPosition,
+                            isActive: true,
+                            isPlaying: false,
+                            revealEnabled: true,
+                            seekRevision: revealSeekRevision,
+                            revealOpacity: 0.38,
+                            leadTime: 0.3,
+                            targetOffset: 0.56,
+                            smoothingDuration: 0.25,
+                            comment: "Timed lyrics or transcript preview",
+                            color: "#222222",
+                            alignment: Center,
+                            fontSize: 16,
+                            fontStyle: Body,
+                            fontDesign: Default,
+                            fontFamily: "Gilroy",
+                            fontWeight: Semibold,
+                            padding: 4,
+                            opacity: 0.95,
+                            scale: 1.0,
+                            scaleY: 1.0,
+                            rotation: 0,
+                            shadow: Shadow(1, 0, 0, "#00000020"),
+                            blur: 0,
+                            clip: Rounded(4),
+                            zIndex: 1,
+                            lineLimit: 2,
+                            lineHeight: 20,
+                            letterSpacing: 0.2,
+                            strikethrough: false,
+                            italic: false,
+                            underline: false,
+                        )
+                        Text("Playback position: \(revealPosition) s", fontSize: 13, color: "#777780")
+                        Row(gap: 8) {
+                            Button("0.0 s") {
+                                revealPosition = 0.0
+                            }
+                            Button("0.8 s") {
+                                revealPosition = 0.8
+                            }
+                            Button("1.8 s") {
+                                revealPosition = 1.8
+                            }
                         }
-                        Button("Reset values") {
-                            textInterpolationFloat64 = 0.25
-                            textInterpolationFloat32 = 0.125
-                            textInterpolationInteger = 42
+                    }
+                    ParityCard(title: "Typed numeric interpolation · device locale") {
+                        Text("Float64: \(textInterpolationFloat64)")
+                        Text("Float32: \(textInterpolationFloat32)")
+                        Text("Int32: \(textInterpolationInteger)")
+                        Row(gap: 8) {
+                            Button("Use boundary values") {
+                                textInterpolationFloat64 = - 0.2
+                                textInterpolationFloat32 = 1.5
+                                textInterpolationInteger = - 7
+                            }
+                            Button("Reset values") {
+                                textInterpolationFloat64 = 0.25
+                                textInterpolationFloat32 = 0.125
+                                textInterpolationInteger = 42
+                            }
                         }
                     }
                 }
-            }
-            if textTestPage == 1 {
-                ParityCard(title: "Layout, constraints, and effects") {
-                    Text("Leading alignment\nshort", alignment: Leading, color: "#FF3B30")
-                    Text("Centered alignment\nshort", alignment: Center, color: "#007AFF")
-                    Text("Trailing alignment\nshort", alignment: Trailing, color: "#E11D48")
-                    Text("Caption font style", fontStyle: Caption, color: "#007AFF")
-                    Text("Explicit line height\nkeeps both lines readable", fontSize: 16, lineHeight: 22, lineLimit: 2)
-                    Text("Line limit\nhides the next line", lineLimit: 1)
-                    Stack(alignment: Start, width: 220, height: 32, background: "#F2F2F7", cornerRadius: 4) {
-                        Text("This fixed-width text must truncate with an ellipsis", fontSize: 14, lineLimit: 1)
+                if textTestPage == 1 {
+                    ParityCard(title: "Layout, constraints, and effects") {
+                        Text("Leading alignment\nshort", alignment: Leading, color: "#FF3B30")
+                        Text("Centered alignment\nshort", alignment: Center, color: "#007AFF")
+                        Text("Trailing alignment\nshort", alignment: Trailing, color: "#E11D48")
+                        Text("Caption font style", fontStyle: Caption, color: "#007AFF")
+                        Text("Explicit line height\nkeeps both lines readable", fontSize: 16, lineHeight: 22, lineLimit: 2)
+                        Text("Line limit\nhides the next line", lineLimit: 1)
+                        Stack(alignment: Start, width: 220, height: 32, background: "#F2F2F7", cornerRadius: 4) {
+                            Text("This fixed-width text must truncate with an ellipsis", fontSize: 14, lineLimit: 1)
+                        }
+                        Text("Letter spacing", letterSpacing: 0.8)
+                        Row(gap: 12) {
+                            Text("Opacity", fontSize: 14, opacity: 0.55)
+                            Text("Scale", fontSize: 14, scale: 1.08, scaleY: 0.82)
+                            Text("Rotate", fontSize: 14, rotation: 3)
+                        }
+                        Row(gap: 12) {
+                            Text("Shadow", fontSize: 14, shadow: Shadow(4, 2, 2, "#00000066"))
+                            Text("Blur", fontSize: 14, blur: 1)
+                            Text("Clip", fontSize: 14, clip: Rounded(6))
+                        }
+                        Stack(width: 220, height: 44, background: "#F2F2F7") {
+                            Text("Above", color: "#FF3B30", fontSize: 20, fontWeight: Bold, zIndex: 2)
+                            Text("Below", color: "#007AFF", fontSize: 12, zIndex: 1)
+                        }
+                        Column(gap: 0, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                            Text("Default text padding")
+                            Text("Explicit zero padding", padding: 0)
+                            Text("Explicit 12 dp padding", padding: 12)
+                        }
+                        Text("Selectable text", selectable: true)
                     }
-                    Text("Letter spacing", letterSpacing: 0.8)
-                    Row(gap: 12) {
-                        Text("Opacity", fontSize: 14, opacity: 0.55)
-                        Text("Scale", fontSize: 14, scale: 1.08, scaleY: 0.82)
-                        Text("Rotate", fontSize: 14, rotation: 3)
-                    }
-                    Row(gap: 12) {
-                        Text("Shadow", fontSize: 14, shadow: Shadow(4, 2, 2, "#00000066"))
-                        Text("Blur", fontSize: 14, blur: 1)
-                        Text("Clip", fontSize: 14, clip: Rounded(6))
-                    }
-                    Stack(width: 220, height: 44, background: "#F2F2F7") {
-                        Text("Above", color: "#FF3B30", fontSize: 20, fontWeight: Bold, zIndex: 2)
-                        Text("Below", color: "#007AFF", fontSize: 12, zIndex: 1)
-                    }
-                    Column(gap: 0, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
-                        Text("Default text padding")
-                        Text("Explicit zero padding", padding: 0)
-                        Text("Explicit 12 dp padding", padding: 12)
-                    }
-                    Text("Selectable text", selectable: true)
                 }
-            }
-            if textTestPage == 2 {
-                ParityCard(title: "Semantic font styles") {
-                    Text("LargeTitle", fontStyle: LargeTitle)
-                    Text("Title", fontStyle: Title)
-                    Text("Title2", fontStyle: Title2)
-                    Text("Title3", fontStyle: Title3)
-                    Text("Headline", fontStyle: Headline)
-                    Text("Subheadline", fontStyle: Subheadline)
-                    Text("Body", fontStyle: Body)
-                    Text("Callout", fontStyle: Callout)
-                    Text("Footnote", fontStyle: Footnote)
-                    Text("Caption", fontStyle: Caption)
-                    Text("Caption2", fontStyle: Caption2)
-                    Text("Headline at 24", fontSize: 24, fontStyle: Headline)
-                    Text("Regular override", fontSize: 24, fontStyle: Headline, fontWeight: Normal)
-                    Text("Accessible text", comment: "Text with screen reader metadata", accessibilityLabel: "Accessible text label", accessibilityHint: "Read the text metadata", accessibilityValue: "Ready", accessibilityRole: Header)
+                if textTestPage == 2 {
+                    ParityCard(title: "Semantic font styles") {
+                        Text("LargeTitle", fontStyle: LargeTitle)
+                        Text("Title", fontStyle: Title)
+                        Text("Title2", fontStyle: Title2)
+                        Text("Title3", fontStyle: Title3)
+                        Text("Headline", fontStyle: Headline)
+                        Text("Subheadline", fontStyle: Subheadline)
+                        Text("Body", fontStyle: Body)
+                        Text("Callout", fontStyle: Callout)
+                        Text("Footnote", fontStyle: Footnote)
+                        Text("Caption", fontStyle: Caption)
+                        Text("Caption2", fontStyle: Caption2)
+                        Text("Headline at 24", fontSize: 24, fontStyle: Headline)
+                        Text("Regular override", fontSize: 24, fontStyle: Headline, fontWeight: Normal)
+                        Text("Accessible text", comment: "Text with screen reader metadata", accessibilityLabel: "Accessible text label", accessibilityHint: "Read the text metadata", accessibilityValue: "Ready", accessibilityRole: Header)
+                    }
                 }
             }
         }
