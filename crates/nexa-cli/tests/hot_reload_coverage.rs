@@ -3713,6 +3713,22 @@ fn semantic_text_font_roles_match_native_metrics_in_both_dev_runtimes() {
 }
 
 #[test]
+fn ios_dev_scaled_text_preserves_intrinsic_width_before_transform() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    let text = section(&swift, "case \"Text\":", "case \"Spacer\":");
+    let intrinsic_width = text
+        .find("fixedSize(horizontal: true, vertical: false)")
+        .expect("scaled iOS DevRuntime Text keeps its ideal width");
+    let scale = text
+        .find("scaleEffect(x: scaleX, y: scaleY)")
+        .expect("iOS DevRuntime applies the visual scale");
+
+    assert!(intrinsic_width < scale, "{text}");
+}
+
+#[test]
 fn ios_dev_spacer_has_no_implicit_minimum_gap() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))

@@ -206,6 +206,7 @@ pub(crate) fn render_node(
         }
         Node::Text { value, style } => {
             render_text_with_catalog(value, style, &features.font_catalog, depth, out);
+            append_text_scale_layout(out, depth, &style.effects);
             layout::append_visual_effects(out, depth, style.opacity, &style.effects);
         }
         Node::ContentUnavailable {
@@ -1051,6 +1052,18 @@ fn render_text(
     );
 }
 
+fn append_text_scale_layout(out: &mut SourceWriter, depth: usize, effects: &nexa_ir::ViewEffects) {
+    if effects.scale.is_some() || effects.scale_expression.is_some() {
+        // A scale transform does not participate in SwiftUI's HStack measurement.
+        // Keep the Text at its ideal width before the transform so the stack cannot
+        // compress and truncate its glyphs while allocating the unscaled width.
+        out.line_at(
+            depth,
+            format_args!(".fixedSize(horizontal: true, vertical: false)"),
+        );
+    }
+}
+
 fn render_text_with_catalog(
     value: &nexa_ir::Expr,
     style: &nexa_ir::TextStyle,
@@ -1461,9 +1474,9 @@ pub(crate) fn render_children(
 
 #[cfg(test)]
 mod text_tests {
-    use super::render_text;
+    use super::{append_text_scale_layout, render_text};
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Expr, TextFontStyle, TextStyle};
+    use nexa_ir::{Expr, TextFontStyle, TextStyle, ViewEffects};
 
     #[test]
     fn explicit_text_line_height_is_passed_as_a_font_relative_factor() {
@@ -1521,6 +1534,28 @@ mod text_tests {
         assert!(generated.contains(".withStrikethrough()"));
         assert!(generated.contains(".withItalic()"));
         assert!(generated.contains(".withUnderline()"));
+    }
+
+    #[test]
+    fn horizontally_scaled_text_keeps_its_ideal_width_before_transform() {
+        let mut output = SourceWriter::new();
+        let effects = ViewEffects {
+            scale: Some(1.08),
+            scale_y: Some(0.82),
+            ..ViewEffects::default()
+        };
+
+        append_text_scale_layout(&mut output, 0, &effects);
+        super::layout::append_visual_effects(&mut output, 0, None, &effects);
+
+        let generated = output.finish();
+        let intrinsic_width = generated
+            .find(".fixedSize(horizontal: true, vertical: false)")
+            .expect("scaled Text preserves its ideal horizontal size");
+        let scale = generated
+            .find(".scaleEffect(x: 1.08, y: 0.82)")
+            .expect("scale transform is retained");
+        assert!(intrinsic_width < scale, "{generated}");
     }
 
     #[test]

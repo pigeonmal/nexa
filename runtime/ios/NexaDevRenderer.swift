@@ -2705,17 +2705,21 @@ struct NexaDevNodeList: View {
             }
             var styled = styledText
             if let padding = style["padding"] as? Double { styled = AnyView(styled.padding(padding)) }
+            let effects = style["effects"] as? [String: Any] ?? [:]
+            let scaleXExpression = effects["scale_expression"]
+            let scaleYExpression = effects["scale_y_expression"]
+            let hasScaleXExpression = scaleXExpression != nil && !(scaleXExpression is NSNull)
+            let hasScaleX = hasScaleXExpression || (effects["scale"] as? Double != nil)
+            if hasScaleX {
+                styled = AnyView(styled.fixedSize(horizontal: true, vertical: false))
+            }
             if let opacity = style["opacity"] as? Double, opacity != 1 {
                 styled = AnyView(styled.opacity(opacity))
             }
-            let effects = style["effects"] as? [String: Any] ?? [:]
             if let expression = effects["opacity_expression"], !(expression is NSNull),
                let opacity = store.evaluate(expression, locals: locals, scope: scope) as? Double {
                 styled = AnyView(styled.compositingGroup().opacity(min(1, max(0, opacity))))
             }
-            let scaleXExpression = effects["scale_expression"]
-            let scaleYExpression = effects["scale_y_expression"]
-            let hasScaleXExpression = scaleXExpression != nil && !(scaleXExpression is NSNull)
             let scaleX: Double
             if let expression = scaleXExpression, !(expression is NSNull) {
                 scaleX = store.evaluate(expression, locals: locals, scope: scope) as? Double ?? 1
@@ -2728,7 +2732,7 @@ struct NexaDevNodeList: View {
                 styled = AnyView(styled.scaleEffect(x: scaleX, y: scaleY))
             } else if let scaleY = effects["scale_y"] as? Double {
                 styled = AnyView(styled.scaleEffect(x: scaleX, y: scaleY))
-            } else if hasScaleXExpression || effects["scale"] as? Double != nil {
+            } else if hasScaleX {
                 styled = AnyView(styled.scaleEffect(scaleX))
             }
             if let rotation = effects["rotation"] as? Double { styled = AnyView(styled.rotationEffect(.degrees(rotation))) }
