@@ -133,6 +133,48 @@ fn parses_app_scoped_periodic_background_task() {
 }
 
 #[test]
+fn parses_theme_font_style_overrides() {
+    let app = nexa_syntax::parse(
+        r#"app Typography {
+            theme {
+                fontStyle Headline(size: 21, weight: Semibold, family: "Inter")
+                fontStyle Caption(weight: Medium)
+            }
+            body { Text("Typography", fontStyle: Headline) }
+        }"#,
+    )
+    .expect("theme font styles should accept optional size and weight overrides");
+
+    let theme = app.theme.expect("theme declaration");
+    assert_eq!(theme.tokens.len(), 2);
+    assert!(matches!(
+        &theme.tokens[0].value,
+        nexa_syntax::ast::ThemeTokenValue::FontStyle {
+            size: Some(_),
+            weight: Some(_),
+            family: Some(_)
+        }
+    ));
+    assert!(matches!(
+        &theme.tokens[1].value,
+        nexa_syntax::ast::ThemeTokenValue::FontStyle {
+            size: None,
+            weight: Some(_),
+            family: None
+        }
+    ));
+
+    let invalid_option = nexa_syntax::parse(
+        r#"app Typography {
+            theme { fontStyle Body(fontSize: 18) }
+            body { Text("Typography") }
+        }"#,
+    )
+    .expect_err("fontStyle theme tokens must reject unsupported option names");
+    assert!(invalid_option.message.contains("unknown option `fontSize`"));
+}
+
+#[test]
 fn rejects_duplicate_background_task_identifiers() {
     let error = nexa_syntax::parse(
         r#"app Demo {

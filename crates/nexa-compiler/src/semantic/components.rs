@@ -54,7 +54,7 @@ use super::{
         lower_opacity, lower_style, lower_view_effects, number_value, optional_color,
         optional_dimension, optional_tracking, parse_animation, parse_color, parse_color_literal,
     },
-    themes::{ThemeSymbols, validate_font_family},
+    themes::{ThemeSymbols, parse_font_style_role, validate_font_family},
 };
 use crate::Target;
 
@@ -1801,26 +1801,7 @@ fn lower_text_font_style(value: Option<ast::Expr>) -> Result<Option<TextFontStyl
             "Text fontStyle must be LargeTitle, Title, Title2, Title3, Headline, Subheadline, Body, Callout, Footnote, Caption, or Caption2",
         ));
     };
-    let style = match name.as_str() {
-        "LargeTitle" => TextFontStyle::LargeTitle,
-        "Title" => TextFontStyle::Title,
-        "Title2" => TextFontStyle::Title2,
-        "Title3" => TextFontStyle::Title3,
-        "Headline" => TextFontStyle::Headline,
-        "Subheadline" => TextFontStyle::Subheadline,
-        "Body" => TextFontStyle::Body,
-        "Callout" => TextFontStyle::Callout,
-        "Footnote" => TextFontStyle::Footnote,
-        "Caption" => TextFontStyle::Caption,
-        "Caption2" => TextFontStyle::Caption2,
-        _ => {
-            return Err(CompileError::new(
-                span,
-                "Text fontStyle must be LargeTitle, Title, Title2, Title3, Headline, Subheadline, Body, Callout, Footnote, Caption, or Caption2",
-            ));
-        }
-    };
-    Ok(Some(style))
+    parse_font_style_role(&name, span).map(Some)
 }
 
 fn lower_text_font_design(

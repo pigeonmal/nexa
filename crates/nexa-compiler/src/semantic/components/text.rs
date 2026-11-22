@@ -48,7 +48,9 @@ pub(super) fn lower_text_component(
     let font_size = args.remove("fontSize");
     let font_style = lower_text_font_style(args.remove("fontStyle"))?;
     let font_design = lower_text_font_design(args.remove("fontDesign"))?;
-    let font_family = lower_text_font_family(args.remove("fontFamily"), themes)?;
+    let font_family_option = args.remove("fontFamily");
+    let has_explicit_font_family = font_family_option.is_some();
+    let font_family = lower_text_font_family(font_family_option, themes)?;
     let font_weight = args.remove("fontWeight");
     let line_limit = args.remove("lineLimit");
     let line_height = args.remove("lineHeight");
@@ -72,6 +74,16 @@ pub(super) fn lower_text_component(
         themes,
     )?;
     let font_weight = lower_font_weight(font_weight)?;
+    let theme_font_style = font_style.and_then(|font_style| themes.font_style(font_style));
+    let font_size = font_size.or_else(|| theme_font_style.and_then(|style| style.size));
+    let font_weight = font_weight.or_else(|| theme_font_style.and_then(|style| style.weight));
+    let font_family = if has_explicit_font_family {
+        font_family
+    } else {
+        theme_font_style
+            .and_then(|style| style.family.clone())
+            .or(font_family)
+    };
     let line_limit = lower_line_limit(line_limit)?;
     let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
     let letter_spacing = optional_tracking(letter_spacing)?;

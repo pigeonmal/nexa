@@ -1389,7 +1389,23 @@ Image(
 
 ### Text
 
-`Text` renders with SwiftUI on iOS and Compose Material 3 `Text` on Android. Semantic font styles use shared point/`sp` sizes and weights; SwiftUI applies the matching text style for Dynamic Type, and Android follows the system font scale. If both `fontStyle` and `fontSize` are supplied, the explicit size replaces the style's size while keeping its default weight. An explicit `fontWeight` takes precedence over that semantic weight.
+`Text` renders with SwiftUI on iOS and Compose Material 3 `Text` on Android. `fontStyle` selects a semantic role: with its standard size, SwiftUI uses the matching native text style and Dynamic Type, while Compose uses Nexa's shared role size and weight in scalable `sp` units. Declare `fontStyle` theme tokens to configure a role's size, weight, and font family across the app. Omitted properties keep that role's standard metric. A role family overrides `fontFamily Default`; a component's explicit `fontFamily`, `fontSize`, or `fontWeight` overrides the matching theme value. A custom theme size follows explicit `fontSize` behavior: the iOS system font uses a fixed point size, and Compose uses scalable `sp`; a configured custom font family on iOS remains scaled relative to the semantic role.
+
+```nx
+app TaskTypography {
+    theme {
+        fontStyle Headline(size: 21, weight: Bold, family: "Inter")
+        fontStyle Caption(size: 13)
+    }
+    body {
+        Text("Renew team insurance", fontStyle: Headline)
+        Text("Due tomorrow · 09:00", fontStyle: Caption)
+        Text("Compact note", fontStyle: Caption, fontSize: 11)
+    }
+}
+```
+
+The supported theme roles are `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`, `Footnote`, `Caption`, and `Caption2`. `size` is a non-negative numeric value in logical text units (points on iOS and `sp` on Android); `weight` is `Normal`, `Medium`, `Semibold`, or `Bold`; `family` is a static font family name discovered or configured from `assets/fonts/`. A font style token must specify at least one of these options. Text with that `fontStyle` uses the role's family automatically.
 
 | Parameter | Type | Default | Behavior |
 |---|---|---|---|
@@ -1398,9 +1414,9 @@ Image(
 | `color` | Color expression | Platform text color | Sets the text foreground color. |
 | `alignment` | `Leading`, `Center`, `Trailing` | Inherited column text alignment | Aligns lines within the text's measured width. |
 | `fontSize` | Dimension | Platform body size | Uses points on iOS and `sp` on Android. Overrides the semantic style's size. |
-| `fontStyle` | `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`, `Footnote`, `Caption`, `Caption2` | None | Applies the matching semantic size and default weight; the style scales with accessibility text settings. |
+| `fontStyle` | `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`, `Footnote`, `Caption`, `Caption2` | None | Applies the matching semantic role and its theme size, weight, or font-family override. |
 | `fontDesign` | `Default`, `Serif`, `Rounded`, `Monospaced` | Platform default design | Selects the system font design. Ignored when `fontFamily` is supplied. |
-| `fontFamily` | Font-family `String` or `Theme` font-family token | `Theme.Default` when declared, otherwise platform default | Selects a discovered or configured family from `assets/fonts/`. Nexa matches the requested `fontWeight` to the closest packaged face on both platforms. |
+| `fontFamily` | Font-family `String` or `Theme` font-family token | Role-specific theme family, then `Theme.Default`, then platform default | Explicitly selects a discovered or configured family from `assets/fonts/`. Nexa matches the requested `fontWeight` to the closest packaged face on both platforms. |
 | `fontWeight` | `Normal`, `Medium`, `Semibold`, `Bold` | Semantic style weight, otherwise `Normal` | Explicit weight overrides the weight associated with `fontStyle`. |
 | `padding` | Dimension | None | Adds equal padding around the text. |
 | `opacity` | `Float` from `0` to `1` | `1` | Applies alpha to the rendered text. |
@@ -1447,6 +1463,10 @@ Use `italic`, `underline`, and `strikethrough` for inline emphasis. They are ind
 
 ```nx
 app TaskTypographyPreview {
+    theme {
+        fontStyle Headline(size: 19, weight: Semibold, family: "Inter")
+        fontStyle Caption(size: 12, weight: Medium)
+    }
     body {
         Column(gap: 3) {
             Text("Renew team insurance", fontStyle: Subheadline)

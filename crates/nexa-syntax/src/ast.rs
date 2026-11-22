@@ -426,6 +426,7 @@ pub enum ThemeTokenKind {
     Radius,
     FontSize,
     FontFamily,
+    FontStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -439,7 +440,15 @@ pub struct ThemeTokenDecl {
 #[derive(Clone, Debug)]
 pub enum ThemeTokenValue {
     Static(Expr),
-    AdaptiveColor { light: Expr, dark: Expr },
+    AdaptiveColor {
+        light: Expr,
+        dark: Expr,
+    },
+    FontStyle {
+        size: Option<Expr>,
+        weight: Option<Expr>,
+        family: Option<Expr>,
+    },
 }
 
 #[derive(Clone, Debug)]

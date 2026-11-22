@@ -1748,6 +1748,7 @@ impl Parser {
                 "radius" => ThemeTokenKind::Radius,
                 "fontSize" => ThemeTokenKind::FontSize,
                 "fontFamily" => ThemeTokenKind::FontFamily,
+                "fontStyle" => ThemeTokenKind::FontStyle,
                 _ => {
                     return Err(CompileError::new(
                         span,
@@ -1766,6 +1767,13 @@ impl Parser {
                 let dark =
                     self.required_arg(&mut values, "dark", "theme colors require a `dark` value")?;
                 ThemeTokenValue::AdaptiveColor { light, dark }
+            } else if kind == ThemeTokenKind::FontStyle {
+                let mut values = self.named_args(&["size", "weight", "family"])?;
+                ThemeTokenValue::FontStyle {
+                    size: values.remove("size"),
+                    weight: values.remove("weight"),
+                    family: values.remove("family"),
+                }
             } else {
                 self.expect(Kind::Colon, "expected `:` after theme token name")?;
                 ThemeTokenValue::Static(self.expr()?)

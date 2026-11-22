@@ -10,7 +10,7 @@ import tempfile
 import uuid
 import zipfile
 
-from native_ui_hotpaths import ROOT, kotlin_jars, run
+from native_ui_hotpaths import ROOT, kotlin_jars, marquee_geometry_source, run
 
 
 def main():
@@ -34,7 +34,7 @@ def main():
         scratch = Path(directory)
         android = sorted((sdk / "platforms").glob("android-*/android.jar"))[-1]
         d8 = sorted((sdk / "build-tools").glob("*/lib/d8.jar"))[-1]
-        source = (ROOT / "crates/nexa-backend-kotlin/src/generator/components/marquee.kt").read_text().split("@androidx.compose.runtime.Composable", 1)[0]
+        source = marquee_geometry_source()
         path = scratch / "Check.kt"
         path.write_text(source + (ROOT / "tests/fixtures/native-ui/MarqueeGeometryCheck.kt").read_text())
         classpath = os.pathsep.join(str(path) for path in dependencies)

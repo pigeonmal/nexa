@@ -125,7 +125,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "Text",
         summary: "Displays formatted text",
         snippet: "Text(\"${1:Label}\")",
-        probe: "app P { theme { fontFamily Default: \"Gilroy\" } body { Text(\"a\", fontStyle: Subheadline, fontDesign: Serif, fontFamily: \"Gilroy\", accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityValue: \"Ready\", accessibilityRole: Image) } }",
+        probe: "app P { theme { fontFamily Default: \"Gilroy\" fontStyle Headline(size: 18, weight: Bold, family: \"Inter\") } body { Text(\"a\", fontStyle: Subheadline, fontDesign: Serif, fontFamily: \"Gilroy\", accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityValue: \"Ready\", accessibilityRole: Image) } }",
     },
     ComponentEntry {
         name: "TextReveal",

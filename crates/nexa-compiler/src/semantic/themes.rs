@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::ColorValue;
+use nexa_ir::{ColorValue, FontWeight, TextFontStyle};
 use nexa_syntax::ast;
 
 use super::styles::{number_value, parse_color_literal};
@@ -15,10 +15,18 @@ pub(super) struct ThemeSymbols {
 enum ResolvedThemeToken {
     Color(ColorValue),
     FontFamily(String),
+    FontStyle(ThemeFontStyle),
     Metric {
         kind: ast::ThemeTokenKind,
         value: f32,
     },
+}
+
+#[derive(Clone)]
+pub(super) struct ThemeFontStyle {
+    pub(super) size: Option<f32>,
+    pub(super) weight: Option<FontWeight>,
+    pub(super) family: Option<String>,
 }
 
 impl ThemeSymbols {
@@ -29,12 +37,23 @@ impl ThemeSymbols {
         }
     }
 
+    pub(super) fn font_style(&self, style: TextFontStyle) -> Option<&ThemeFontStyle> {
+        match self.tokens.get(text_font_style_name(style)) {
+            Some(ResolvedThemeToken::FontStyle(style)) => Some(style),
+            _ => None,
+        }
+    }
+
     pub(super) fn font_family(&self, name: &str, span: Span) -> Result<String, CompileError> {
         match self.tokens.get(name) {
             Some(ResolvedThemeToken::FontFamily(family)) => Ok(family.clone()),
             Some(ResolvedThemeToken::Color(_)) => Err(CompileError::new(
                 span,
                 format!("`Theme.{name}` is a color token and cannot be used as a font family"),
+            )),
+            Some(ResolvedThemeToken::FontStyle(_)) => Err(CompileError::new(
+                span,
+                format!("`Theme.{name}` is a fontStyle token and cannot be used as a font family"),
             )),
             Some(ResolvedThemeToken::Metric { kind, .. }) => Err(CompileError::new(
                 span,
@@ -66,6 +85,10 @@ impl ThemeSymbols {
                 span,
                 format!("`Theme.{name}` is a fontFamily token and cannot be used as {role}"),
             )),
+            Some(ResolvedThemeToken::FontStyle(_)) => Err(CompileError::new(
+                span,
+                format!("`Theme.{name}` is a fontStyle token and cannot be used as {role}"),
+            )),
             None => Err(unknown_token(name, span)),
         }
     }
@@ -96,6 +119,10 @@ impl ThemeSymbols {
             Some(ResolvedThemeToken::FontFamily(_)) => Err(CompileError::new(
                 span,
                 format!("`Theme.{name}` is a fontFamily token and cannot be used as {role}"),
+            )),
+            Some(ResolvedThemeToken::FontStyle(_)) => Err(CompileError::new(
+                span,
+                format!("`Theme.{name}` is a fontStyle token and cannot be used as {role}"),
             )),
             None => Err(unknown_token(name, span)),
         }
@@ -150,10 +177,52 @@ pub(super) fn lower_theme(theme: Option<&ast::ThemeDecl>) -> Result<ThemeSymbols
                     "fontFamily theme values must be a static font family string",
                 ));
             }
+            (
+                ast::ThemeTokenKind::FontStyle,
+                ast::ThemeTokenValue::FontStyle {
+                    size,
+                    weight,
+                    family,
+                },
+            ) => {
+                parse_font_style_role(&token.name, token.span)?;
+                if size.is_none() && weight.is_none() && family.is_none() {
+                    return Err(CompileError::new(
+                        token.span,
+                        "fontStyle theme tokens require `size`, `weight`, or `family`",
+                    ));
+                }
+                let size = size
+                    .as_ref()
+                    .map(|value| number_value(value, "fontStyle size"))
+                    .transpose()?;
+                let weight = weight.as_ref().map(parse_font_weight).transpose()?;
+                let family = family.as_ref().map(parse_font_style_family).transpose()?;
+                ResolvedThemeToken::FontStyle(ThemeFontStyle {
+                    size,
+                    weight,
+                    family,
+                })
+            }
             (_, ast::ThemeTokenValue::AdaptiveColor { .. }) => {
                 return Err(CompileError::new(
                     token.span,
                     "only `color` theme tokens accept `light` and `dark` values",
+                ));
+            }
+            (_, ast::ThemeTokenValue::FontStyle { .. }) => {
+                return Err(CompileError::new(
+                    token.span,
+                    "only `fontStyle` theme tokens accept `size`, `weight`, and `family` values",
+                ));
+            }
+            (_, ast::ThemeTokenValue::Static(value)) => {
+                return Err(CompileError::new(
+                    value.span(),
+                    format!(
+                        "{} theme values use the wrong value form",
+                        token_kind_name(token.kind)
+                    ),
                 ));
             }
         };
@@ -175,7 +244,74 @@ fn token_kind_name(kind: ast::ThemeTokenKind) -> &'static str {
         ast::ThemeTokenKind::Radius => "radius",
         ast::ThemeTokenKind::FontSize => "fontSize",
         ast::ThemeTokenKind::FontFamily => "fontFamily",
+        ast::ThemeTokenKind::FontStyle => "fontStyle",
     }
+}
+
+pub(super) fn parse_font_style_role(name: &str, span: Span) -> Result<TextFontStyle, CompileError> {
+    match name {
+        "LargeTitle" => Ok(TextFontStyle::LargeTitle),
+        "Title" => Ok(TextFontStyle::Title),
+        "Title2" => Ok(TextFontStyle::Title2),
+        "Title3" => Ok(TextFontStyle::Title3),
+        "Headline" => Ok(TextFontStyle::Headline),
+        "Subheadline" => Ok(TextFontStyle::Subheadline),
+        "Body" => Ok(TextFontStyle::Body),
+        "Callout" => Ok(TextFontStyle::Callout),
+        "Footnote" => Ok(TextFontStyle::Footnote),
+        "Caption" => Ok(TextFontStyle::Caption),
+        "Caption2" => Ok(TextFontStyle::Caption2),
+        _ => Err(CompileError::new(
+            span,
+            "fontStyle must be LargeTitle, Title, Title2, Title3, Headline, Subheadline, Body, Callout, Footnote, Caption, or Caption2",
+        )),
+    }
+}
+
+fn text_font_style_name(style: TextFontStyle) -> &'static str {
+    match style {
+        TextFontStyle::LargeTitle => "LargeTitle",
+        TextFontStyle::Title => "Title",
+        TextFontStyle::Title2 => "Title2",
+        TextFontStyle::Title3 => "Title3",
+        TextFontStyle::Headline => "Headline",
+        TextFontStyle::Subheadline => "Subheadline",
+        TextFontStyle::Body => "Body",
+        TextFontStyle::Callout => "Callout",
+        TextFontStyle::Footnote => "Footnote",
+        TextFontStyle::Caption => "Caption",
+        TextFontStyle::Caption2 => "Caption2",
+    }
+}
+
+fn parse_font_weight(expr: &ast::Expr) -> Result<FontWeight, CompileError> {
+    let ast::Expr::Name(name, span) = expr else {
+        return Err(CompileError::new(
+            expr.span(),
+            "fontStyle weight must be Normal, Medium, Semibold, or Bold",
+        ));
+    };
+    match name.as_str() {
+        "Normal" => Ok(FontWeight::Normal),
+        "Medium" => Ok(FontWeight::Medium),
+        "Semibold" => Ok(FontWeight::Semibold),
+        "Bold" => Ok(FontWeight::Bold),
+        _ => Err(CompileError::new(
+            *span,
+            "fontStyle weight must be Normal, Medium, Semibold, or Bold",
+        )),
+    }
+}
+
+fn parse_font_style_family(expr: &ast::Expr) -> Result<String, CompileError> {
+    let ast::Expr::String(family, span) = expr else {
+        return Err(CompileError::new(
+            expr.span(),
+            "fontStyle family must be a static font family string",
+        ));
+    };
+    validate_font_family(family, *span)?;
+    Ok(family.clone())
 }
 
 pub(super) fn validate_font_family(value: &str, span: Span) -> Result<(), CompileError> {

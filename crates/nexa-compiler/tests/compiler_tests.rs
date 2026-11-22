@@ -5066,6 +5066,101 @@ fn semantic_text_font_roles_lower_and_validate() {
 }
 
 #[test]
+fn theme_font_style_overrides_shared_text_role_metrics() {
+    let module = compile(
+        r#"
+        app ThemedTypography {
+            theme {
+                fontFamily Default: "Gilroy-Regular"
+                fontStyle Headline(size: 21, weight: Bold, family: "Display")
+                fontStyle Caption(weight: Medium)
+                fontStyle Body(family: "BodyText")
+            }
+            body {
+                Text("Task title", fontStyle: Headline)
+                Text("Due tomorrow", fontStyle: Caption)
+                Text("Task details", fontStyle: Body)
+                Text("Explicit overrides", fontStyle: Headline, fontSize: 25, fontWeight: Normal, fontFamily: "NotoSans")
+                Text("Plain text")
+            }
+        }
+        "#,
+    )
+    .expect("theme fontStyle values should flow into text IR");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::Text { style, .. }
+            if style.font_style == Some(nexa_ir::TextFontStyle::Headline)
+                && style.font_size == Some(21.0)
+                && style.font_weight == Some(nexa_ir::FontWeight::Bold)
+                && style.font_family.as_deref() == Some("Display")
+    ));
+    assert!(matches!(
+        &module.body[1],
+        Node::Text { style, .. }
+            if style.font_style == Some(nexa_ir::TextFontStyle::Caption)
+                && style.font_size.is_none()
+                && style.font_weight == Some(nexa_ir::FontWeight::Medium)
+                && style.font_family.as_deref() == Some("Gilroy-Regular")
+    ));
+    assert!(matches!(
+        &module.body[2],
+        Node::Text { style, .. }
+            if style.font_style == Some(nexa_ir::TextFontStyle::Body)
+                && style.font_size.is_none()
+                && style.font_weight.is_none()
+                && style.font_family.as_deref() == Some("BodyText")
+    ));
+    assert!(matches!(
+        &module.body[3],
+        Node::Text { style, .. }
+            if style.font_size == Some(25.0)
+                && style.font_weight == Some(nexa_ir::FontWeight::Normal)
+                && style.font_family.as_deref() == Some("NotoSans")
+    ));
+    assert!(matches!(
+        &module.body[4],
+        Node::Text { style, .. }
+            if style.font_size.is_none()
+                && style.font_weight.is_none()
+                && style.font_style.is_none()
+                && style.font_family.as_deref() == Some("Gilroy-Regular")
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(
+        swift.contains(".custom(\"Display\", size: 21, relativeTo: .headline)"),
+        "{swift}"
+    );
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("fontSize = 21.sp"), "{kotlin}");
+    assert!(kotlin.contains("fontWeight = FontWeight.Bold"), "{kotlin}");
+    assert!(kotlin.contains("R.font.display"), "{kotlin}");
+
+    for (theme_token, expected_error) in [
+        ("fontStyle Display(size: 20)", "fontStyle must be"),
+        ("fontStyle Body()", "require `size`, `weight`, or `family`"),
+        ("fontStyle Body(weight: Heavy)", "fontStyle weight must be"),
+        ("fontStyle Body(size: -2)", "non-negative"),
+        (
+            "fontStyle Body(family: 18)",
+            "fontStyle family must be a static font family string",
+        ),
+    ] {
+        let source = format!(
+            "app InvalidTypography {{ theme {{ {theme_token} }} body {{ Text(\"Label\", fontStyle: Body) }} }}"
+        );
+        let error =
+            compile(&source).expect_err("invalid fontStyle theme values should be rejected");
+        assert!(
+            error.to_string().contains(expected_error),
+            "expected `{expected_error}` in {error}"
+        );
+    }
+}
+
+#[test]
 fn visual_style_arguments_lower_to_validated_static_effects() {
     let module = compile(
         r##"

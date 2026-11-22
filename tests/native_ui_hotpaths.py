@@ -14,6 +14,14 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+MARQUEE_PLATFORM_ADAPTERS = "// nexa-codegen: NexaMarqueeSystemMotion"
+
+
+def marquee_geometry_source():
+    source = (ROOT / "crates/nexa-backend-kotlin/src/generator/components/marquee.kt").read_text()
+    if MARQUEE_PLATFORM_ADAPTERS not in source:
+        raise RuntimeError("marquee platform adapter codegen boundary is missing")
+    return source.split(MARQUEE_PLATFORM_ADAPTERS, 1)[0]
 
 
 def run(args):
@@ -334,7 +342,7 @@ def main():
             source = (ROOT / "crates/nexa-backend-kotlin/src/generator/components/number_flow.kt").read_text().split("@androidx.compose.runtime.Composable")[0]
             path = scratch / "Check.kt"
             source += (ROOT / "crates/nexa-backend-kotlin/src/generator/components/list_observation.kt").read_text()
-            source += (ROOT / "crates/nexa-backend-kotlin/src/generator/components/marquee.kt").read_text().split("@androidx.compose.runtime.Composable", 1)[0]
+            source += marquee_geometry_source()
             runtime_helpers = (ROOT / "crates/nexa-backend-kotlin/src/generator/api/network_runtime.kt").read_text()
             path.write_text("import java.io.OutputStream\n" + source + runtime_helpers + KOTLIN_CHECK)
             classpath = os.pathsep.join(str(path) for path in dependencies)
