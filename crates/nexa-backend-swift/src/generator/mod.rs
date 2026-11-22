@@ -4373,6 +4373,11 @@ struct NexaNavigationScreenPrimitive<Content: View>: View {
         GeometryReader { proxy in
             content.frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
         }
+        // Android navigation content uses zero Scaffold window insets and extends
+        // beneath the system navigation area. Keep pushed iOS screens edge-to-edge
+        // at the bottom as well; otherwise SwiftUI leaves a safe-area-sized gap
+        // after the final scroll content.
+        .ignoresSafeArea(.container, edges: .bottom)
         .navigationTitle(inline && leadingTitle ? "" : title)
             .modifier(NexaNavigationTitleDisplayModeModifier(inline: inline))
             .toolbar {
@@ -7426,7 +7431,7 @@ mod tests {
         assert!(!swift.contains(".modifier(NexaNavigationChromeModifier("));
         assert!(swift.contains("struct NexaNavigationScreenPrimitive<Content: View>: View"));
         assert!(swift.contains(
-            "GeometryReader { proxy in\n            content.frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)\n        }\n        .navigationTitle"
+            "GeometryReader { proxy in\n            content.frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)\n        }\n        // Android navigation content uses zero Scaffold window insets and extends\n        // beneath the system navigation area. Keep pushed iOS screens edge-to-edge\n        // at the bottom as well; otherwise SwiftUI leaves a safe-area-sized gap\n        // after the final scroll content.\n        .ignoresSafeArea(.container, edges: .bottom)\n        .navigationTitle"
         ));
         assert!(swift.contains(".toolbar(.visible, for: .navigationBar)"));
         assert!(swift.contains(".navigationTitle(inline && leadingTitle ? \"\" : title)"));
