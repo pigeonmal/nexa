@@ -22,7 +22,7 @@ app ReorderExample {
             Text(value)
         }.onMove(enabled: canMove) { from, to ->
             values.move(from, to)
-        }.swipeActions {
+        }.swipeActions(edge: Leading, allowsFullSwipe: true) {
             Button("Delete") { canMove = false }
         }
     }
@@ -55,90 +55,110 @@ app ReorderExample {
             Target::All => unreachable!("test targets are concrete platforms"),
         };
         let expected = match target {
-            Target::Swift => "NexaFastListReorderableRow",
-            Target::Kotlin => "awaitEachGesture {",
+            Target::Swift => ".onMove { sourceOffsets, insertionIndex in",
+            Target::Kotlin => "NexaFastListReorderableItem(",
             Target::All => unreachable!("test targets are concrete platforms"),
         };
         assert!(native.contains(expected), "{native}");
         if target == Target::Kotlin {
-            assert!(native.contains("val down = awaitFirstDown("), "{native}");
+            assert!(
+                native.contains("detectDragGesturesAfterLongPress("),
+                "shared helper uses Compose's long-press drag detector: {native}"
+            );
+            assert!(
+                native.contains("rememberNexaFastListReorderState()"),
+                "{native}"
+            );
+            assert!(
+                native.contains("reorderState = nexaFastListReorderState0"),
+                "{native}"
+            );
+            assert!(
+                native.contains("onMove = { source, destination ->"),
+                "{native}"
+            );
+            assert!(native.contains("nexa_to: Int = destination"), "{native}");
+            assert!(
+                !native.contains("withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis)"),
+                "{native}"
+            );
+            assert!(
+                !native.contains("for (visibleIndex in visibleItems.indices)"),
+                "{native}"
+            );
             assert!(native.contains("NexaFastListSwipePrimitive("), "{native}");
-            assert!(native.contains("PointerEventPass.Initial"), "{native}");
-            assert!(
-                native.contains("withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis)"),
-                "{native}"
-            );
-            assert!(native.contains("change.consume()"), "{native}");
-            let pointer_input = native
-                .find(".pointerInput(")
-                .expect("reorder item handles drag");
-            let drag_layer = native
-                .find(".graphicsLayer {")
-                .expect("reorder item follows the finger");
-            let z_index = native
-                .find(".zIndex(if (isDragging) 1f else 0f)")
-                .expect("the lazy item root raises the dragged row above siblings");
-            let native_row = native
-                .find("NexaNativeListRowPrimitive(position = nexa_index")
-                .expect("native row remains inside the elevated lazy item");
-            assert!(pointer_input < drag_layer && drag_layer < z_index && z_index < native_row);
-            assert!(native.contains("finally {"), "{native}");
-            assert!(native.contains("draggedCenter"), "{native}");
-            assert!(
-                native.contains("for (visibleIndex in visibleItems.indices)"),
-                "{native}"
-            );
-            assert!(native.contains("targetIndex = item.index - 0"), "{native}");
-            assert!(!native.contains("asSequence()"), "{native}");
-            assert!(native.contains("nexa_to: Int = targetIndex"), "{native}");
             assert!(
                 native.contains("val corner = androidx.compose.ui.unit.Dp(0.toFloat())"),
                 "{native}"
             );
-            assert!(native.contains("Box(modifier = Modifier.fillMaxWidth()"));
         } else {
             assert!(
                 native.contains(
-                    "NexaNativeListPrimitive(scrollEnabled: true, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, reorderEnabled: true, rowCount:"
+                    "NexaNativeListPrimitive(scrollEnabled: true, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, rowCount:"
                 ),
-                "native list must install the no-icon iOS reorder session when onMove is present: {native}"
+                "native list uses SwiftUI's native move callback: {native}"
             );
             assert!(
-                native.contains("LongPressGesture(minimumDuration: 0.35)"),
+                native.contains(".moveDisabled(!(nexa_canMove))"),
                 "{native}"
             );
-            assert!(native.contains("NexaFastListRowFramesKey.self"), "{native}");
+            assert!(!native.contains("NexaFastListReorder"), "{native}");
             assert!(
-                native.contains("session.update(to: drag.location"),
+                !native.contains("LongPressGesture(minimumDuration: 0.35)"),
                 "{native}"
             );
             assert!(!native.contains(".onDrag {"), "{native}");
             assert!(!native.contains(".onDrop("), "{native}");
-            assert!(native.contains("NexaFastListReorderSession"), "{native}");
-            assert!(native.contains("reorderEnabled: nexa_canMove"), "{native}");
-            assert!(!native.contains("\\.editMode"), "{native}");
-        }
-        if target == Target::Kotlin {
-            assert!(native.contains("if (nexa_canMove)"), "{native}");
-        }
-        if target == Target::Kotlin {
-            let reorder_branch = native
-                .find("if (nexa_canMove) {")
-                .expect("enabled reordering branch should be generated");
-            let reorder_branch_end = reorder_branch
-                + native[reorder_branch..]
-                    .find("} else {")
-                    .expect("disabled mode branch should follow reordering")
-                + "} else {".len();
-            let swipe_action = native
-                .find("NexaFastListSwipePrimitive(")
-                .expect("swipe actions remain available when reordering is disabled");
             assert!(
-                swipe_action > reorder_branch_end,
-                "Android swipe actions must be outside the active reorder branch: {native}"
+                native.contains("guard (nexa_canMove) else { return }"),
+                "{native}"
+            );
+        }
+        if target == Target::Kotlin {
+            let reorder_item = native
+                .find("NexaFastListReorderableItem(")
+                .expect("the row should remain reorderable when enabled");
+            let swipe_action = reorder_item
+                + native[reorder_item..]
+                    .find("NexaFastListSwipePrimitive(")
+                    .expect("swipe actions should render inside the reorderable row");
+            assert!(
+                swipe_action > reorder_item,
+                "Android swipe actions should remain available alongside reordering: {native}"
             );
         }
     }
+}
+
+#[test]
+fn fast_list_swipe_actions_reject_undeclared_row_bindings() {
+    let project = TestProject::new("nexa-fast-list-swipe-scope");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"
+app SwipeScopeExample {
+    state values: Array<Int32> = [1, 2, 3]
+    body {
+        FastList(values) { value, index in
+            Text(value)
+        }.swipeActions {
+            Button("Delete") { values.remove(index) }
+        }
+    }
+}
+"#,
+    )
+    .expect("test source should be written");
+
+    let error = match compile_file_with_warnings_for_target(&entry, Target::Swift) {
+        Err(error) => error,
+        Ok(_) => panic!("swipe action blocks must declare row bindings they use"),
+    };
+    assert!(
+        error.message.contains("unknown state `index`"),
+        "undeclared row bindings should be out of scope: {error}"
+    );
 }
 
 #[test]
@@ -183,16 +203,7 @@ app ReorderExample {
                 placement_animation.contains("androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>() else null)"),
                 "stable keys animate after the drag while keeping placement still during the drag: {placement_animation}"
             );
-            let drag_layer = native
-                .find(".graphicsLayer {")
-                .expect("drag transform is generated");
-            let z_index = native
-                .find(".zIndex(if (isDragging) 1f else 0f)")
-                .expect("the lazy item root raises the dragged row above siblings");
-            let native_row = native
-                .find("NexaNativeListRowPrimitive(position = nexa_index")
-                .expect("native row remains inside the elevated lazy item");
-            assert!(drag_layer < z_index && z_index < native_row, "{native}");
+            assert!(native.contains("NexaFastListReorderableItem("), "{native}");
         }
     }
 }
@@ -215,7 +226,8 @@ app ReorderExample {
                     Text(value)
                 }.onMove(enabled: canMove) { from, to ->
                     values.move(from, to)
-                }.swipeActions {
+                }.swipeActions(edge: Leading, allowsFullSwipe: true) {
+                    value, index in
                     Button("Delete") { values.remove(index) }
                 }
             }
@@ -241,18 +253,20 @@ app ReorderExample {
         match target {
             Target::Swift => {
                 assert!(native.contains("NexaFastListSwipePagerGestureBridge()"));
-                assert!(native.contains("UILongPressGestureRecognizer("));
-                assert!(native.contains("rowTouchRecognizer.minimumPressDuration = 0"));
-                assert!(native.contains("rowTouchRecognizer.cancelsTouchesInView = false"));
-                assert!(native.contains("require(toFail: rowTouchRecognizer)"));
+                assert!(native.contains("rowSwipeRecognizer = UIPanGestureRecognizer()"));
+                assert!(native.contains("return abs(translation.x) > abs(translation.y)"));
+                assert!(native.contains("rowSwipeRecognizer.cancelsTouchesInView = false"));
+                assert!(native.contains("require(toFail: rowSwipeRecognizer)"));
                 assert!(
                     native.contains("shouldRecognizeSimultaneouslyWith otherGestureRecognizer")
                 );
-                assert!(native.contains("reorderEnabled: nexa_canMove"));
-                assert!(native.contains("LongPressGesture(minimumDuration: 0.35)"));
-                assert!(native.contains(".sequenced(before: DragGesture(minimumDistance: 0"));
-                assert!(!native.contains("\\.editMode"));
-                assert!(native.contains(".swipeActions(edge: .trailing, allowsFullSwipe: false)"));
+                assert!(native.contains(".onMove { sourceOffsets, insertionIndex in"));
+                assert!(native.contains(".moveDisabled(!(nexa_canMove))"));
+                assert!(!native.contains("NexaFastListReorder"));
+                assert!(
+                    native.contains(".swipeActions(edge: .leading, allowsFullSwipe: true)"),
+                    "{native}"
+                );
             }
             Target::Kotlin => {
                 assert!(native.contains("userScrollEnabled = !nexaSwipeRowGestureActive.value"));
@@ -260,27 +274,37 @@ app ReorderExample {
                     "LocalNexaFastListSwipePagerLock provides nexaSwipeRowGestureActive"
                 ));
                 assert!(native.contains("resetKey = ") && native.contains(".size"));
-                assert!(native.contains("androidx.compose.runtime.key(resetKey)"));
+                assert!(native.contains("androidx.compose.runtime.remember(resetKey, edge)"));
+                assert!(native.contains("NexaFastListSwipeGroup {"));
                 assert!(
-                    native.contains("androidx.compose.runtime.LaunchedEffect(state, resetKey)")
+                    native.contains("androidx.compose.runtime.rememberUpdatedState(onFullSwipe)")
                 );
-                assert!(native.contains("state.reset()"));
-                assert!(native.contains("pagerGestureLock.value = true"));
-                assert!(native.contains("pagerGestureLock.value = false"));
-                let reorder_branch = native
-                    .find("if (nexa_canMove) {")
-                    .expect("enabled reordering branch should be generated");
-                let reorder_branch_end = reorder_branch
-                    + native[reorder_branch..]
-                        .find("} else {")
-                        .expect("swipe mode should follow reordering")
-                    + "} else {".len();
-                let swipe_action = native
-                    .find("NexaFastListSwipePrimitive(")
-                    .expect("swipe actions should remain available with reordering off");
                 assert!(
-                    swipe_action > reorder_branch_end,
-                    "swipe actions must be rendered only outside the active reorder branch: {native}"
+                    native.contains(
+                        "androidx.compose.runtime.LaunchedEffect(state, allowsFullSwipe)"
+                    )
+                );
+                assert!(native.contains("state.animateTo(NexaFastListSwipePosition.Closed)"));
+                assert!(native.contains("pagerLock.value = true"));
+                assert!(native.contains("pagerLock.value = false"));
+                assert!(native.contains("edge = NexaFastListSwipeEdge.Leading"));
+                assert!(native.contains(".anchoredDraggable(state,"));
+                assert!(native.contains("NexaFastListSwipePosition.Open at"));
+                assert!(native.contains("clearAndSetSemantics { }"));
+                assert!(!native.contains("SwipeToDismissBox"));
+                assert!(native.contains("allowsFullSwipe = true"));
+                assert!(native.contains("onClick = onClickAndCloseSwipe"));
+                assert!(native.contains("viewConfiguration.touchSlop"));
+                let reorder_item = native
+                    .find("NexaFastListReorderableItem(")
+                    .expect("the row should remain reorderable");
+                let swipe_action = reorder_item
+                    + native[reorder_item..]
+                        .find("NexaFastListSwipePrimitive(")
+                        .expect("swipe actions should render inside the reorderable row");
+                assert!(
+                    swipe_action > reorder_item,
+                    "swipe actions should remain available alongside reordering: {native}"
                 );
             }
             Target::All => unreachable!("test targets are concrete platforms"),
@@ -328,7 +352,7 @@ app ScrollToExample {
                 "{native}"
             ),
             Target::Kotlin => assert!(
-                native.contains("initialFirstVisibleItemIndex = nexa_selectedRow.coerceAtLeast(0)"),
+                native.contains("initialFirstVisibleItemIndex = nexa_selectedRow.coerceIn(0,"),
                 "{native}"
             ),
             Target::All => unreachable!("test targets are concrete platforms"),
@@ -385,6 +409,65 @@ app MasonryScrollExample {
                 assert!(native.contains("nexaFastListRef"), "{native}");
                 assert!(!native.contains("nexaLastScrollCommand"), "{native}");
                 assert!(!native.contains("nexaLastScrollOffset"), "{native}");
+            }
+            Target::All => unreachable!("test targets are concrete platforms"),
+        }
+    }
+}
+
+#[test]
+fn fast_list_masonry_reorder_keeps_the_native_grid() {
+    let source = r#"
+app MasonryReorderExample {
+    state cards: Array<String> = ["Overview", "Weekly priorities", "Design review"]
+    body {
+        FastList(cards, key: .self, axis: Masonry(2)) { card, index in
+            Text(card)
+        }.onMove { from, to ->
+            cards.move(from, to)
+        }
+    }
+}
+"#;
+    let project = TestProject::new("nexa-fast-list-masonry-reorder");
+    let entry = project.join("App.nx");
+    fs::write(&entry, source).expect("test source should be written");
+
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = compile_file_with_warnings_for_target(&entry, target)
+            .expect("keyed masonry should support onMove")
+            .module;
+        match target {
+            Target::Swift => {
+                let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+                assert!(swift.contains("onMove: nexaMasonryMove"));
+                assert!(swift.contains("performDropWith coordinator"));
+                assert!(swift.contains(
+                    "moveMasonryItem(from: source, to: target.item, at: location, in: collectionView)"
+                ));
+                assert!(swift.contains("onMove(from, target)"));
+                assert!(swift.contains("animatePendingMasonryMove(in: collectionView)"));
+                assert!(swift.contains("NexaFastMasonryPlaceholderView()"));
+                assert!(swift.contains("destinationPlaceholder.frame = targetFrame"));
+                assert!(swift.contains("backgroundColor = .systemBackground"));
+                assert!(!swift.contains("sourceMasonryPlaceholder"));
+                assert!(swift.contains("dragPreviewParametersForItemAt"));
+                assert!(swift.contains("parameters.shadowPath = UIBezierPath()"));
+                assert!(swift.contains("minimumMoveDistance: CGFloat = 12"));
+                assert!(swift.contains("source.canMove(at: location)"));
+                assert!(swift.contains("source.recordMove(at: location)"));
+                assert!(swift.contains("guard source.hasReordered else { return }"));
+                assert!(!swift.contains("previewTransform(for:"));
+                assert!(!swift.contains("updatePreview(in:"));
+            }
+            Target::Kotlin => {
+                let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+                assert!(kotlin.contains("NexaFastStaggeredGridReorderableItem("));
+                assert!(kotlin.contains("targetUnderDraggedItem(visible, dragged)"));
+                assert!(kotlin.contains("currentOnMove.value(from, target)"));
+                assert!(kotlin.contains("reorderState.activeIndex.intValue = target"));
+                assert!(!kotlin.contains("masonryPreview"));
+                assert!(!kotlin.contains("masonryReorderPreview"));
             }
             Target::All => unreachable!("test targets are concrete platforms"),
         }

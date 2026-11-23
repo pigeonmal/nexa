@@ -725,7 +725,7 @@ Modifiers:
 - `.onMove` (event actions, optional)
 - `.stickyHeader` (nodes, optional)
 - `.sectionHeader` (nodes, optional)
-- `.swipeActions` (nodes, optional)
+- `.swipeActions` (nodes with optional bindings, optional)
 
 Reference: components.md#fastlist
 

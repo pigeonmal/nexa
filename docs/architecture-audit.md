@@ -23,6 +23,10 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v563` | Cancels deferred iOS FastList scroll restoration on teardown and validates native row targets. |
+| `build-v562` | Defers iOS horizontal FastList positioning until its viewport is attached and sized. |
+| `build-v561` | Computes fixed-height FastList grid geometry on demand and updates native cell reuse, paging, and Android ref bindings. |
+| `build-v560` | Revises FastList paging, scroll callbacks, reference lifetimes, and masonry geometry in generated hosts. |
 | `build-v559` | Restores native Android top bar status insets while keeping content edge-to-edge. |
 | `build-v558` | Preserves resolved custom font faces without synthetic weight changes. |
 | `build-v557` | Extends Android navigation screen content through system insets. |

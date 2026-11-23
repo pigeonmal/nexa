@@ -32,13 +32,13 @@ use nexa_ir::walk::any_node;
 use nexa_ir::{
     AccessibilityRole, Action, AnimationSpec, AutofillType, BottomBarTab, ButtonShape, ButtonSize,
     ButtonStyle, Capitalization, CollectionMutation, ColorExpression, ColorValue, DirectionConfig,
-    DirectionStyle, Expr, FastListMove, FastListRefresh, FontWeight, GradientDirection,
-    HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis,
-    ListCommon, ListPlan, NativeComponentEventHandler, Node, NumberFlow, NumberFlowFormat,
-    NumericType, PickerDateSelection, PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId,
-    SectionedListCommon, StatusBarConfig, StatusBarStyle, TaskExecutor as IrTaskExecutor,
-    TextFontDesign, TextFontStyle, TextInputFont, TextStyle, ToolbarPlacement, Type,
-    ViewTransition as IrViewTransition, WhenCase,
+    DirectionStyle, Expr, FastListMove, FastListRefresh, FastListSwipeActions, FastListSwipeEdge,
+    FontWeight, GradientDirection, HapticStyle, ImageScale, ImageSource, KeyboardDismissMode,
+    KeyboardType, LayoutKind, ListAxis, ListCommon, ListPlan, NativeComponentEventHandler, Node,
+    NumberFlow, NumberFlowFormat, NumericType, PickerDateSelection, PickerDateStyle,
+    PickerDateType, ReturnKeyType, ScreenId, SectionedListCommon, StatusBarConfig, StatusBarStyle,
+    TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle, TextInputFont, TextStyle,
+    ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
     adaptive_layout::{LayoutEdge, SafeAreaInsetPlan, ScrollHeaderBehavior, ScrollHeaderPlan},
 };
 use nexa_syntax::{ast, catalog};

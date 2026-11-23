@@ -1455,7 +1455,7 @@ pub struct ListCommon {
     #[serde(default)]
     pub on_move: Option<FastListMove>,
     #[serde(default)]
-    pub swipe_actions: Option<Vec<Node>>,
+    pub swipe_actions: Option<FastListSwipeActions>,
     pub sticky_header: Option<Vec<Node>>,
     pub refresh: Option<FastListRefresh>,
 }
@@ -1469,6 +1469,24 @@ pub struct FastListMove {
     /// Whether native move affordances are enabled for the current list state.
     pub enabled: Expr,
     pub actions: Vec<Action>,
+}
+
+/// Logical edge used by a FastList row's native swipe action tray.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FastListSwipeEdge {
+    Leading,
+    #[default]
+    Trailing,
+}
+
+/// Native action tray configuration shared by SwiftUI and Compose.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct FastListSwipeActions {
+    #[serde(default)]
+    pub edge: FastListSwipeEdge,
+    #[serde(default)]
+    pub allows_full_swipe: bool,
+    pub children: Vec<Node>,
 }
 
 /// Options for the sectioned list plan. Sectioned lists always render
@@ -1503,7 +1521,7 @@ pub struct SectionedListCommon {
     pub children: Vec<Node>,
     pub section_header: Option<Vec<Node>>,
     #[serde(default)]
-    pub swipe_actions: Option<Vec<Node>>,
+    pub swipe_actions: Option<FastListSwipeActions>,
     pub refresh: Option<FastListRefresh>,
 }
 
@@ -1541,7 +1559,8 @@ impl ListPlan {
     pub fn uses_platform_list(&self) -> bool {
         match self {
             ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
-                common.on_move.is_some() || common.swipe_actions.is_some()
+                (common.on_move.is_some() && common.axis == ListAxis::Vertical)
+                    || common.swipe_actions.is_some()
             }
             ListPlan::Sections { common, .. } => common.swipe_actions.is_some(),
         }
@@ -1659,13 +1678,27 @@ impl ListPlan {
         }
     }
 
-    /// Native trailing swipe actions, if any.
+    /// Native row swipe actions, if any.
     pub fn swipe_actions(&self) -> Option<&[Node]> {
         match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common
+                .swipe_actions
+                .as_ref()
+                .map(|swipe| swipe.children.as_slice()),
+            ListPlan::Sections { common, .. } => common
+                .swipe_actions
+                .as_ref()
+                .map(|swipe| swipe.children.as_slice()),
+        }
+    }
+
+    /// Configuration for a native row swipe action tray, if present.
+    pub fn swipe_action_configuration(&self) -> Option<&FastListSwipeActions> {
+        match self {
             ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
-                common.swipe_actions.as_deref()
+                common.swipe_actions.as_ref()
             }
-            ListPlan::Sections { common, .. } => common.swipe_actions.as_deref(),
+            ListPlan::Sections { common, .. } => common.swipe_actions.as_ref(),
         }
     }
 

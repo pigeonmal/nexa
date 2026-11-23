@@ -815,8 +815,14 @@ fn collect_parity_components(
                     ChildBody::None | ChildBody::Actions(_) => {}
                 }
                 for modifier in &invocation.modifiers {
-                    if let ModifierBody::Nodes(children) = &modifier.body {
-                        collect_parity_components(children, found, arguments, enum_arguments);
+                    match &modifier.body {
+                        ModifierBody::Nodes(children)
+                        | ModifierBody::BoundNodes {
+                            nodes: children, ..
+                        } => {
+                            collect_parity_components(children, found, arguments, enum_arguments);
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -5297,21 +5303,25 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                 on_scroll: None,
                 on_scroll_begin_drag: None,
                 on_move: None,
-                swipe_actions: Some(vec![Node::Button {
-                    label: Expr::String("Delete".to_owned()),
-                    icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
-                        "delete".to_owned(),
-                    ))),
-                    loading: None,
-                    disabled: None,
-                    style: None,
-                    size: None,
-                    shape: None,
-                    tint: None,
-                    glass: false,
-                    accessibility_label: None,
-                    actions: Vec::new(),
-                }]),
+                swipe_actions: Some(nexa_ir::FastListSwipeActions {
+                    edge: nexa_ir::FastListSwipeEdge::Leading,
+                    allows_full_swipe: true,
+                    children: vec![Node::Button {
+                        label: Expr::String("Delete".to_owned()),
+                        icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
+                            "delete".to_owned(),
+                        ))),
+                        loading: None,
+                        disabled: None,
+                        style: None,
+                        size: None,
+                        shape: None,
+                        tint: None,
+                        glass: false,
+                        accessibility_label: None,
+                        actions: Vec::new(),
+                    }],
+                }),
                 sticky_header: None,
                 refresh: None,
                 scroll_position: None,
@@ -5327,6 +5337,11 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
     let (root, _) = fixture();
     let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime list renderer");
+    let reorder_helper =
+        fs::read_to_string(root.join("../../runtime/android/NexaFastListReorder.kt"))
+            .expect("read shared Compose reorder helper");
+    let swipe_helper = fs::read_to_string(root.join("../../runtime/android/NexaFastListSwipe.kt"))
+        .expect("read shared Compose swipe helper");
 
     assert!(aot.contains("NexaFastListRowPrimitive("));
     assert!(aot.contains("minHeight = androidx.compose.ui.unit.Dp(52.toFloat())"));
@@ -5334,7 +5349,9 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
     assert!(aot.contains("NexaNativeListDividerPrimitive()"));
     assert!(aot.contains("Modifier.fillMaxWidth().height(72.dp)"));
     assert!(aot.contains("verticalArrangement = Arrangement.spacedBy(4.dp)"));
-    assert!(aot.contains("horizontalAlignment = Alignment.CenterHorizontally"));
+    assert!(aot.contains(
+        "NexaFastListRowPrimitive(modifier = Modifier.fillMaxWidth().height(92.dp), horizontalAlignment = Alignment.CenterHorizontally)"
+    ));
     assert!(aot.contains("NexaFastListSwipePrimitive("));
     assert!(aot.contains("resetKey = (2).coerceAtLeast(0)"));
     assert!(!aot.contains("onEndToStart = {"));
@@ -5350,47 +5367,62 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
         )
     );
     assert!(dev_host.contains("internal fun NexaFastListDividerPrimitive()"));
-    assert!(dev_host.contains("internal fun NexaFastListSwipePrimitive("));
-    assert!(dev_host.contains("androidx.compose.runtime.key(resetKey)"));
-    assert!(dev_host.contains("androidx.compose.runtime.LaunchedEffect(state, resetKey)"));
-    assert!(dev_host.contains("state.reset()"));
+    assert!(swipe_helper.contains("internal fun NexaFastListSwipePrimitive("));
+    assert!(swipe_helper.contains("androidx.compose.runtime.remember(resetKey, edge)"));
+    assert!(
+        swipe_helper.contains("androidx.compose.runtime.LaunchedEffect(state, allowsFullSwipe)")
+    );
+    assert!(swipe_helper.contains("rememberUpdatedState(onFullSwipe)"));
+    assert!(swipe_helper.contains("state.animateTo(NexaFastListSwipePosition.Closed)"));
     assert!(renderer.contains("resetKey = count"));
-    assert!(dev_host.contains("LocalNexaFastListSwipePagerLock"));
-    assert!(dev_host.contains("pagerGestureLock.value = true"));
-    assert!(dev_host.contains("pagerGestureLock.value = false"));
-    assert!(!dev_host.contains("onEndToStart: () -> Unit"));
+    assert!(swipe_helper.contains("LocalNexaFastListSwipePagerLock"));
+    assert!(swipe_helper.contains("pagerLock.value = true"));
+    assert!(swipe_helper.contains("pagerLock.value = false"));
+    assert!(renderer.contains("NexaFastListSwipeGroup(content = listContent)"));
+    assert!(aot.contains("NexaFastListSwipeGroup {"));
+    assert!(!swipe_helper.contains("onEndToStart: () -> Unit"));
     assert!(dev_host.contains("val corner = androidx.compose.ui.unit.Dp(0.toFloat())"));
     assert!(dev_host.contains("vertical = androidx.compose.ui.unit.Dp(16.toFloat())"));
     assert!(renderer.contains("NexaFastListRowPrimitive("));
     assert!(renderer.contains("verticalArrangement = if (pageSnap && axis == \"Vertical\")"));
     assert!(renderer.contains("NexaFastListDividerPrimitive()"));
-    assert!(renderer.contains("horizontalAlignment = if (rowNodes.length() > 1)"));
+    assert!(renderer.contains("rowNodes.length() > 1 ||"));
+    for axis in ["Grid", "AdaptiveGrid", "Masonry"] {
+        assert!(renderer.contains(&format!(r#"axis == "{axis}""#)));
+    }
     assert!(renderer.contains("NexaFastListSwipePrimitive("));
-    assert!(renderer.contains("if (swipeActions != null && (onMove == null || !moveEnabled))"));
+    assert!(renderer.contains("if (swipeActions != null)"));
+    assert!(renderer.contains("edge = swipeEdge"));
+    assert!(renderer.contains("allowsFullSwipe = swipeAllowsFullSwipe"));
     assert!(renderer.contains("userScrollEnabled = !swipeRowGestureActive.value"));
     assert!(renderer.contains("LocalNexaFastListSwipePagerLock provides swipeRowGestureActive"));
     assert!(
         renderer
             .contains("val rowModifier = (if (reorderableItem) Modifier else itemParentModifier)")
     );
-    assert!(renderer.contains(".then(reorderModifier),"));
-    assert!(renderer.contains(
-        "awaitFirstDown(\n                                    requireUnconsumed = false,"
-    ));
-    assert!(renderer.contains("PointerEventPass.Initial"));
-    assert!(renderer.contains("withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis)"));
-    assert!(renderer.contains("for (visibleIndex in visibleItems.indices)"));
-    assert!(renderer.contains("val distance = abs(itemCenter - draggedCenter)"));
-    assert!(renderer.contains("if (distance < targetDistance)"));
-    assert!(renderer.contains("reorderOffset.floatValue = dragDistance"));
+    assert!(renderer.contains("NexaFastListReorderableItem("));
+    assert!(renderer.contains("val reorderState = if (onMove != null)"));
+    assert!(renderer.contains("reorderState = reorderState,"));
+    assert!(!renderer.contains("awaitFirstDown("));
+    assert!(!renderer.contains("withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis)"));
+    assert!(reorder_helper.contains("detectDragGesturesAfterLongPress("));
+    assert!(reorder_helper.contains("val activeIndex = mutableIntStateOf(-1)"));
+    assert!(reorder_helper.contains("val dragOffset = mutableFloatStateOf(0f)"));
+    assert!(reorder_helper.contains("change.consume()"));
+    assert!(reorder_helper.contains("listState.layoutInfo.visibleItemsInfo"));
+    assert!(!reorder_helper.contains("awaitEachGesture"));
+    assert!(!reorder_helper.contains("awaitFirstDown"));
     assert!(!renderer.contains("rowExtentPx"));
     assert!(renderer.contains("options.optDouble(\"gap\", 0.0).coerceAtLeast(0.0).dp"));
     assert!(renderer.contains("options?.opt(\"scroll_enabled\")"));
     assert!(renderer.contains("userScrollEnabled = scrollEnabled &&"));
     assert!(renderer.contains("verticalArrangement = Arrangement.spacedBy(gap)"));
     assert!(renderer.contains("val keyExpression = options?.opt(\"key\")"));
-    assert!(renderer.contains("animateStableRows && !pageSnap"));
-    assert!(renderer.contains("placementSpec = if ((reorderActiveIndex?.intValue ?: -1) < 0)"));
+    assert!(renderer.contains("VerticalPager("));
+    assert!(renderer.contains("if (animateStableRows)"));
+    assert!(
+        renderer.contains("placementSpec = if ((reorderState?.activeIndex?.intValue ?: -1) < 0)")
+    );
     assert!(
         renderer.contains(
             "androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>()"
@@ -5408,6 +5440,54 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
 }
 
 #[test]
+fn android_adaptive_grid_centers_single_child_rows_in_aot_and_devruntime() {
+    let module = empty_module(vec![Node::FastList {
+        plan: Box::new(ListPlan::Count {
+            count: Expr::Number {
+                raw: "14".to_owned(),
+                ty: NumericType::Int32,
+            },
+            common: ListCommon {
+                axis: ListAxis::AutoGrid {
+                    min_cell_width: 160,
+                },
+                show_dividers: true,
+                hide_horizontal_scrollbar: false,
+                hide_vertical_scrollbar: false,
+                reverse_layout: false,
+                page_snap: false,
+                item_extent: Some(92.0),
+                index: "index".to_owned(),
+                key: None,
+                scroll_enabled: None,
+                children: vec![Node::Text {
+                    value: Expr::String("Adaptive grid item".to_owned()),
+                    style: nexa_ir::TextStyle::default(),
+                }],
+                on_end_reached: None,
+                on_scroll: None,
+                on_scroll_begin_drag: None,
+                on_move: None,
+                swipe_actions: None,
+                sticky_header: None,
+                refresh: None,
+                scroll_position: None,
+                component_ref: None,
+                gap: 4.0,
+            },
+        }),
+    }]);
+    let aot = KotlinBackend.generate(&module);
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime list renderer");
+
+    assert!(aot.contains("GridCells.Adaptive(minSize = 160.dp)"));
+    assert!(aot.contains("horizontalAlignment = Alignment.CenterHorizontally"));
+    assert!(renderer.contains(r#"axis == "AdaptiveGrid""#));
+}
+
+#[test]
 fn android_devruntime_reverse_list_does_not_reverse_row_data_twice() {
     let (root, _) = fixture();
     let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
@@ -5415,8 +5495,11 @@ fn android_devruntime_reverse_list_does_not_reverse_row_data_twice() {
 
     assert!(renderer.contains("reverseLayout = reverseLayout"));
     assert!(renderer.contains("stableRowKey(itemPosition)"));
-    assert!(renderer.contains("renderItem(itemPosition, axis, rowParentModifier, listState)"));
-    assert!(renderer.contains("listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index }"));
+    assert!(
+        renderer.contains("renderItem(itemPosition, axis, rowParentModifier, listState, null)")
+    );
+    assert!(renderer.contains("if (stickyHeaderOffset == 0) {\n                                listState.firstVisibleItemIndex"));
+    assert!(renderer.contains("nexaScrollReversedListFromTop(listState, count, offset, animated)"));
     assert!(
         !renderer.contains(
             "val itemIndex = if (reverseLayout) count - 1 - itemPosition else itemPosition"
@@ -5515,8 +5598,8 @@ fn divider_preferences_reach_dev_ir_and_both_runtime_renderers() {
         "fields[\"show_dividers\"] as? Bool ?? true",
         "fields[\"show_dividers\"] as? Bool ?? formShowDividers",
         "devColor(fields[\"background\"], isDark: colorScheme == .dark)",
-        "if showDividers && hasNext { Divider() }",
-        "listFields[\"show_dividers\"] as? Bool ?? true",
+        "showDividers: showDividers",
+        "options[\"show_dividers\"] as? Bool ?? true",
     ] {
         assert!(swift.contains(marker), "iOS DevRuntime is missing {marker}");
     }
@@ -5607,19 +5690,20 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
     assert!(dev_host.contains("maxHeight: itemExtent"));
     assert!(dev_host.contains(".fixedSize(horizontal: true, vertical: false)"));
     assert!(renderer.contains("NexaFastListPrimitive("));
-    assert!(renderer.contains("listFields[\"gap\"] as? Double ?? 0"));
-    assert!(renderer.contains("listFields[\"scroll_enabled\"]"));
-    assert!(renderer.contains(".scrollDisabled(!scrollEnabled)"));
-    assert!(renderer.contains(
-        ".frame(\n                minHeight: rowHeight.map { CGFloat($0) } ?? nexaDevFastListDefaultRowMinHeight,"
-    ));
-    assert!(renderer.contains("CGFloat(spacing) / 2"));
-    assert!(renderer.contains("sectionCounts == nil, onMove == nil"));
+    assert!(renderer.contains("options[\"gap\"] as? Double ?? 0"));
+    assert!(renderer.contains("options[\"scroll_enabled\"]"));
+    assert!(renderer.contains("scrollEnabled: scrollEnabled"));
+    assert!(renderer.contains("spacing: CGFloat(spacing)"));
+    assert!(renderer.contains("} else if case .vertical = axis, sectionCounts == nil {"));
     assert!(renderer.contains("let rowKey: ((Int, Int, Int) -> AnyHashable)?"));
     assert!(renderer.contains("ForEach(identifiedRows(count: count))"));
     assert!(renderer.contains("rowKey: rowKey.map"));
     assert!(renderer.contains("private func nativeRow(_ item: NexaDevFastListRow)"));
     assert!(renderer.contains("prioritizeSwipeActions: swipeActions != nil"));
+    assert!(renderer.contains(".onMove(perform: onMove)"));
+    assert!(renderer.contains(".moveDisabled(!moveEnabled)"));
+    assert!(!renderer.contains("reorderIndex:"));
+    assert!(!renderer.contains("onReorder:"));
     assert_eq!(
         renderer.matches("nativeRow(item)").count(),
         4,
@@ -5663,9 +5747,8 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
     );
     assert!(dev_host.contains("NexaFastListSwipePagerGestureBridge"));
     assert!(dev_host.contains("override func layoutSubviews()"));
-    assert!(dev_host.contains("UILongPressGestureRecognizer"));
-    assert!(dev_host.contains("minimumPressDuration = 0"));
-    assert!(dev_host.contains("allowableMovement = .greatestFiniteMagnitude"));
+    assert!(dev_host.contains("rowSwipeRecognizer = UIPanGestureRecognizer()"));
+    assert!(dev_host.contains("return abs(translation.x) > abs(translation.y)"));
     assert!(dev_host.contains("scrollView.isPagingEnabled"));
     assert!(dev_host.contains("scrollView.contentSize.width > scrollView.bounds.width + 1"));
     assert!(dev_host.contains("scrollView.contentSize.height <= scrollView.bounds.height + 1"));
@@ -5673,10 +5756,10 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
     assert!(!dev_host.contains("localizedCaseInsensitiveContains(\"SwipeAction\")"));
     assert!(
         dev_host
-            .contains("pagerScrollView.panGestureRecognizer.require(toFail: rowTouchRecognizer)")
+            .contains("pagerScrollView.panGestureRecognizer.require(toFail: rowSwipeRecognizer)")
     );
     assert!(!dev_host.contains("swipeIntentRecognizer"));
-    assert!(renderer.contains("listFields[\"swipe_actions\"]"));
+    assert!(renderer.contains("options[\"swipe_actions\"]"));
     assert!(renderer.contains("swipeActions: swipeActionNodes.map"));
     assert!(renderer.contains("NexaDevFastListSwipeActionContent("));
     assert!(
@@ -5684,7 +5767,11 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
         "DevRuntime must leave swipe-action ButtonStyle to SwiftUI so native swipe gestures remain active"
     );
     assert!(renderer.contains("private func nativeRow(_ item: NexaDevFastListRow)"));
-    assert!(renderer.contains("content.swipeActions(edge: .trailing, allowsFullSwipe: false)"));
+    assert!(
+        renderer.contains(
+            "content.swipeActions(edge: swipeEdge, allowsFullSwipe: swipeAllowsFullSwipe)"
+        )
+    );
     assert!(
         !renderer.contains("row.swipeActions(edge: .trailing)"),
         "iOS DevRuntime must attach swipe actions to the native List row, as AOT does"
@@ -5718,21 +5805,25 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 on_scroll: None,
                 on_scroll_begin_drag: None,
                 on_move: None,
-                swipe_actions: Some(vec![Node::Button {
-                    label: Expr::String("Delete".to_owned()),
-                    icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
-                        "delete".to_owned(),
-                    ))),
-                    loading: None,
-                    disabled: None,
-                    style: None,
-                    size: None,
-                    shape: None,
-                    tint: None,
-                    glass: false,
-                    accessibility_label: None,
-                    actions: Vec::new(),
-                }]),
+                swipe_actions: Some(nexa_ir::FastListSwipeActions {
+                    edge: nexa_ir::FastListSwipeEdge::Leading,
+                    allows_full_swipe: true,
+                    children: vec![Node::Button {
+                        label: Expr::String("Delete".to_owned()),
+                        icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
+                            "delete".to_owned(),
+                        ))),
+                        loading: None,
+                        disabled: None,
+                        style: None,
+                        size: None,
+                        shape: None,
+                        tint: None,
+                        glass: false,
+                        accessibility_label: None,
+                        actions: Vec::new(),
+                    }],
+                }),
                 sticky_header: None,
                 refresh: None,
                 scroll_position: None,
@@ -5745,19 +5836,19 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
         "NexaNativeListPrimitive(scrollEnabled: true, hideHorizontalScrollbar: false, hideVerticalScrollbar: false,"
     ));
     assert!(swipe_actions_aot.contains(
-        "NexaNativeListRowPrimitive(position: listPosition, showDividers: true, prioritizeSwipeActions: true, reorderIndex: nil, reorderEnabled: false, onReorder: { source, destination in"
+        "NexaNativeListRowPrimitive(position: listPosition, showDividers: true, prioritizeSwipeActions: true) {"
     ));
-    assert!(swipe_actions_aot.contains("UILongPressGestureRecognizer"));
-    assert!(swipe_actions_aot.contains("minimumPressDuration = 0"));
+    assert!(swipe_actions_aot.contains("rowSwipeRecognizer = UIPanGestureRecognizer()"));
+    assert!(swipe_actions_aot.contains("return abs(translation.x) > abs(translation.y)"));
     assert!(swipe_actions_aot.contains("override func layoutSubviews()"));
     assert!(swipe_actions_aot.contains("shouldRecognizeSimultaneouslyWith otherGestureRecognizer"));
     assert!(
         swipe_actions_aot
-            .contains("pagerScrollView.panGestureRecognizer.require(toFail: rowTouchRecognizer)")
+            .contains("pagerScrollView.panGestureRecognizer.require(toFail: rowSwipeRecognizer)")
     );
-    assert!(swipe_actions_aot.contains(".swipeActions(edge: .trailing, allowsFullSwipe: false)"));
+    assert!(swipe_actions_aot.contains(".swipeActions(edge: .leading, allowsFullSwipe: true)"));
     let swipe_actions = swipe_actions_aot
-        .split(".swipeActions(edge: .trailing, allowsFullSwipe: false) {")
+        .split(".swipeActions(edge: .leading, allowsFullSwipe: true) {")
         .nth(1)
         .expect("AOT row emits native swipe action content");
     assert!(swipe_actions.contains("Button(action: {"));
@@ -5878,25 +5969,24 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
         android.contains("var lastReportedScrollPosition by remember { mutableIntStateOf(-1) }")
     );
     assert!(android.contains("import androidx.compose.runtime.saveable.rememberSaveable\n"));
-    assert!(android.contains(
-        "rememberSaveable(count, sourceItems?.size, sourceSections?.size) { mutableStateOf(false) }"
-    ));
+    assert!(android.contains("rememberSaveable(count) { mutableStateOf(false) }"));
     assert!(android.contains("val tabStateHolder = rememberSaveableStateHolder()"));
     assert!(
         android.contains("tabStateHolder.SaveableStateProvider(key = \"nexa-tab-$activeIndex\")")
     );
     assert!(android.contains("if (!isInitialPosition && onScroll != null"));
     let end_only_observer = android
-        .split_once("if (!watchesPosition) {")
+        .split_once("if (onEndReached != null && count > 0) {")
         .expect("find the end-only observer")
         .1
-        .split_once("} else {")
-        .expect("find the combined observer after it")
+        .split_once("private fun nexaDevLeadingVisibleDataItemIndex")
+        .expect("find the geometry helper after the observer")
         .0;
-    assert!(end_only_observer.contains("currentEndReached.value?.invoke()"));
+    assert!(end_only_observer.contains("currentEndReached.value()"));
     assert!(!end_only_observer.contains("currentReadLeading"));
-    assert!(android.contains("endReached.value = true"));
-    assert!(!android.contains("endReached.value = reached"));
+    assert!(end_only_observer.contains("if (!wasAtEnd) currentEndReached.value()"));
+    assert!(end_only_observer.contains("wasAtEnd = true"));
+    assert!(end_only_observer.contains("wasAtEnd = false"));
     assert!(android.contains("private fun nexaDevLeadingVisibleDataItemIndex("));
     assert!(android.contains("nexaDevLeadingVisibleDataItemIndex("));
     assert!(android.contains("return nexaLeadingVisibleDataItemIndex("));
@@ -5909,90 +5999,44 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
     assert!(
         scroll_observation.contains("end <= viewportStartOffset || offset >= viewportEndOffset")
     );
-    assert!(android.contains(
-        "stickyHeaderOffset, reverseLayout, layout.viewportStartOffset, layout.viewportEndOffset,"
-    ));
+    assert!(
+        android
+            .contains("stickyHeaderOffset, layout.viewportStartOffset, layout.viewportEndOffset,")
+    );
     assert!(android.contains("viewportStartOffset: Int,\n    viewportEndOffset: Int,"));
     assert!(
         scroll_observation
             .contains("if (end <= viewportStartOffset || start >= viewportEndOffset) continue")
     );
     assert!(android.contains(
-        "val requestedLayoutPosition = if (stickyHeaderOffset > 0 && requestedPosition == 0) {"
+        "val requestedLayoutPosition = if (stickyHeaderOffset > 0 && requestedIndex == 0) {"
     ));
     assert!(
         scroll_observation.contains("hasStickyHeader && offset < stickyEnd && end > stickyStart")
     );
     assert!(android.contains("nexaListEndIsVisible("));
-    assert!(android.contains("nativeScrollPositionEcho = logicalFirstVisible"));
-    assert!(
-        android.contains("val isNativePositionEcho = requestedIndex == nativeScrollPositionEcho")
-    );
-    assert!(android.contains("if (isNativePositionEcho) return@LaunchedEffect"));
+    assert!(android.contains("store.setScrollPositionFromNative("));
+    assert!(android.contains("expectedCommandRevision = scrollPositionCommandRevision,"));
+    assert!(android.contains(
+        "store.stateCommandRevision(scrollPositionName, scope) == scrollPositionCommandRevision"
+    ));
+    assert!(android.contains("LaunchedEffect(listState, scrollPositionCommandRevision, count)"));
     assert!(android_state.contains(
         "if (!declaration.optBoolean(\"mutable\")) {\n                    resolved[name] = values[identity] ?: JSONObject.NULL"
     ));
 
-    assert!(ios.contains("Preference changes run during SwiftUI's update transaction."));
-    assert!(ios.contains("DispatchQueue.main.async {"));
-    assert!(ios.contains("for (index, frame) in offsets {"));
-    assert!(
-        ios.contains("if count > 0 && index == finalVisibleIndex { reachedEndCandidate = true }")
-    );
-    assert!(ios.contains("endReachedGate.claim(count: count)"));
-    assert!(ios.contains("index != lastReportedVisibleIndex"));
     let ios_fast_list = ios
         .split_once("struct NexaDevFastList<")
         .expect("find the iOS DevRuntime FastList")
         .1
-        .split_once("@MainActor\nprivate final class NexaDevPageSnapTableView")
+        .split_once("private struct NexaDevScopedRevisionView")
         .expect("find the end of the iOS DevRuntime FastList")
         .0;
-    assert!(ios.contains("static let defaultValue: [Int: CGRect] = [:]"));
-    assert!(ios_fast_list.contains("frame.maxY > 0 && frame.minY < viewportExtent"));
-    assert!(ios_fast_list.contains("if leadingVisibleOffset.map({ offset < $0 }) ?? true"));
-    assert!(ios_fast_list.contains("@State private var lastReportedVisibleIndex: Int?"));
-    assert!(ios_fast_list.contains("@State private var pendingProgrammaticScrollPosition: Int?"));
-    assert!(
-        ios_fast_list.contains("@State private var suppressesProgrammaticScrollCallbacks = false")
-    );
-    let controlled_position_observer = ios_fast_list
-        .split_once(".onChange(of: controlledPositionRevision) { revision in")
-        .expect("find the iOS DevRuntime controlled scroll-position observer")
-        .1
-        .split_once(".onChange(of: reverseLayout)")
-        .expect("controlled scroll-position observer should end before reverse-layout observer")
-        .0;
-    assert!(
-        controlled_position_observer.contains("observedControlledPositionRevision != revision")
-    );
-    assert!(
-        controlled_position_observer.contains("scheduleProgrammaticScroll(to: index, proxy: proxy")
-    );
-    let scroll_position_callback = ios_fast_list
-        .split_once(".onPreferenceChange(NexaDevListPositionPreference.self)")
-        .expect("find the iOS DevRuntime visible-position observer")
-        .1
-        .split_once("private func scheduleProgrammaticScroll(")
-        .expect("visible-position observer should end before programmatic scrolling")
-        .0;
-    let position_guard = scroll_position_callback
-        .find("let canAcceptPosition = reachedProgrammaticTarget || !suppressesProgrammaticScrollCallbacks")
-        .expect("the observer should distinguish settled native scrolls from programmatic updates");
-    let native_callback = scroll_position_callback
-        .find("onScrollPositionChanged?(visibleIndex)")
-        .expect("native scroll-position callback should remain present");
-    assert!(position_guard < native_callback);
-    assert!(ios_fast_list.contains("isAtEnd && endReachedGate.claim(count: count)"));
-    assert!(ios_fast_list.contains("endReachedGate.complete(count: count)"));
-    assert_eq!(
-        ios_fast_list.matches("onEndReached?(").count(),
-        1,
-        "DevRuntime end-reached actions should run only from the deferred visibility tracker, not from row lifecycle callbacks"
-    );
-    assert!(
-        !ios_fast_list.contains(".onAppear {\n                guard (reverseLayout ? index == 0")
-    );
+    assert!(!ios_fast_list.contains("GeometryReader"));
+    assert!(!ios_fast_list.contains("ScrollViewReader"));
+    assert!(ios_fast_list.contains("onEndReached: onEndReached"));
+    assert!(ios_fast_list.contains("onScrollBeginDrag: onScrollBeginDrag"));
+    assert!(!ios.contains("store.claimFastListEndReached("));
     assert!(ios.contains("store.pagePagerRestoreRevision(forState: state, scope: scope)"));
     assert!(ios.contains(".environment(\\.nexaDevPageRestoreRevision, restoreRevision)"));
     assert!(ios_state.contains("stateCommandRevisions[storageKey, default: 0] += 1"));
@@ -6000,36 +6044,6 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
     assert!(ios_state.contains("== expectedCommandRevision else { return }"));
     assert!(ios.contains("let scrollPositionCommandRevision = scrollPositionName.map {"));
     assert!(ios.contains("store.setScrollPositionFromNative("));
-    assert!(ios.contains("@State private var scrollPositionCommandRevision = 0"));
-    assert!(ios.contains("scrollPositionCommandRevision += 1\n        let commandRevision = scrollPositionCommandRevision"));
-    assert!(ios.contains("let canReportScroll = canUpdateScrollPosition"));
-    assert!(ios.contains("@State private var pendingProgrammaticScrollPosition: Int?"));
-    assert!(
-        ios.contains("scheduleProgrammaticScroll(to: index, proxy: proxy, anchor: axis.anchor)")
-    );
-    assert!(ios.contains("let reachedProgrammaticTarget = pendingPosition == visibleIndex"));
-    assert!(ios.contains("!isInitialPosition && (canReportScroll || reachedProgrammaticTarget)"));
-    assert!(ios.contains("pendingProgrammaticScrollPosition = nil\n                        canUpdateScrollPosition = true"));
-    assert!(ios.contains("transaction.disablesAnimations = true"));
-    assert!(ios.contains(".simultaneousGesture(DragGesture(minimumDistance: 4)"));
-    assert!(ios.contains("guard scrollPositionCommandRevision == commandRevision else { return }"));
-    let ios_list_callbacks = ios
-        .split_once("onScrollPositionChanged: scrollPositionName.map")
-        .expect("find iOS DevRuntime list callback bindings")
-        .1
-        .split_once("isRefreshing:")
-        .expect("find the end of iOS DevRuntime list callback bindings")
-        .0;
-    assert!(ios_list_callbacks.contains("store.setScrollPositionFromNative("));
-    assert!(ios_list_callbacks.contains("expectedCommandRevision: scrollPositionCommandRevision"));
-    assert!(ios_list_callbacks.contains("store.perform(actions, scope: scope, locals:"));
-    assert!(
-        !ios_list_callbacks.contains("DispatchQueue.main.async"),
-        "UIKit already defers these callbacks until after delegate/layout updates; queueing them again can apply stale scroll positions"
-    );
-    assert!(ios.contains(
-        "lastReportedVisibleIndex = visibleIndex\n                        if !isInitialPosition && (canReportScroll || reachedProgrammaticTarget) {\n                            onScrollPositionChanged?(visibleIndex)\n                            onScroll?()"
-    ));
 }
 
 #[test]
@@ -6046,7 +6060,7 @@ fn fast_list_refs_are_the_only_scroll_command_path_in_both_devruntimes() {
         .expect("read iOS DevRuntime native calls");
 
     assert!(android.contains("private fun NexaDevBindFastListRef("));
-    assert!(android.contains("reference.attach("));
+    assert!(android.contains("    NexaBindFastListRef("));
     assert!(android.contains("scrollToIndex: suspend (Int, Boolean, Double) -> Unit"));
     assert!(android.contains("animateScrollBy(delta)"));
     assert!(android_native.contains("options[\"viewPosition\"]"));

@@ -1,6 +1,9 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Expr, FastListMove, FastListRefresh, ListAxis, ListPlan, Module, Node};
+use nexa_ir::{
+    Action, Expr, FastListMove, FastListRefresh, FastListSwipeActions, FastListSwipeEdge, ListAxis,
+    ListPlan, Module, Node,
+};
 
 use crate::generator::{
     components::{render_children, render_node},
@@ -28,21 +31,13 @@ struct SectionedPieces<'a> {
     item: &'a str,
     key: Option<&'a Expr>,
     children: &'a [Node],
-    swipe_actions: Option<&'a [Node]>,
+    swipe_actions: Option<&'a FastListSwipeActions>,
     section_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
     component_ref: Option<&'a Expr>,
 }
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    imports.add(
-        features.uses_fast_list,
-        "androidx.compose.runtime.SideEffect",
-    );
-    imports.add(
-        features.uses_fast_list,
-        "androidx.compose.runtime.DisposableEffect",
-    );
     imports.add(
         features.uses_fast_list,
         "androidx.compose.runtime.rememberCoroutineScope",
@@ -211,12 +206,22 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.runtime.snapshotFlow",
     );
     imports.add(
-        features.uses_list_scroll_position || features.uses_list_scroll_events,
+        features.uses_list_end_reached
+            || features.uses_list_scroll_position
+            || features.uses_list_scroll_events,
         "kotlinx.coroutines.flow.collect",
     );
     imports.add(
         features.uses_list_end_reached,
-        "kotlinx.coroutines.flow.first",
+        "kotlinx.coroutines.flow.distinctUntilChanged",
+    );
+    imports.add(
+        features.uses_list_end_reached,
+        "androidx.compose.runtime.mutableStateOf",
+    );
+    imports.add(
+        features.uses_list_end_reached,
+        "androidx.compose.runtime.saveable.rememberSaveable",
     );
     imports.add(
         features.uses_list_scroll_events,
@@ -251,71 +256,76 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
             || features.facts.ui.lists.reorderable,
         "androidx.compose.runtime.remember",
     );
-    imports.add(
-        features.uses_list_end_reached,
-        "androidx.compose.runtime.saveable.rememberSaveable",
-    );
     let swipe_actions = features.facts.ui.lists.swipe_actions;
-    imports.add(swipe_actions, "androidx.compose.foundation.layout.Box");
-    imports.add(swipe_actions, "androidx.compose.foundation.layout.Row");
-    imports.add(
-        swipe_actions,
-        "androidx.compose.foundation.layout.fillMaxSize",
-    );
-    imports.add(
-        swipe_actions,
-        "androidx.compose.foundation.layout.fillMaxWidth",
-    );
-    imports.add(swipe_actions, "androidx.compose.foundation.background");
-    imports.add(swipe_actions, "androidx.compose.material3.MaterialTheme");
-    imports.add(
-        swipe_actions,
-        "androidx.compose.foundation.layout.Arrangement",
-    );
-    imports.add(swipe_actions, "androidx.compose.ui.Alignment");
-    imports.add(swipe_actions, "androidx.compose.ui.Modifier");
-    imports.add(
-        swipe_actions,
-        "androidx.compose.material3.SwipeToDismissBox",
-    );
-    imports.add(
-        swipe_actions,
-        "androidx.compose.material3.rememberSwipeToDismissBoxState",
-    );
-    imports.add(
-        swipe_actions,
-        "androidx.compose.foundation.gestures.awaitEachGesture",
-    );
-    imports.add(
-        swipe_actions,
-        "androidx.compose.foundation.gestures.awaitFirstDown",
-    );
-    imports.add(
-        swipe_actions,
-        "androidx.compose.ui.input.pointer.pointerInput",
-    );
+    if swipe_actions {
+        for line in crate::generator::NEXA_FAST_LIST_SWIPE_PRIMITIVE_SOURCE.lines() {
+            if let Some(import) = line.strip_prefix("import ") {
+                imports.add(true, import);
+            }
+        }
+    }
     let reorderable = features.facts.ui.lists.reorderable;
+    imports.add(reorderable, "androidx.compose.animation.core.Animatable");
+    imports.add(reorderable, "androidx.compose.animation.core.Spring");
     imports.add(
         reorderable,
-        "androidx.compose.foundation.gestures.awaitEachGesture",
+        "androidx.compose.animation.core.VectorConverter",
     );
     imports.add(
         reorderable,
-        "androidx.compose.foundation.gestures.awaitFirstDown",
+        "androidx.compose.animation.core.VisibilityThreshold",
+    );
+    imports.add(reorderable, "androidx.compose.animation.core.spring");
+    imports.add(
+        reorderable,
+        "androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress",
     );
     imports.add(reorderable, "androidx.compose.foundation.layout.Box");
+    imports.add(
+        reorderable,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        reorderable,
+        "androidx.compose.foundation.lazy.LazyListState",
+    );
+    imports.add(
+        reorderable,
+        "androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState",
+    );
+    imports.add(
+        reorderable,
+        "androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridItemInfo",
+    );
+    imports.add(reorderable, "androidx.compose.runtime.Composable");
+    imports.add(reorderable, "androidx.compose.runtime.Stable");
     imports.add(reorderable, "androidx.compose.runtime.mutableFloatStateOf");
     imports.add(reorderable, "androidx.compose.runtime.mutableIntStateOf");
     imports.add(reorderable, "androidx.compose.runtime.remember");
+    imports.add(
+        reorderable,
+        "androidx.compose.runtime.rememberCoroutineScope",
+    );
+    imports.add(
+        reorderable
+            || features.uses_list_end_reached
+            || features.uses_list_scroll_events
+            || features.uses_list_scroll_position,
+        "androidx.compose.runtime.rememberUpdatedState",
+    );
     imports.add(reorderable, "androidx.compose.ui.Modifier");
+    imports.add(reorderable, "androidx.compose.ui.geometry.Offset");
     imports.add(reorderable, "androidx.compose.ui.graphics.graphicsLayer");
     imports.add(reorderable, "androidx.compose.ui.zIndex");
     imports.add(
         reorderable,
         "androidx.compose.ui.input.pointer.pointerInput",
     );
-    imports.add(reorderable, "kotlinx.coroutines.withTimeoutOrNull");
+    imports.add(reorderable, "kotlinx.coroutines.CoroutineScope");
+    imports.add(reorderable, "kotlinx.coroutines.Job");
+    imports.add(reorderable, "kotlinx.coroutines.launch");
     imports.add(reorderable, "kotlin.math.abs");
+    imports.add(reorderable, "kotlin.math.roundToInt");
 }
 
 /// Flat (count- or collection-backed) list data borrowed from a [`ListPlan`].
@@ -333,7 +343,7 @@ struct FlatPieces<'a> {
     scroll_enabled: Option<&'a Expr>,
     key: Option<&'a Expr>,
     children: &'a [Node],
-    swipe_actions: Option<&'a [Node]>,
+    swipe_actions: Option<&'a FastListSwipeActions>,
     on_end_reached: Option<&'a [Action]>,
     on_scroll: Option<&'a [Action]>,
     on_scroll_begin_drag: Option<&'a [Action]>,
@@ -352,10 +362,9 @@ struct FlatRowContent<'a> {
     axis: ListAxis,
     animate_item: bool,
     list_index_offset: usize,
-    dragged_index_state: Option<&'a str>,
-    drag_offset_state: Option<&'a str>,
+    reorder_state: Option<&'a str>,
     children: &'a [Node],
-    swipe_actions: Option<&'a [Node]>,
+    swipe_actions: Option<&'a FastListSwipeActions>,
     reset_key: &'a str,
     native_list_row: bool,
     native_row_divider: bool,
@@ -425,7 +434,7 @@ pub(crate) fn render_virtualized_list(
                     item,
                     key: common.key.as_ref(),
                     children: &common.children,
-                    swipe_actions: common.swipe_actions.as_deref(),
+                    swipe_actions: common.swipe_actions.as_ref(),
                     section_header: common.section_header.as_deref(),
                     refresh: common.refresh.as_ref(),
                     component_ref: common.component_ref.as_ref(),
@@ -448,7 +457,7 @@ pub(crate) fn render_virtualized_list(
             scroll_enabled: common.scroll_enabled.as_ref(),
             key: common.key.as_ref(),
             children: &common.children,
-            swipe_actions: common.swipe_actions.as_deref(),
+            swipe_actions: common.swipe_actions.as_ref(),
             on_end_reached: common.on_end_reached.as_deref(),
             on_scroll: common.on_scroll.as_deref(),
             on_scroll_begin_drag: common.on_scroll_begin_drag.as_deref(),
@@ -487,7 +496,7 @@ pub(crate) fn render_virtualized_list(
                 scroll_enabled: common.scroll_enabled.as_ref(),
                 key: common.key.as_ref(),
                 children: &common.children,
-                swipe_actions: common.swipe_actions.as_deref(),
+                swipe_actions: common.swipe_actions.as_ref(),
                 on_end_reached: common.on_end_reached.as_deref(),
                 on_scroll: common.on_scroll.as_deref(),
                 on_scroll_begin_drag: common.on_scroll_begin_drag.as_deref(),
@@ -518,33 +527,18 @@ pub(crate) fn render_virtualized_list(
     let list_state = (has_list_observers
         || (matches!(pieces.axis, ListAxis::Vertical | ListAxis::Horizontal) && !pieces.page_snap))
         .then(|| format!("nexaListState{list_id}"));
-    let dragged_index_state = pieces.on_move.map(|_| format!("nexaDraggedIndex{list_id}"));
-    let drag_offset_state = pieces.on_move.map(|_| format!("nexaDragOffset{list_id}"));
-    if let Some(state) = dragged_index_state.as_deref() {
+    let reorder_state = pieces
+        .on_move
+        .map(|_| format!("nexaFastListReorderState{list_id}"));
+    if let Some(state) = reorder_state.as_deref() {
         out.line_at(
             depth,
-            format_args!("val {state} = remember {{ mutableIntStateOf(-1) }}"),
-        );
-    }
-    if let Some(state) = drag_offset_state.as_deref() {
-        out.line_at(
-            depth,
-            format_args!("val {state} = remember {{ mutableFloatStateOf(0f) }}"),
+            format_args!("val {state} = rememberNexaFastListReorderState()"),
         );
     }
     let list_count = flat_list_requires_count(&pieces).then(|| format!("nexaListCount{list_id}"));
     if let Some(list_state) = list_state.as_deref() {
-        let marker = pieces
-            .on_end_reached
-            .map(|_| format!("nexaEndReached{list_id}"));
-        render_list_observers(
-            &pieces,
-            list_state,
-            list_count.as_deref(),
-            marker.as_deref(),
-            depth,
-            out,
-        );
+        render_list_observers(&pieces, list_state, list_count.as_deref(), depth, out);
     }
     if let (Some(component_ref), Some(list_state)) = (pieces.component_ref, list_state.as_deref()) {
         render_list_component_ref(
@@ -552,7 +546,13 @@ pub(crate) fn render_virtualized_list(
             list_state,
             pieces.axis,
             pieces.page_snap,
-            &flat_count_expression(&pieces.count),
+            ListRefRows {
+                count: flat_count_expression(&pieces.count),
+                reverse_layout: pieces.reverse_layout,
+                layout_index: pieces
+                    .sticky_header
+                    .map(|_| "if (dataIndex == 0) 0 else dataIndex + 1".to_owned()),
+            },
             depth,
             out,
         );
@@ -566,7 +566,8 @@ pub(crate) fn render_virtualized_list(
     let state_argument = list_state
         .as_deref()
         .map(|state| format!("state = {state}"));
-    let list_depth = render_refresh_open(pieces.refresh, depth, out);
+    let refresh_depth = render_refresh_open(pieces.refresh, depth, out);
+    let list_depth = render_swipe_group_open(pieces.swipe_actions.is_some(), refresh_depth, out);
     indent(out, list_depth);
     // Grid plans return through `render_grid_list` above; the remaining
     // axes select the linear container with a total comparison.
@@ -750,8 +751,7 @@ pub(crate) fn render_virtualized_list(
             axis: pieces.axis,
             animate_item: pieces.key.is_some() && pieces.axis == ListAxis::Vertical,
             list_index_offset: usize::from(pieces.sticky_header.is_some()),
-            dragged_index_state: dragged_index_state.as_deref(),
-            drag_offset_state: drag_offset_state.as_deref(),
+            reorder_state: reorder_state.as_deref(),
             children: pieces.children,
             swipe_actions: pieces.swipe_actions,
             reset_key: &native_list_count,
@@ -801,6 +801,7 @@ pub(crate) fn render_virtualized_list(
     out.push_str("}\n");
     indent(out, list_depth);
     out.push('}');
+    render_swipe_group_close(pieces.swipe_actions.is_some(), refresh_depth, out);
     render_refresh_close(pieces.refresh, depth, out);
 }
 
@@ -945,19 +946,31 @@ fn render_sectioned_list(
         format_args!("val {list_state} = rememberLazyListState()"),
     );
     if let Some(component_ref) = component_ref {
-        let row_count = format!("({collection_name}.sumOf {{ it.size }})");
+        let row_count = format!("nexaSectionRowCount{list_state}");
+        out.line_at(
+            depth,
+            format_args!("val {row_count} = {collection_name}.sumOf {{ it.size }}"),
+        );
         render_list_component_ref(
             component_ref,
             &list_state,
             ListAxis::Vertical,
             false,
-            &row_count,
+            ListRefRows {
+                count: row_count,
+                reverse_layout: false,
+                layout_index: Some(format!(
+                    "nexaSectionedListLayoutIndex({collection_name}, dataIndex, {}, {uses_platform_list}) {{ it.size }}",
+                    section_header.is_some()
+                )),
+            },
             depth,
             out,
         );
     }
     let section_collection = collection_name;
-    let list_depth = render_refresh_open(refresh, depth, out);
+    let refresh_depth = render_refresh_open(refresh, depth, out);
+    let list_depth = render_swipe_group_open(swipe_actions.is_some(), refresh_depth, out);
     indent(out, list_depth);
     out.push_str(&format!("LazyColumn(state = {list_state}, "));
     out.push_str(&format!(
@@ -1065,8 +1078,7 @@ fn render_sectioned_list(
             axis: ListAxis::Vertical,
             animate_item: has_stable_key,
             list_index_offset: 0,
-            dragged_index_state: None,
-            drag_offset_state: None,
+            reorder_state: None,
             children,
             swipe_actions,
             reset_key: "sectionItems.size",
@@ -1122,6 +1134,7 @@ fn render_sectioned_list(
     out.push_str("}\n");
     indent(out, list_depth);
     out.push('}');
+    render_swipe_group_close(swipe_actions.is_some(), refresh_depth, out);
     render_refresh_close(refresh, depth, out);
 }
 
@@ -1135,25 +1148,32 @@ fn render_grid_list(
     out: &mut SourceWriter,
 ) {
     let list_state = format!("nexaGridState{list_id}");
-    let list_count = flat_list_requires_count(pieces).then(|| format!("nexaGridCount{list_id}"));
-    let marker = pieces
-        .on_end_reached
-        .map(|_| format!("nexaEndReached{list_id}"));
-    render_list_observers(
-        pieces,
-        &list_state,
-        list_count.as_deref(),
-        marker.as_deref(),
-        depth,
-        out,
-    );
+    let list_count = (flat_list_requires_count(pieces) || pieces.on_move.is_some())
+        .then(|| format!("nexaGridCount{list_id}"));
+    let reorder_state = pieces
+        .on_move
+        .filter(|_| matches!(axis, ListAxis::Masonry { .. }))
+        .map(|_| format!("nexaFastListReorderState{list_id}"));
+    if let Some(reorder_state) = reorder_state.as_deref() {
+        out.line_at(
+            depth,
+            format_args!("val {reorder_state} = rememberNexaFastListReorderState()"),
+        );
+    }
+    render_list_observers(pieces, &list_state, list_count.as_deref(), depth, out);
     if let Some(component_ref) = pieces.component_ref {
         render_list_component_ref(
             component_ref,
             &list_state,
             axis,
             pieces.page_snap,
-            &flat_count_expression(&pieces.count),
+            ListRefRows {
+                count: flat_count_expression(&pieces.count),
+                reverse_layout: false,
+                layout_index: pieces
+                    .sticky_header
+                    .map(|_| "if (dataIndex == 0) 0 else dataIndex + 1".to_owned()),
+            },
             depth,
             out,
         );
@@ -1261,18 +1281,45 @@ fn render_grid_list(
             );
         }
     }
-    render_row_content(
-        pieces
-            .item_extent
-            .map(ListRowSizing::Fixed)
-            .unwrap_or(ListRowSizing::Content),
-        axis,
-        pieces.children,
-        module,
-        features,
-        list_depth + 2,
-        out,
-    );
+    let row_sizing = pieces
+        .item_extent
+        .map(ListRowSizing::Fixed)
+        .unwrap_or(ListRowSizing::Content);
+    if let (ListAxis::Masonry { .. }, Some(reorder_state), Some(on_move)) =
+        (axis, reorder_state.as_deref(), pieces.on_move)
+    {
+        render_row_content_with_actions(
+            FlatRowContent {
+                sizing: row_sizing,
+                axis,
+                animate_item: pieces.key.is_some(),
+                list_index_offset: 0,
+                reorder_state: Some(reorder_state),
+                children: pieces.children,
+                swipe_actions: None,
+                reset_key: list_count.as_deref().unwrap_or("0"),
+                native_list_row: false,
+                native_row_divider: false,
+                on_move: Some(on_move),
+                index: Some(pieces.index),
+                list_state: Some(&list_state),
+            },
+            module,
+            features,
+            list_depth + 2,
+            out,
+        );
+    } else {
+        render_row_content(
+            row_sizing,
+            axis,
+            pieces.children,
+            module,
+            features,
+            list_depth + 2,
+            out,
+        );
+    }
     out.push('\n');
     indent(out, list_depth + 1);
     out.push_str("}\n");
@@ -1282,7 +1329,10 @@ fn render_grid_list(
 }
 
 fn flat_list_requires_count(pieces: &FlatPieces<'_>) -> bool {
-    pieces.on_end_reached.is_some() || pieces.reverse_layout || pieces.page_snap
+    pieces.on_end_reached.is_some()
+        || pieces.scroll_position.is_some()
+        || pieces.reverse_layout
+        || pieces.page_snap
 }
 
 fn render_refresh_open(
@@ -1317,14 +1367,39 @@ fn render_refresh_close(refresh: Option<&FastListRefresh>, depth: usize, out: &m
     }
 }
 
+fn render_swipe_group_open(enabled: bool, depth: usize, out: &mut SourceWriter) -> usize {
+    if enabled {
+        out.line_at(depth, format_args!("NexaFastListSwipeGroup {{"));
+        depth + 1
+    } else {
+        depth
+    }
+}
+
+fn render_swipe_group_close(enabled: bool, depth: usize, out: &mut SourceWriter) {
+    if enabled {
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+    }
+}
+
 fn emit_leading_visible_data_item_index(
     list_state: &str,
     sticky_header_offset: usize,
-    reverse_layout: bool,
     axis: ListAxis,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    if sticky_header_offset == 0 && matches!(axis, ListAxis::Vertical | ListAxis::Horizontal) {
+        out.line_at(
+            depth,
+            format_args!(
+                "fun leadingVisibleDataItemIndex(): Int = {list_state}.firstVisibleItemIndex"
+            ),
+        );
+        return;
+    }
     out.line_at(
         depth,
         format_args!("fun leadingVisibleDataItemIndex(): Int {{"),
@@ -1348,9 +1423,7 @@ fn emit_leading_visible_data_item_index(
     );
     out.line_at(
         depth + 2,
-        format_args!(
-            "stickyHeaderOffset = {sticky_header_offset}, reverseLayout = {reverse_layout},"
-        ),
+        format_args!("stickyHeaderOffset = {sticky_header_offset},"),
     );
     out.line_at(depth + 2, format_args!("viewportStartOffset = layoutInfo.viewportStartOffset, viewportEndOffset = layoutInfo.viewportEndOffset,"));
     out.line_at(depth + 2, format_args!("itemIndex = {{ it.index }}, itemOffset = {{ it.{item_offset} }}, itemSize = {{ it.{item_size} }},"));
@@ -1371,7 +1444,6 @@ fn render_list_observers(
     pieces: &FlatPieces<'_>,
     list_state: &str,
     list_count: Option<&str>,
-    marker: Option<&str>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -1400,18 +1472,14 @@ fn render_list_observers(
         let page_count = list_count.unwrap_or("0");
         let initial_page = scroll_position
             .as_deref()
-            .map(|position| format!("{position}.coerceAtLeast(0)"))
+            .map(|position| format!("{position}.coerceIn(0, ({page_count} - 1).coerceAtLeast(0))"))
             .unwrap_or_else(|| "0".to_owned());
         format!("rememberPagerState(initialPage = {initial_page}) {{ {page_count} }}")
     } else if let Some(scroll_position) = scroll_position.as_deref() {
-        let initial_position = if pieces.reverse_layout {
-            let count = list_count.unwrap_or("0");
-            format!(
-                "({count} - 1 - {scroll_position}.coerceAtLeast(0)).coerceIn(0, ({count} - 1).coerceAtLeast(0))"
-            )
-        } else {
-            format!("{scroll_position}.coerceAtLeast(0)")
-        };
+        let initial_position = format!(
+            "{scroll_position}.coerceIn(0, ({} - 1).coerceAtLeast(0))",
+            list_count.unwrap_or("0")
+        );
         let initial_position = if sticky_header_offset > 0 {
             format!(
                 "if ({initial_position} == 0) 0 else ({initial_position} + {sticky_header_offset})"
@@ -1488,21 +1556,29 @@ fn render_list_observers(
         );
         out.line_at(depth, format_args!("}}"));
     }
-    if let (Some(list_count), Some(marker), Some(actions)) = (list_count, marker, end_actions) {
+    if let (Some(list_count), Some(actions)) = (list_count, end_actions) {
+        let callback = format!("nexaEndReachedAction{list_state}");
+        out.line_at(
+            depth,
+            format_args!("val {callback} = rememberUpdatedState {{"),
+        );
+        if let Some(task_scope) = list_task_scope.as_deref() {
+            out.line_at(depth + 1, format_args!("val nexaTaskScope = {task_scope}"));
+        }
+        render_actions(actions, depth + 1, out);
+        out.line_at(depth, format_args!("}}"));
+        let end_latch = format!("nexaWasAtEnd{list_state}");
         out.line_at(
             depth,
             format_args!(
-                "var {marker} by rememberSaveable({list_count}) {{ mutableIntStateOf(-1) }}"
+                "var {end_latch} by rememberSaveable({list_count}) {{ mutableStateOf(false) }}"
             ),
         );
         out.line_at(
             depth,
             format_args!("LaunchedEffect({list_state}, {list_count}) {{"),
         );
-        out.line_at(
-            depth + 1,
-            format_args!("if ({list_count} > 0 && {marker} != {list_count}) {{"),
-        );
+        out.line_at(depth + 1, format_args!("if ({list_count} > 0) {{"));
         out.line_at(depth + 2, format_args!("snapshotFlow {{"));
         if pieces.page_snap {
             out.line_at(
@@ -1526,186 +1602,112 @@ fn render_list_observers(
             out.line_at(depth + 4, format_args!("itemIndex = {{ it.index }}, itemOffset = {{ it.{item_offset} }}, itemSize = {{ it.{item_size} }},"));
             out.line_at(depth + 3, format_args!(")"));
         }
-        out.line_at(depth + 2, format_args!("}}.first {{ it }}"));
-        out.line_at(depth + 2, format_args!("{marker} = {list_count}"));
-        if let Some(task_scope) = list_task_scope.as_deref() {
-            out.line_at(depth + 2, format_args!("val nexaTaskScope = {task_scope}"));
-        }
-        render_actions(actions, depth + 2, out);
+        out.line_at(
+            depth + 2,
+            format_args!("}}.distinctUntilChanged().collect {{ reachedEnd ->"),
+        );
+        out.line_at(depth + 3, format_args!("if (reachedEnd) {{"));
+        out.line_at(
+            depth + 4,
+            format_args!("if (!{end_latch}) {callback}.value()"),
+        );
+        out.line_at(depth + 4, format_args!("{end_latch} = true"));
+        out.line_at(depth + 3, format_args!("}} else {{"));
+        out.line_at(depth + 4, format_args!("{end_latch} = false"));
+        out.line_at(depth + 3, format_args!("}}"));
+        out.line_at(depth + 2, format_args!("}}"));
         out.line_at(depth + 1, format_args!("}}"));
         out.line_at(depth, format_args!("}}"));
     }
     if scroll_position.is_some() || scroll_actions.is_some() {
-        let scroll_marker = scroll_actions.map(|_| format!("nexaScrollEvent{list_state}"));
-        let has_initial_position = format!("nexaHasInitialScrollPosition{list_state}");
+        let scroll_callback = format!("nexaScrollAction{list_state}");
         let scroll_position_echo = format!("nexaReportedScrollPosition{list_state}");
-        let scroll_was_in_progress = format!("nexaScrollWasInProgress{list_state}");
-        out.line_at(
-            depth,
-            format_args!(
-                "val {has_initial_position} = remember({list_state}) {{ booleanArrayOf(false) }}"
-            ),
-        );
         if scroll_position.is_some() {
             out.line_at(
                 depth,
-                format_args!("var {scroll_position_echo} by remember {{ mutableIntStateOf(-1) }}"),
+                format_args!("var {scroll_position_echo} by remember({list_state}) {{ mutableIntStateOf(-1) }}"),
             );
         }
-        if let Some(scroll_marker) = scroll_marker.as_deref() {
-            out.line_at(
-                depth,
-                format_args!("var {scroll_marker} by remember {{ mutableIntStateOf(-1) }}"),
-            );
-            out.line_at(
-                depth,
-                format_args!("val {scroll_was_in_progress} = remember({list_state}) {{ booleanArrayOf(false) }}"),
-            );
-        }
-        out.line_at(depth, format_args!("LaunchedEffect({list_state}) {{"));
-        if pieces.page_snap {
-            out.line_at(depth + 1, format_args!("snapshotFlow {{ if ({list_state}.isScrollInProgress) -1 else {list_state}.settledPage }}.collect {{ firstVisiblePosition ->"
-            ));
-            out.line_at(depth + 2, format_args!("if (firstVisiblePosition >= 0) {{"));
-            indent(out, depth + 3);
-        } else {
-            emit_leading_visible_data_item_index(
-                list_state,
-                sticky_header_offset,
-                pieces.reverse_layout,
-                axis,
-                depth + 1,
-                out,
-            );
-            let first_visible_expression = "leadingVisibleDataItemIndex()";
-            if scroll_actions.is_some() {
-                out.line_at(depth + 1, format_args!("snapshotFlow {{ {list_state}.isScrollInProgress to {first_visible_expression} }}.collect {{ (isScrollInProgress, firstVisiblePosition) ->"
-                ));
-            } else {
-                out.line_at(depth + 1, format_args!("snapshotFlow {{ {first_visible_expression} }}.collect {{ firstVisiblePosition ->"
-                ));
-            }
-            indent(out, depth + 2);
-        }
-        let body_indent = depth + if pieces.page_snap { 3 } else { 2 };
         let visible_item_position = if sticky_header_offset > 0 {
             format!("(firstVisiblePosition - {sticky_header_offset}).coerceAtLeast(0)")
         } else {
             "firstVisiblePosition".to_owned()
         };
-        let first_visible = if pieces.reverse_layout {
-            format!(
-                "({} - 1 - {visible_item_position}).coerceIn(0, ({} - 1).coerceAtLeast(0))",
-                list_count.unwrap_or("0"),
-                list_count.unwrap_or("0"),
-            )
+        let parameter = if scroll_position.is_some() {
+            "firstVisiblePosition"
         } else {
-            visible_item_position
+            "_"
         };
         out.line_at(
-            body_indent,
-            format_args!("val isInitialScrollPosition = !{has_initial_position}[0]"),
+            depth,
+            format_args!("val {scroll_callback} = rememberUpdatedState {{ {parameter}: Int ->"),
         );
-        out.line_at(
-            body_indent,
-            format_args!("{has_initial_position}[0] = true"),
-        );
-        if !pieces.page_snap {
-            if let Some(scroll_marker) = scroll_marker.as_deref() {
-                out.line_at(
-                    body_indent,
-                    format_args!("val previousScrollWasInProgress = {scroll_was_in_progress}[0]"),
-                );
-                out.line_at(
-                    body_indent,
-                    format_args!("{scroll_was_in_progress}[0] = isScrollInProgress"),
-                );
-                out.line_at(
-                    body_indent,
-                    format_args!("if (isInitialScrollPosition) {scroll_marker} = {first_visible}"),
-                );
-            }
-        } else if let Some(scroll_marker) = scroll_marker.as_deref() {
-            out.line_at(
-                body_indent,
-                format_args!("if (!{has_initial_position}[0]) {scroll_marker} = {first_visible}"),
-            );
-        }
-        out.line_at(
-            body_indent,
-            format_args!("if (!isInitialScrollPosition) {{"),
-        );
-        let callback_indent = body_indent + 1;
         if let Some(scroll_position) = scroll_position.as_deref() {
             out.line_at(
-                callback_indent,
-                format_args!("if ({first_visible} != {scroll_position}) {{"),
+                depth + 1,
+                format_args!("val logicalPosition = {visible_item_position}"),
             );
             out.line_at(
-                callback_indent + 1,
-                format_args!("{scroll_position_echo} = {first_visible}"),
+                depth + 1,
+                format_args!("if (logicalPosition != {scroll_position}) {{"),
             );
             out.line_at(
-                callback_indent + 1,
-                format_args!("{scroll_position} = {first_visible}"),
+                depth + 2,
+                format_args!("{scroll_position_echo} = logicalPosition"),
             );
-            indent(out, callback_indent);
-            out.push_str("}\n");
+            out.line_at(
+                depth + 2,
+                format_args!("{scroll_position} = logicalPosition"),
+            );
+            out.line_at(depth + 1, format_args!("}}"));
         }
-        if let (Some(scroll_marker), Some(scroll_actions)) =
-            (scroll_marker.as_deref(), scroll_actions)
-        {
-            out.line_at(
-                callback_indent,
-                format_args!("if ({first_visible} != {scroll_marker}) {{"),
-            );
-            let body_depth = callback_indent + 1;
-            if pieces.page_snap {
-                out.line_at(
-                    body_depth,
-                    format_args!("{scroll_marker} = {first_visible}"),
-                );
-                render_actions(scroll_actions, body_depth, out);
-            } else {
-                let callback_count = format!("nexaScrollCallbackCount{list_state}");
-                let previous_position = format!("nexaPreviousScrollPosition{list_state}");
-                out.line_at(
-                    body_depth,
-                    format_args!("val {previous_position} = {scroll_marker}"),
-                );
-                out.line_at(body_depth, format_args!("val {callback_count} = if (isScrollInProgress || previousScrollWasInProgress) kotlin.math.abs({first_visible} - {previous_position}).coerceAtLeast(1) else 1"));
-                out.line_at(
-                    body_depth,
-                    format_args!("{scroll_marker} = {first_visible}"),
-                );
-                out.line_at(body_depth, format_args!("repeat({callback_count}) {{"));
-                render_actions(scroll_actions, body_depth + 1, out);
-                indent(out, body_depth);
-                out.push_str("}\n");
-            }
-            indent(out, callback_indent);
-            out.push_str("}\n");
+        if let Some(actions) = scroll_actions {
+            render_actions(actions, depth + 1, out);
         }
-        indent(out, body_indent);
-        out.push_str("}\n");
+        out.line_at(depth, format_args!("}}"));
+        out.line_at(depth, format_args!("LaunchedEffect({list_state}) {{"));
+        out.line_at(depth + 1, format_args!("var lastVisiblePosition = -1"));
         if pieces.page_snap {
-            indent(out, depth + 2);
-            out.push_str("}\n");
+            out.line_at(depth + 1, format_args!("snapshotFlow {{ if ({list_state}.isScrollInProgress) -1 else {list_state}.settledPage }}.collect {{ firstVisiblePosition ->"));
+        } else {
+            emit_leading_visible_data_item_index(
+                list_state,
+                sticky_header_offset,
+                axis,
+                depth + 1,
+                out,
+            );
+            out.line_at(depth + 1, format_args!("snapshotFlow {{ leadingVisibleDataItemIndex() }}.collect {{ firstVisiblePosition ->"));
         }
-        indent(out, depth + 1);
-        out.push_str("}\n");
-        indent(out, depth);
-        out.push_str("}\n");
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "if (firstVisiblePosition >= 0 && firstVisiblePosition != lastVisiblePosition) {{"
+            ),
+        );
+        out.line_at(
+            depth + 3,
+            format_args!(
+                "if (lastVisiblePosition >= 0) {scroll_callback}.value(firstVisiblePosition)"
+            ),
+        );
+        out.line_at(
+            depth + 3,
+            format_args!("lastVisiblePosition = firstVisiblePosition"),
+        );
+        out.line_at(depth + 2, format_args!("}}"));
+        out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(depth, format_args!("}}"));
         if let Some(scroll_position) = scroll_position.as_deref() {
-            out.line_at(depth, format_args!("LaunchedEffect({scroll_position}) {{"));
-            let target = if pieces.reverse_layout {
-                let count = list_count.unwrap_or("0");
-                format!(
-                    "({count} - 1 - {scroll_position}).coerceIn(0, ({count} - 1).coerceAtLeast(0))"
-                )
-            } else {
-                format!("{scroll_position}.coerceAtLeast(0)")
-            };
+            out.line_at(
+                depth,
+                format_args!(
+                    "LaunchedEffect({list_state}, {scroll_position}, {}) {{",
+                    list_count.unwrap_or("0")
+                ),
+            );
+            let count = list_count.unwrap_or("0");
+            let target = format!("{scroll_position}.coerceIn(0, ({count} - 1).coerceAtLeast(0))");
             let target = if sticky_header_offset > 0 {
                 format!("if ({target} == 0) 0 else ({target} + {sticky_header_offset})")
             } else {
@@ -1714,8 +1716,6 @@ fn render_list_observers(
             out.line_at(depth + 1, format_args!("val target = {target}"));
             let current_position = if pieces.page_snap {
                 format!("{list_state}.settledPage")
-            } else if pieces.reverse_layout {
-                format!("{list_state}.layoutInfo.visibleItemsInfo.maxOfOrNull {{ it.index }} ?: -1")
             } else {
                 format!("{list_state}.firstVisibleItemIndex")
             };
@@ -1731,7 +1731,9 @@ fn render_list_observers(
             out.line_at(depth + 2, format_args!("{scroll_position_echo} = -1"));
             out.line_at(
                 depth + 1,
-                format_args!("}} else if (target != {current_position}) {scroll_to}"),
+                format_args!(
+                    "}} else if ({count} > 0 && target != ({current_position})) {scroll_to}"
+                ),
             );
             indent(out, depth);
             out.push_str("}\n");
@@ -1746,32 +1748,44 @@ fn flat_count_expression(count: &FlatCount<'_>) -> String {
     }
 }
 
+struct ListRefRows {
+    count: String,
+    layout_index: Option<String>,
+    reverse_layout: bool,
+}
+
 fn render_list_component_ref(
     component_ref: &Expr,
     state: &str,
     axis: ListAxis,
     page_snap: bool,
-    count: &str,
+    rows: ListRefRows,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     let id = out.next_id();
-    let reference = format!("nexaFastListRef{id}");
-    let scope = format!("nexaFastListRefScope{id}");
     let density = format!("nexaFastListRefDensity{id}");
-    let count = format!("({count}).coerceAtLeast(0)");
+    let count = format!("({}).coerceAtLeast(0)", rows.count);
+    let resolve_layout_index = rows.layout_index.as_deref().unwrap_or("dataIndex");
     let (item_offset, item_size) = list_item_info_geometry(axis);
+    let view_position = if rows.reverse_layout {
+        "(1.0 - viewPosition)"
+    } else {
+        "viewPosition"
+    };
     let scroll_to_index = if page_snap {
         format!(
             "if (animated) {state}.animateScrollToPage(index.coerceIn(0, ({count} - 1).coerceAtLeast(0))) else {state}.scrollToPage(index.coerceIn(0, ({count} - 1).coerceAtLeast(0)))"
         )
     } else {
         format!(
-            "run {{ val targetIndex = index.coerceIn(0, ({count} - 1).coerceAtLeast(0)); if (animated) {state}.animateScrollToItem(targetIndex) else {state}.scrollToItem(targetIndex); val targetItem = {state}.layoutInfo.visibleItemsInfo.firstOrNull {{ it.index == targetIndex }}; if (targetItem != null) {{ val viewportStart = {state}.layoutInfo.viewportStartOffset; val viewportEnd = {state}.layoutInfo.viewportEndOffset; val availableSpace = (viewportEnd - viewportStart - targetItem.{item_size}).coerceAtLeast(0); val targetOffset = viewportStart + (availableSpace * viewPosition).toInt(); val delta = (targetItem.{item_offset} - targetOffset).toFloat(); if (animated) {state}.animateScrollBy(delta) else {state}.scrollBy(delta) }} }}"
+            "val dataIndex = index.coerceIn(0, {count} - 1); val targetIndex = {resolve_layout_index}; if (animated) {state}.animateScrollToItem(targetIndex) else {state}.scrollToItem(targetIndex); val layout = {state}.layoutInfo; val targetItem = layout.visibleItemsInfo.firstOrNull {{ it.index == targetIndex }}; if (targetItem != null) {{ val viewportStart = layout.viewportStartOffset; val availableSpace = (layout.viewportEndOffset - viewportStart - targetItem.{item_size}).coerceAtLeast(0); val targetOffset = viewportStart + (availableSpace * {view_position}).toInt(); val delta = (targetItem.{item_offset} - targetOffset).toFloat(); if (delta != 0f) {{ if (animated) {state}.animateScrollBy(delta) else {state}.scrollBy(delta) }} }}"
         )
     };
     let scroll_to_top = if page_snap {
         format!("if (animated) {state}.animateScrollToPage(0) else {state}.scrollToPage(0)")
+    } else if rows.reverse_layout {
+        format!("nexaScrollReversedListFromTop({state}, {count}, 0, animated)")
     } else {
         format!("if (animated) {state}.animateScrollToItem(0) else {state}.scrollToItem(0)")
     };
@@ -1779,9 +1793,11 @@ fn render_list_component_ref(
         format!(
             "if (animated) {state}.animateScrollToPage(({count} - 1).coerceAtLeast(0)) else {state}.scrollToPage(({count} - 1).coerceAtLeast(0))"
         )
+    } else if rows.reverse_layout {
+        format!("if (animated) {state}.animateScrollToItem(0) else {state}.scrollToItem(0)")
     } else {
         format!(
-            "if (animated) {state}.animateScrollToItem(({count} - 1).coerceAtLeast(0)) else {state}.scrollToItem(({count} - 1).coerceAtLeast(0))"
+            "val dataIndex = {count} - 1; val targetIndex = {resolve_layout_index}; if (animated) {state}.animateScrollToItem(targetIndex) else {state}.scrollToItem(targetIndex); val layout = {state}.layoutInfo; val targetItem = layout.visibleItemsInfo.firstOrNull {{ it.index == targetIndex }}; if (targetItem != null) {{ val viewportStart = layout.viewportStartOffset; val availableSpace = (layout.viewportEndOffset - viewportStart - targetItem.{item_size}).coerceAtLeast(0); val targetOffset = viewportStart + availableSpace; val delta = (targetItem.{item_offset} - targetOffset).toFloat(); if (delta != 0f) {{ if (animated) {state}.animateScrollBy(delta) else {state}.scrollBy(delta) }} }}"
         )
     };
     let scroll_to_offset = if page_snap {
@@ -1792,53 +1808,40 @@ fn render_list_component_ref(
         format!(
             "if (animated) {state}.animateScrollToPage((with({density}) {{ offset.toFloat().dp.roundToPx() }} / {state}.layoutInfo.viewportSize.{viewport_axis}.coerceAtLeast(1)).coerceAtLeast(0)) else {state}.scrollToPage((with({density}) {{ offset.toFloat().dp.roundToPx() }} / {state}.layoutInfo.viewportSize.{viewport_axis}.coerceAtLeast(1)).coerceAtLeast(0))"
         )
+    } else if rows.reverse_layout {
+        format!(
+            "nexaScrollReversedListFromTop({state}, {count}, with({density}) {{ offset.toFloat().dp.roundToPx() }}, animated)"
+        )
     } else {
         format!(
             "if (animated) {state}.animateScrollToItem(0, with({density}) {{ offset.toFloat().dp.roundToPx() }}.coerceAtLeast(0)) else {state}.scrollToItem(0, with({density}) {{ offset.toFloat().dp.roundToPx() }}.coerceAtLeast(0))"
         )
     };
-    out.line_at(
-        depth,
-        format_args!("val {reference} = {}", expression(component_ref)),
-    );
-    out.line_at(
-        depth,
-        format_args!("val {scope} = rememberCoroutineScope()"),
-    );
     out.line_at(depth, format_args!("val {density} = LocalDensity.current"));
-    out.line_at(depth, format_args!("SideEffect {{"));
-    out.line_at(depth + 1, format_args!("{reference}.attach("));
+    out.line_at(depth, format_args!("NexaBindFastListRef("));
     out.line_at(
-        depth + 2,
-        format_args!("scrollToIndex = {{ index, animated, viewPosition -> {scope}.launch {{ {scroll_to_index} }} }},"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("scrollToTop = {{ animated -> {scope}.launch {{ {scroll_to_top} }} }},"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "scrollToEnd = {{ animated -> if ({count} > 0) {scope}.launch {{ {scroll_to_end} }} }},"
-        ),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "scrollToOffset = {{ offset, animated -> {scope}.launch {{ {scroll_to_offset} }} }}"
-        ),
-    );
-    out.line_at(depth + 1, format_args!(")"));
-    out.line_at(depth, format_args!("}}"));
-    out.line_at(
-        depth,
-        format_args!("DisposableEffect({reference}, {state}) {{"),
+        depth + 1,
+        format_args!("reference = {},", expression(component_ref)),
     );
     out.line_at(
         depth + 1,
-        format_args!("onDispose {{ {reference}.detach() }}"),
+        format_args!("scrollToIndex = {{ index, animated, viewPosition -> if ({count} > 0) {{ {scroll_to_index} }} }},"),
     );
-    out.line_at(depth, format_args!("}}"));
+    out.line_at(
+        depth + 1,
+        format_args!("scrollToTop = {{ animated -> if ({count} > 0) {{ {scroll_to_top} }} }},"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("scrollToEnd = {{ animated -> if ({count} > 0) {{ {scroll_to_end} }} }},"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "scrollToOffset = {{ offset, animated -> if ({count} > 0) {{ {scroll_to_offset} }} }},"
+        ),
+    );
+    out.line_at(depth, format_args!(")"));
 }
 
 #[derive(Clone, Copy)]
@@ -1859,11 +1862,7 @@ fn render_row_content(
     out: &mut SourceWriter,
 ) {
     let modifier = row_modifier(sizing, axis);
-    let horizontal_alignment = if children.len() > 1 {
-        "CenterHorizontally"
-    } else {
-        "Start"
-    };
+    let horizontal_alignment = row_horizontal_alignment(axis, children.len());
     let vertical_arrangement = if matches!(sizing, ListRowSizing::PagerViewport) {
         ", verticalArrangement = Arrangement.Top"
     } else {
@@ -1884,6 +1883,19 @@ fn render_row_content(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+fn row_horizontal_alignment(axis: ListAxis, child_count: usize) -> &'static str {
+    if child_count > 1
+        || matches!(
+            axis,
+            ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } | ListAxis::Masonry { .. }
+        )
+    {
+        "CenterHorizontally"
+    } else {
+        "Start"
+    }
 }
 
 fn row_modifier(sizing: ListRowSizing, axis: ListAxis) -> String {
@@ -1915,20 +1927,11 @@ fn render_reorderable_row(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    if let Some(callback) = row.on_move
-        && !matches!(callback.enabled, Expr::Bool(true))
-    {
-        out.line_at(
-            depth,
-            format_args!("if ({}) {{", expression(&callback.enabled)),
-        );
-        render_reorderable_row_enabled(row, module, features, depth + 1, out);
-        out.line_at(depth, format_args!("}} else {{"));
-        render_swipe_row(row, module, features, depth + 1, out);
-        out.line_at(depth, format_args!("}}"));
-        return;
+    if row.on_move.is_some() {
+        render_reorderable_row_enabled(row, module, features, depth, out);
+    } else {
+        render_swipe_row(row, module, features, depth, out);
     }
-    render_reorderable_row_enabled(row, module, features, depth, out);
 }
 
 fn render_reorderable_row_enabled(
@@ -1938,274 +1941,56 @@ fn render_reorderable_row_enabled(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let (
-        Some(callback),
-        Some(index),
-        Some(list_state),
-        Some(dragged_index_state),
-        Some(drag_offset_state),
-    ) = (
-        row.on_move,
-        row.index,
-        row.list_state,
-        row.dragged_index_state,
-        row.drag_offset_state,
-    )
+    let (Some(callback), Some(index), Some(list_state), Some(reorder_state)) =
+        (row.on_move, row.index, row.list_state, row.reorder_state)
     else {
         render_swipe_row(row, module, features, depth, out);
         return;
     };
-    let header_index_offset = row.list_index_offset;
+
+    let reorderable_item = if matches!(row.axis, ListAxis::Masonry { .. }) {
+        "NexaFastStaggeredGridReorderableItem"
+    } else {
+        "NexaFastListReorderableItem"
+    };
+    out.line_at(depth, format_args!("{reorderable_item}("));
     out.line_at(
-        depth,
-        format_args!(
-            "val isDragging = {dragged_index_state}.intValue == {}",
-            state_name(index)
-        ),
+        depth + 1,
+        format_args!("modifier = Modifier.fillMaxWidth(),"),
     );
+    out.line_at(depth + 1, format_args!("index = {},", state_name(index)));
+    out.line_at(depth + 1, format_args!("itemCount = {},", row.reset_key));
+    out.line_at(depth + 1, format_args!("listState = {list_state},"));
+    out.line_at(depth + 1, format_args!("reorderState = {reorder_state},"));
     out.line_at(
-        depth,
-        format_args!("Box(modifier = Modifier.fillMaxWidth()"),
+        depth + 1,
+        format_args!("enabled = {},", expression(&callback.enabled)),
     );
-    if row.animate_item {
-        // Animated item offsets change while the collection is being reordered. Keep
-        // the modifier attached but disable placement motion until the active drag ends.
+    if !matches!(row.axis, ListAxis::Masonry { .. }) {
         out.line_at(
             depth + 1,
-            format_args!(
-                ".animateItem(placementSpec = if ({}.intValue < 0) androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>() else null)",
-                dragged_index_state
-            ),
+            format_args!("listIndexOffset = {},", row.list_index_offset),
         );
     }
     out.line_at(
         depth + 1,
-        format_args!(
-            ".pointerInput({list_state}, {}) {{",
-            expression(&callback.enabled)
-        ),
-    );
-    // Keep pointerInput outside the translated graphics layer. Compose reports
-    // pointer positions in the input node's local coordinates; placing it
-    // inside the layer makes those coordinates move with the dragged row and
-    // undercounts the drag distance as the row is translated.
-    // Observe the Initial pass so the nested SwipeToDismissBox cannot claim the
-    // long-press drag before the reorder handler receives it.
-    out.line_at(depth + 2, format_args!("awaitEachGesture {{"));
-    out.line_at(depth + 3, format_args!("val down = awaitFirstDown("));
-    out.line_at(depth + 4, format_args!("requireUnconsumed = false,"));
-    out.line_at(
-        depth + 4,
-        format_args!("pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial,"),
-    );
-    out.line_at(depth + 3, format_args!(")"));
-    out.line_at(
-        depth + 3,
-        format_args!("val releasedBeforeLongPress = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {{"),
-    );
-    out.line_at(depth + 4, format_args!("while (true) {{"));
-    out.line_at(
-        depth + 5,
-        format_args!("val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)"),
+        format_args!("onMove = {{ source, destination ->"),
     );
     out.line_at(
-        depth + 5,
-        format_args!("val change = event.changes.firstOrNull {{ it.id == down.id }} ?: return@withTimeoutOrNull true"),
+        depth + 2,
+        format_args!("val {}: Int = source", state_name(&callback.from)),
     );
     out.line_at(
-        depth + 5,
-        format_args!("if (!change.pressed) return@withTimeoutOrNull true"),
+        depth + 2,
+        format_args!("val {}: Int = destination", state_name(&callback.to)),
     );
-    out.line_at(
-        depth + 5,
-        format_args!("if (abs(change.position.x - down.position.x) > viewConfiguration.touchSlop || abs(change.position.y - down.position.y) > viewConfiguration.touchSlop) return@withTimeoutOrNull true"),
-    );
-    out.line_at(depth + 4, format_args!("}}"));
-    out.line_at(depth + 4, format_args!("false"));
-    out.line_at(depth + 3, format_args!("}}"));
-    out.line_at(
-        depth + 3,
-        format_args!("if (releasedBeforeLongPress != null) return@awaitEachGesture"),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!("{drag_offset_state}.floatValue = 0f"),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!("{dragged_index_state}.intValue = {}", state_name(index)),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!("var draggedIndex = {}", state_name(index)),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!("var previousPosition = down.position"),
-    );
-    out.line_at(depth + 3, format_args!("try {{"));
-    out.line_at(depth + 4, format_args!("while (true) {{"));
-    out.line_at(
-        depth + 5,
-        format_args!("val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)"),
-    );
-    out.line_at(
-        depth + 5,
-        format_args!("val change = event.changes.firstOrNull {{ it.id == down.id }} ?: break"),
-    );
-    out.line_at(depth + 5, format_args!("if (!change.pressed) {{"));
-    out.line_at(depth + 6, format_args!("break"));
-    out.line_at(depth + 5, format_args!("}}"));
-    out.line_at(
-        depth + 5,
-        format_args!("val dragAmount = change.position - previousPosition"),
-    );
-    out.line_at(depth + 5, format_args!("change.consume()"));
-    out.line_at(
-        depth + 5,
-        format_args!("{drag_offset_state}.floatValue += dragAmount.y"),
-    );
-    out.line_at(
-        depth + 5,
-        format_args!("previousPosition = change.position"),
-    );
-    out.line_at(
-        depth + 5,
-        format_args!("val visibleItems = {list_state}.layoutInfo.visibleItemsInfo"),
-    );
-    out.line_at(
-        depth + 5,
-        format_args!("val draggedItem = visibleItems.firstOrNull {{ it.index == draggedIndex + {header_index_offset} }}"),
-    );
-    out.line_at(depth + 5, format_args!("if (draggedItem != null) {{"));
-    out.line_at(
-        depth + 6,
-        format_args!("val draggedCenter = draggedItem.offset + draggedItem.size / 2 + {drag_offset_state}.floatValue.toInt()"),
-    );
-    out.line_at(depth + 6, format_args!("var targetIndex = -1"));
-    out.line_at(depth + 6, format_args!("var targetCenter = 0"));
-    out.line_at(
-        depth + 6,
-        format_args!("var targetDistance = Int.MAX_VALUE"),
-    );
-    out.line_at(
-        depth + 6,
-        format_args!("for (visibleIndex in visibleItems.indices) {{"),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("val item = visibleItems[visibleIndex]"),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("if (item.index < {header_index_offset} || item.index >= {header_index_offset} + {}) continue", row.reset_key),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("val itemCenter = item.offset + item.size / 2"),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("val distance = abs(itemCenter - draggedCenter)"),
-    );
-    out.line_at(depth + 7, format_args!("if (distance < targetDistance) {{"));
-    out.line_at(depth + 8, format_args!("targetDistance = distance"));
-    out.line_at(depth + 8, format_args!("targetCenter = itemCenter"));
-    out.line_at(
-        depth + 8,
-        format_args!("targetIndex = item.index - {header_index_offset}"),
-    );
-    out.line_at(depth + 7, format_args!("}}"));
-    out.line_at(depth + 6, format_args!("}}"));
-    out.line_at(
-        depth + 6,
-        format_args!("if (targetIndex >= 0 && targetIndex != draggedIndex) {{"),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("val previousCenter = draggedItem.offset + draggedItem.size / 2"),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("val {}: Int = draggedIndex", state_name(&callback.from)),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("val {}: Int = targetIndex", state_name(&callback.to)),
-    );
-    render_actions(&callback.actions, depth + 7, out);
-    out.line_at(depth + 7, format_args!("draggedIndex = targetIndex"));
-    out.line_at(
-        depth + 7,
-        format_args!("{dragged_index_state}.intValue = targetIndex"),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("val layoutShift = (targetCenter - previousCenter).toFloat()"),
-    );
-    out.line_at(
-        depth + 7,
-        format_args!("{drag_offset_state}.floatValue -= layoutShift"),
-    );
-    if row.animate_item {
-        out.line_at(
-            depth + 7,
-            format_args!("previousPosition = androidx.compose.ui.geometry.Offset(previousPosition.x, previousPosition.y - layoutShift)"),
-        );
-    }
-    out.line_at(depth + 6, format_args!("}}"));
-    out.line_at(depth + 5, format_args!("}}"));
-    out.line_at(depth + 4, format_args!("}}"));
-    out.line_at(depth + 3, format_args!("}} finally {{"));
-    out.line_at(
-        depth + 4,
-        format_args!("{drag_offset_state}.floatValue = 0f"),
-    );
-    out.line_at(
-        depth + 4,
-        format_args!("{dragged_index_state}.intValue = -1"),
-    );
-    out.line_at(depth + 3, format_args!("}}"));
-    out.line_at(depth + 2, format_args!("}}"));
+    render_actions(&callback.actions, depth + 2, out);
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth + 1, format_args!("content = {{"));
+    render_swipe_row(row, module, features, depth + 2, out);
     out.line_at(depth + 1, format_args!("}}"));
-    out.line_at(depth + 1, format_args!(".graphicsLayer {{"));
-    out.line_at(
-        depth + 2,
-        format_args!("translationY = if (isDragging) {drag_offset_state}.floatValue else 0f"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("scaleX = if (isDragging) 1.02f else 1f"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("scaleY = if (isDragging) 1.02f else 1f"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("shadowElevation = if (isDragging) 8.dp.toPx() else 0f"),
-    );
-    out.line_at(depth + 1, format_args!("}}"));
-    out.line_at(
-        depth + 1,
-        format_args!(".zIndex(if (isDragging) 1f else 0f)"),
-    );
-    out.line_at(depth + 1, format_args!(") {{"));
-    // Keep reorder and swipe actions mutually exclusive so the swipe gesture
-    // cannot consume a long press while row reordering is enabled.
-    render_swipe_row(
-        FlatRowContent {
-            swipe_actions: None,
-            ..row
-        },
-        module,
-        features,
-        depth + 2,
-        out,
-    );
-    out.push('\n');
-    indent(out, depth + 1);
-    out.push_str("}\n");
+    indent(out, depth);
+    out.push_str(")\n");
 }
 
 fn render_swipe_row(
@@ -2273,10 +2058,44 @@ fn render_swipe_row_content(
         out.push('\n');
         return;
     };
+    let edge = match actions.edge {
+        FastListSwipeEdge::Leading => "NexaFastListSwipeEdge.Leading",
+        FastListSwipeEdge::Trailing => "NexaFastListSwipeEdge.Trailing",
+    };
     out.line_at(depth, format_args!("NexaFastListSwipePrimitive("));
     out.line_at(depth + 1, format_args!("resetKey = {},", row.reset_key));
+    out.line_at(depth + 1, format_args!("edge = {edge},"));
+    out.line_at(
+        depth + 1,
+        format_args!("allowsFullSwipe = {},", actions.allows_full_swipe),
+    );
+    if actions.allows_full_swipe
+        && let Some(Node::Button {
+            actions: full_swipe_actions,
+            disabled,
+            loading,
+            ..
+        }) = actions.children.first()
+    {
+        let disabled = disabled
+            .as_ref()
+            .map(expression)
+            .unwrap_or_else(|| "false".to_owned());
+        let loading = loading
+            .as_ref()
+            .map(expression)
+            .unwrap_or_else(|| "false".to_owned());
+        out.line_at(depth + 1, format_args!("onFullSwipe = {{"));
+        out.line_at(
+            depth + 2,
+            format_args!("if (!({disabled}) && !({loading})) {{"),
+        );
+        render_actions(full_swipe_actions, depth + 3, out);
+        out.line_at(depth + 2, format_args!("}}"));
+        out.line_at(depth + 1, format_args!("}},"));
+    }
     out.line_at(depth + 1, format_args!("backgroundContent = {{"));
-    render_children(actions, module, features, depth + 3, out);
+    render_children(&actions.children, module, features, depth + 3, out);
     out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth + 1, format_args!("content = {{"));
     render_row_content(
@@ -2301,11 +2120,32 @@ fn render_row_content_with_actions(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    if row.animate_item && row.on_move.is_none() {
-        out.line_at(
-            depth,
-            format_args!("Box(modifier = Modifier.fillMaxWidth().animateItem()) {{"),
-        );
+    if row.animate_item {
+        if let Some(reorder_state) = row.reorder_state {
+            let placement_condition = row.index.map_or_else(
+                || format!("{reorder_state}.activeIndex.intValue < 0"),
+                |index| {
+                    format!(
+                        "{reorder_state}.activeIndex.intValue != {}",
+                        state_name(index)
+                    )
+                },
+            );
+            let stacking = if matches!(row.axis, ListAxis::Masonry { .. }) {
+                format!(".zIndex(if ({placement_condition}) 0f else 1f)")
+            } else {
+                String::new()
+            };
+            out.line_at(
+                depth,
+                format_args!("Box(modifier = Modifier.fillMaxWidth(){stacking}.animateItem(placementSpec = if ({placement_condition}) androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>() else null)) {{"),
+            );
+        } else {
+            out.line_at(
+                depth,
+                format_args!("Box(modifier = Modifier.fillMaxWidth().animateItem()) {{"),
+            );
+        }
         render_reorderable_row(
             FlatRowContent {
                 animate_item: false,
@@ -2414,9 +2254,27 @@ mod tests {
 
     use super::{
         FlatCount, FlatPieces, FlatRowContent, ListAxis, ListRowSizing, flat_list_requires_count,
-        render_list_observers, render_reorderable_row_enabled, row_modifier,
-        scroll_enabled_expression, sectioned_list_modifier,
+        render_list_observers, render_reorderable_row_enabled, render_row_content_with_actions,
+        row_horizontal_alignment, row_modifier, scroll_enabled_expression, sectioned_list_modifier,
     };
+
+    #[test]
+    fn single_child_grid_rows_center_their_content() {
+        for axis in [
+            ListAxis::Grid { columns: 2 },
+            ListAxis::AutoGrid {
+                min_cell_width: 160,
+            },
+            ListAxis::Masonry { columns: 2 },
+        ] {
+            assert_eq!(row_horizontal_alignment(axis, 1), "CenterHorizontally");
+        }
+        assert_eq!(row_horizontal_alignment(ListAxis::Vertical, 1), "Start");
+        assert_eq!(
+            row_horizontal_alignment(ListAxis::Vertical, 2),
+            "CenterHorizontally"
+        );
+    }
 
     #[test]
     fn horizontal_row_height_does_not_constrain_row_width() {
@@ -2493,14 +2351,33 @@ mod tests {
             &pieces,
             "nexaListState0",
             Some("nexaListCount0"),
-            Some("nexaEndReached0"),
             0,
             &mut generated,
         );
 
+        assert!(
+            generated
+                .as_str()
+                .contains("}.distinctUntilChanged().collect { reachedEnd ->")
+        );
         assert!(generated.as_str().contains(
-            "var nexaEndReached0 by rememberSaveable(nexaListCount0) { mutableIntStateOf(-1) }"
+            "if (!nexaWasAtEndnexaListState0) nexaEndReachedActionnexaListState0.value()"
         ));
+        assert!(
+            generated
+                .as_str()
+                .contains("var nexaWasAtEndnexaListState0 by rememberSaveable(nexaListCount0)")
+        );
+        assert!(
+            generated
+                .as_str()
+                .contains("nexaWasAtEndnexaListState0 = true")
+        );
+        assert!(
+            generated
+                .as_str()
+                .contains("nexaWasAtEndnexaListState0 = false")
+        );
         assert!(
             generated
                 .as_str()
@@ -2512,12 +2389,8 @@ mod tests {
                 .contains("val nexaTaskScope = nexaListTaskScopenexaListState0")
         );
         assert!(generated.as_str().contains("nexaTaskScope.launch("));
-        assert!(
-            generated
-                .as_str()
-                .contains("if (nexaListCount0 > 0 && nexaEndReached0 != nexaListCount0)")
-        );
-        assert!(generated.as_str().contains("}.first { it }"));
+        assert!(!generated.as_str().contains("nexaEndReached0"));
+        assert!(!generated.as_str().contains("}.first { it }"));
         assert!(generated.as_str().contains("nexaListEndIsVisible("));
     }
 
@@ -2565,7 +2438,6 @@ mod tests {
                 &pieces,
                 "nexaGridState0",
                 Some("nexaGridCount0"),
-                Some("nexaEndReached0"),
                 0,
                 &mut generated,
             );
@@ -2588,7 +2460,7 @@ mod tests {
     }
 
     #[test]
-    fn reorder_pointer_input_uses_stationary_coordinates_outside_the_drag_layer() {
+    fn reorder_rows_delegate_gestures_and_index_updates_to_the_shared_helper() {
         let module = Module {
             app_name: String::new(),
             plugins: Vec::new(),
@@ -2623,8 +2495,7 @@ mod tests {
             axis: ListAxis::Vertical,
             animate_item: false,
             list_index_offset: 0,
-            dragged_index_state: Some("draggedIndex"),
-            drag_offset_state: Some("dragOffset"),
+            reorder_state: Some("reorderState"),
             children: &[],
             swipe_actions: None,
             reset_key: "count",
@@ -2645,35 +2516,30 @@ mod tests {
         );
 
         let source = generated.as_str();
-        let drag_value = source
-            .find("val isDragging = draggedIndex.intValue == ")
-            .unwrap_or_else(|| panic!("drag state declaration missing:\n{source}"));
-        let pointer_input = source.find(".pointerInput(").unwrap();
-        let translated_layer = source.find(".graphicsLayer {").unwrap();
-        let z_index = source.find(".zIndex(if (isDragging) 1f else 0f)").unwrap();
+        assert!(source.contains("NexaFastListReorderableItem("), "{source}");
+        assert!(source.contains("index = nexa_index,"), "{source}");
+        assert!(source.contains("itemCount = count,"), "{source}");
+        assert!(source.contains("listState = listState,"), "{source}");
+        assert!(source.contains("reorderState = reorderState,"), "{source}");
         assert!(
-            drag_value < pointer_input,
-            "drag state must be in scope for both modifier nodes:\n{source}"
+            source.contains("onMove = { source, destination ->"),
+            "{source}"
         );
+        assert!(source.contains("val nexa_from: Int = source"), "{source}");
         assert!(
-            pointer_input < translated_layer,
-            "pointer input must remain outside the moving graphics layer so pointer deltas stay in stationary coordinates:\n{source}"
+            source.contains("val nexa_to: Int = destination"),
+            "{source}"
         );
-        assert!(translated_layer < z_index, "{source}");
-        assert!(source.contains("draggedIndex = targetIndex"));
-        assert!(source.contains("draggedIndex.intValue = targetIndex"));
-        assert!(source.contains("for (visibleIndex in visibleItems.indices)"));
-        assert!(source.contains("targetIndex = item.index - 0"));
-        assert!(!source.contains("asSequence()"));
-        assert!(source.contains("val layoutShift = (targetCenter - previousCenter).toFloat()"));
-        assert!(!source.contains("previousPosition = androidx.compose.ui.geometry.Offset"));
+        assert!(!source.contains("awaitEachGesture"), "{source}");
+        assert!(!source.contains("awaitFirstDown"), "{source}");
+        assert!(!source.contains("targetDistance"), "{source}");
 
         let keyed_row = FlatRowContent {
             animate_item: true,
             ..row
         };
         let mut keyed_generated = SourceWriter::new();
-        render_reorderable_row_enabled(
+        render_row_content_with_actions(
             keyed_row,
             &module,
             &crate::generator::features::Features::default(),
@@ -2683,10 +2549,12 @@ mod tests {
         assert!(
             keyed_generated
                 .as_str()
-                .contains("previousPosition = androidx.compose.ui.geometry.Offset")
+                .contains(".animateItem(placementSpec = if (reorderState.activeIndex.intValue != nexa_index) androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>() else null)")
         );
-        assert!(keyed_generated.as_str().contains(
-            ".animateItem(placementSpec = if (draggedIndex.intValue < 0) androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>() else null)"
-        ));
+        assert!(
+            keyed_generated
+                .as_str()
+                .contains("NexaFastListReorderableItem(")
+        );
     }
 }

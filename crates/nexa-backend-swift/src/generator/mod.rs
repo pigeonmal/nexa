@@ -2489,162 +2489,6 @@ struct NexaStackLayer<Content: View>: View {
 }
 
 // nexa-codegen: NexaNativeListPrimitive
-@MainActor
-private final class NexaFastListReorderRowState: ObservableObject {
-    @Published fileprivate(set) var isDragging = false
-    @Published fileprivate(set) var dragOffset: CGFloat = 0
-}
-
-@MainActor
-private final class NexaFastListReorderSession {
-    private(set) var activeIndex: Int?
-    private var rowFrames: [Int: CGRect] = [:]
-    private var rowStates: [Int: NexaFastListReorderRowState] = [:]
-    private var startY: CGFloat = 0
-    private var accumulatedLayoutShift: CGFloat = 0
-    private var lastInsertionIndex: Int?
-
-    func rowState(at index: Int) -> NexaFastListReorderRowState {
-        if let state = rowStates[index] {
-            return state
-        }
-        let state = NexaFastListReorderRowState()
-        rowStates[index] = state
-        return state
-    }
-
-    func updateFrames(_ frames: [Int: CGRect]) {
-        rowFrames = frames
-        rowStates = rowStates.filter { frames[$0.key] != nil || $0.key == activeIndex }
-    }
-
-    func begin(at index: Int, startY: CGFloat) {
-        activeIndex = index
-        self.startY = startY
-        accumulatedLayoutShift = 0
-        lastInsertionIndex = nil
-        let state = rowState(at: index)
-        state.isDragging = true
-        state.dragOffset = 0
-    }
-
-    func update(to location: CGPoint, perform onMove: (Int, Int) -> Void) {
-        guard let source = activeIndex,
-              let sourceFrame = rowFrames[source],
-              let sourceState = rowStates[source],
-              let target = rowFrames.min(by: {
-                  abs($0.value.midY - location.y) < abs($1.value.midY - location.y)
-              })
-        else { return }
-
-        let insertionIndex = target.key + (location.y >= target.value.midY ? 1 : 0)
-        guard lastInsertionIndex != insertionIndex else {
-            sourceState.dragOffset = location.y - startY - accumulatedLayoutShift
-            return
-        }
-        lastInsertionIndex = insertionIndex
-
-        let destination = insertionIndex > source ? insertionIndex - 1 : insertionIndex
-        guard destination != source else {
-            sourceState.dragOffset = location.y - startY - accumulatedLayoutShift
-            return
-        }
-
-        let targetCenter = rowFrames[destination]?.midY ?? target.value.midY
-        accumulatedLayoutShift += targetCenter - sourceFrame.midY
-        withAnimation(.default) {
-            onMove(source, insertionIndex)
-        }
-        sourceState.isDragging = false
-        sourceState.dragOffset = 0
-        activeIndex = destination
-        let destinationState = rowState(at: destination)
-        destinationState.isDragging = true
-        destinationState.dragOffset = location.y - startY - accumulatedLayoutShift
-    }
-
-    func finish() {
-        if let activeIndex, let state = rowStates[activeIndex] {
-            state.isDragging = false
-            state.dragOffset = 0
-        }
-        activeIndex = nil
-        accumulatedLayoutShift = 0
-        lastInsertionIndex = nil
-    }
-}
-
-private struct NexaFastListRowFramesKey: PreferenceKey {
-    static let defaultValue: [Int: CGRect] = [:]
-
-    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
-    }
-}
-
-@MainActor
-private struct NexaFastListReorderableRow<Content: View>: View {
-    let index: Int
-    let onReorder: (Int, Int) -> Void
-    private let content: Content
-    private let session: NexaFastListReorderSession
-    @ObservedObject private var state: NexaFastListReorderRowState
-
-    init(
-        index: Int,
-        session: NexaFastListReorderSession,
-        onReorder: @escaping (Int, Int) -> Void,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.index = index
-        self.onReorder = onReorder
-        self.session = session
-        self._state = ObservedObject(wrappedValue: session.rowState(at: index))
-        self.content = content()
-    }
-
-    var body: some View {
-        let isDragging = state.isDragging
-        ZStack {
-            content.offset(y: isDragging ? state.dragOffset : 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            GeometryReader { geometry in
-                Color.clear.preference(
-                    key: NexaFastListRowFramesKey.self,
-                    value: [index: geometry.frame(in: .global)]
-                )
-            }
-        }
-        .contentShape(Rectangle())
-        .zIndex(isDragging ? 1 : 0)
-        .highPriorityGesture(
-            LongPressGesture(minimumDuration: 0.35)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-                .onChanged { value in
-                    guard case let .second(true, drag?) = value else { return }
-                    if session.activeIndex == nil {
-                        session.begin(at: index, startY: drag.startLocation.y)
-                    }
-                    session.update(to: drag.location, perform: onReorder)
-                }
-                .onEnded { _ in session.finish() }
-        )
-    }
-}
-
-private struct NexaFastListReorderSessionKey: EnvironmentKey {
-    static let defaultValue: NexaFastListReorderSession? = nil
-}
-
-private extension EnvironmentValues {
-    var nexaFastListReorderSession: NexaFastListReorderSession? {
-        get { self[NexaFastListReorderSessionKey.self] }
-        set { self[NexaFastListReorderSessionKey.self] = newValue }
-    }
-}
-
 private struct NexaNativeListComponentRefKey: EnvironmentKey {
     static let defaultValue: NexaFastListRef? = nil
 }
@@ -2675,19 +2519,26 @@ private struct NexaNativeListRefScrollViewProbe: UIViewRepresentable {
 @MainActor
 private final class NexaNativeListRefProbeView: UIView {
     weak var reference: NexaFastListRef?
+    private weak var containingScrollView: UIScrollView?
     private var connectionCheckPending = false
 
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        containingScrollView = nil
         connectToContainingList()
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        containingScrollView = nil
         connectToContainingList()
     }
 
     func connectToContainingList() {
+        if let containingScrollView {
+            reference?.updateNativeScrollView(containingScrollView)
+            return
+        }
         guard !connectionCheckPending else { return }
         connectionCheckPending = true
         DispatchQueue.main.async { [weak self] in
@@ -2697,12 +2548,23 @@ private final class NexaNativeListRefProbeView: UIView {
             var ancestor = self.superview
             while let view = ancestor {
                 if let scrollView = view as? UIScrollView {
+                    self.containingScrollView = scrollView
                     self.reference?.updateNativeScrollView(scrollView)
                     return
                 }
                 ancestor = view.superview
             }
         }
+    }
+}
+
+@MainActor
+private final class NexaNativeListRefAttachment {
+    weak var reference: NexaFastListRef?
+
+    func detach() {
+        reference?.detach(from: self)
+        reference = nil
     }
 }
 
@@ -2716,14 +2578,13 @@ struct NexaNativeListPrimitive<Content: View>: View {
     private let componentRef: NexaFastListRef?
     private let content: Content
     @Environment(\.nexaScrollContentPadding) private var contentPadding
-    @State private var reorderSession: NexaFastListReorderSession?
+    @State private var refAttachment: NexaNativeListRefAttachment?
 
     init(
         spacing: CGFloat = 0,
         scrollEnabled: Bool = true,
         hideHorizontalScrollbar: Bool = false,
         hideVerticalScrollbar: Bool = false,
-        reorderEnabled: Bool = false,
         rowCount: Int = 0,
         componentRef: NexaFastListRef? = nil,
         @ViewBuilder content: () -> Content
@@ -2734,9 +2595,6 @@ struct NexaNativeListPrimitive<Content: View>: View {
         self.hideVerticalScrollbar = hideVerticalScrollbar
         self.rowCount = rowCount
         self.componentRef = componentRef
-        _reorderSession = State(
-            initialValue: reorderEnabled ? NexaFastListReorderSession() : nil
-        )
         self.content = content()
     }
 
@@ -2750,7 +2608,6 @@ struct NexaNativeListPrimitive<Content: View>: View {
                 }
                 content
                     .environment(\.nexaScrollContentPadding, EdgeInsets())
-                    .environment(\.nexaFastListReorderSession, reorderSession)
                     .environment(\.nexaNativeListComponentRef, componentRef)
                 if #unavailable(iOS 17.0) {
                     Color.clear.frame(height: CGFloat(__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__) + contentPadding.bottom)
@@ -2758,50 +2615,10 @@ struct NexaNativeListPrimitive<Content: View>: View {
                         .listRowBackground(Color.clear).accessibilityHidden(true)
                 }
             }
-            .onAppear {
-                guard let componentRef else { return }
-                componentRef.attach(
-                    view: componentRef,
-                    scrollToIndex: { index, animated, viewPosition in
-                        guard rowCount > 0 else { return }
-                        let anchor = UnitPoint(x: 0.5, y: CGFloat(viewPosition))
-                        let scroll = {
-                            proxy.scrollTo(Int(min(max(index, 0), Int32(rowCount - 1))), anchor: anchor)
-                        }
-                        if animated { withAnimation { scroll() } } else { scroll() }
-                    },
-                    scrollToTop: { animated in
-                        guard rowCount > 0 else { return }
-                        if animated { withAnimation { proxy.scrollTo(0, anchor: .top) } }
-                        else { proxy.scrollTo(0, anchor: .top) }
-                    },
-                    scrollToEnd: { animated in
-                        guard rowCount > 0 else { return }
-                        if animated { withAnimation { proxy.scrollTo(rowCount - 1, anchor: .bottom) } }
-                        else { proxy.scrollTo(rowCount - 1, anchor: .bottom) }
-                    },
-                    scrollToOffset: { [weak componentRef] offset, animated in
-                        guard offset.isFinite,
-                              let scrollView = componentRef?.nativeScrollViewObject() as? UIScrollView
-                        else { return }
-                        let minimum = -scrollView.adjustedContentInset.top
-                        let maximum = max(
-                            minimum,
-                            scrollView.contentSize.height - scrollView.bounds.height
-                                + scrollView.adjustedContentInset.bottom
-                        )
-                        let target = min(max(minimum + CGFloat(max(0, offset)), minimum), maximum)
-                        scrollView.setContentOffset(
-                            CGPoint(x: scrollView.contentOffset.x, y: target),
-                            animated: animated
-                        )
-                    }
-                )
-            }
-            .onDisappear { componentRef?.detach() }
-            .onPreferenceChange(NexaFastListRowFramesKey.self) { frames in
-                reorderSession?.updateFrames(frames)
-            }
+            .onAppear { bindRef(to: proxy) }
+            .onChange(of: rowCount) { _ in bindRef(to: proxy) }
+            .onChange(of: componentRef.map(ObjectIdentifier.init)) { _ in bindRef(to: proxy) }
+            .onDisappear { refAttachment?.detach() }
             .listRowSpacing(spacing)
             .scrollDisabled(!scrollEnabled)
             .modifier(NexaNativeListStyleModifier())
@@ -2810,6 +2627,56 @@ struct NexaNativeListPrimitive<Content: View>: View {
                 hideVertical: hideVerticalScrollbar
             ))
         }
+    }
+    private func bindRef(to proxy: ScrollViewProxy) {
+        guard let componentRef else {
+            refAttachment?.detach()
+            return
+        }
+        let attachment = refAttachment ?? NexaNativeListRefAttachment()
+        if refAttachment == nil { refAttachment = attachment }
+        if attachment.reference !== componentRef {
+            attachment.detach()
+            attachment.reference = componentRef
+        }
+        let count = rowCount
+        componentRef.attach(
+            view: attachment,
+            scrollToIndex: { index, animated, viewPosition in
+                guard count > 0 else { return }
+                let anchor = UnitPoint(x: 0.5, y: CGFloat(viewPosition))
+                let scroll = {
+                    proxy.scrollTo(min(max(Int(index), 0), count - 1), anchor: anchor)
+                }
+                if animated { withAnimation { scroll() } } else { scroll() }
+            },
+            scrollToTop: { animated in
+                guard count > 0 else { return }
+                if animated { withAnimation { proxy.scrollTo(0, anchor: .top) } }
+                else { proxy.scrollTo(0, anchor: .top) }
+            },
+            scrollToEnd: { animated in
+                guard count > 0 else { return }
+                if animated { withAnimation { proxy.scrollTo(count - 1, anchor: .bottom) } }
+                else { proxy.scrollTo(count - 1, anchor: .bottom) }
+            },
+            scrollToOffset: { [weak componentRef] offset, animated in
+                guard offset.isFinite,
+                      let scrollView = componentRef?.nativeScrollViewObject() as? UIScrollView
+                else { return }
+                let minimum = -scrollView.adjustedContentInset.top
+                let maximum = max(
+                    minimum,
+                    scrollView.contentSize.height - scrollView.bounds.height
+                        + scrollView.adjustedContentInset.bottom
+                )
+                let target = min(max(minimum + CGFloat(max(0, offset)), minimum), maximum)
+                scrollView.setContentOffset(
+                    CGPoint(x: scrollView.contentOffset.x, y: target),
+                    animated: animated
+                )
+            }
+        )
     }
 }
 
@@ -2830,7 +2697,7 @@ private final class NexaFastListSwipePagerGestureView: UIView, UIGestureRecogniz
     private weak var connectedRowCell: UIView?
     private weak var connectedPagerScrollView: UIScrollView?
     private weak var connectedListScrollView: UIScrollView?
-    private var rowTouchRecognizer: UILongPressGestureRecognizer?
+    private var rowSwipeRecognizer: UIPanGestureRecognizer?
     private var connectionCheckPending = false
 
     override func didMoveToWindow() {
@@ -2884,27 +2751,18 @@ private final class NexaFastListSwipePagerGestureView: UIView, UIGestureRecogniz
             else { return }
             disconnectFromContainingPager()
 
-            // A zero-duration, non-cancelling recognizer claims the row touch
-            // before SwiftUI's ancestor page TabView can start paging. It
-            // recognizes simultaneously with the native List gestures, so
-            // SwiftUI still owns and renders the row swipe action.
-            let rowTouchRecognizer = UILongPressGestureRecognizer(
-                target: self,
-                action: #selector(rowTouchRecognized(_:))
-            )
-            rowTouchRecognizer.minimumPressDuration = 0
-            rowTouchRecognizer.allowableMovement = .greatestFiniteMagnitude
-            rowTouchRecognizer.cancelsTouchesInView = false
-            rowTouchRecognizer.delaysTouchesBegan = false
-            rowTouchRecognizer.delaysTouchesEnded = false
-            rowTouchRecognizer.delegate = self
-            rowCell.addGestureRecognizer(rowTouchRecognizer)
-            pagerScrollView.panGestureRecognizer.require(toFail: rowTouchRecognizer)
+            // Delay the pager only while classifying a horizontal swipe.
+            // Native List long presses can begin without waiting for this recognizer.
+            let rowSwipeRecognizer = UIPanGestureRecognizer()
+            rowSwipeRecognizer.cancelsTouchesInView = false
+            rowSwipeRecognizer.delegate = self
+            rowCell.addGestureRecognizer(rowSwipeRecognizer)
+            pagerScrollView.panGestureRecognizer.require(toFail: rowSwipeRecognizer)
 
             connectedRowCell = rowCell
             connectedListScrollView = listScrollView
             connectedPagerScrollView = pagerScrollView
-            self.rowTouchRecognizer = rowTouchRecognizer
+            self.rowSwipeRecognizer = rowSwipeRecognizer
         }
     }
 
@@ -2914,15 +2772,23 @@ private final class NexaFastListSwipePagerGestureView: UIView, UIGestureRecogniz
                 && scrollView.contentSize.height <= scrollView.bounds.height + 1)
     }
 
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let rowSwipeRecognizer, gestureRecognizer === rowSwipeRecognizer else {
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
+        let translation = rowSwipeRecognizer.translation(in: connectedRowCell)
+        return abs(translation.x) > abs(translation.y)
+    }
+
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        guard gestureRecognizer === rowTouchRecognizer || otherGestureRecognizer === rowTouchRecognizer else {
+        guard gestureRecognizer === rowSwipeRecognizer || otherGestureRecognizer === rowSwipeRecognizer else {
             return false
         }
         guard let rowCell = connectedRowCell else { return false }
-        let peer = gestureRecognizer === rowTouchRecognizer ? otherGestureRecognizer : gestureRecognizer
+        let peer = gestureRecognizer === rowSwipeRecognizer ? otherGestureRecognizer : gestureRecognizer
         var view = peer.view
         while let current = view {
             if current === rowCell { return true }
@@ -2932,20 +2798,11 @@ private final class NexaFastListSwipePagerGestureView: UIView, UIGestureRecogniz
         return false
     }
 
-    @objc private func rowTouchRecognized(_ recognizer: UIGestureRecognizer) {
-        // The recognizer exists only to establish the failure dependency with
-        // the outer pager. Native List recognizers handle the actual gesture.
-        guard recognizer.state == .ended
-                || recognizer.state == .cancelled
-                || recognizer.state == .failed
-        else { return }
-    }
-
     private func disconnectFromContainingPager() {
-        if let rowCell = connectedRowCell, let rowTouchRecognizer {
-            rowCell.removeGestureRecognizer(rowTouchRecognizer)
+        if let rowCell = connectedRowCell, let rowSwipeRecognizer {
+            rowCell.removeGestureRecognizer(rowSwipeRecognizer)
         }
-        rowTouchRecognizer = nil
+        rowSwipeRecognizer = nil
         connectedRowCell = nil
         connectedListScrollView = nil
         connectedPagerScrollView = nil
@@ -2956,28 +2813,18 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
     let position: Int
     let showDividers: Bool
     let prioritizeSwipeActions: Bool
-    let reorderIndex: Int?
-    let reorderEnabled: Bool
-    let onReorder: ((Int, Int) -> Void)?
     private let content: Content
-    @Environment(\.nexaFastListReorderSession) private var reorderSession
     @Environment(\.nexaNativeListComponentRef) private var componentRef
 
     init(
         position: Int,
         showDividers: Bool = true,
         prioritizeSwipeActions: Bool = false,
-        reorderIndex: Int? = nil,
-        reorderEnabled: Bool = false,
-        onReorder: ((Int, Int) -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.position = position
         self.showDividers = showDividers
         self.prioritizeSwipeActions = prioritizeSwipeActions
-        self.reorderIndex = reorderIndex
-        self.reorderEnabled = reorderEnabled
-        self.onReorder = onReorder
         self.content = content()
     }
 
@@ -3002,23 +2849,12 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
+                .id(position)
             } else {
                 row
             }
-        }.id(position)
-        Group {
-            if reorderEnabled, let reorderIndex, let onReorder, let reorderSession {
-                NexaFastListReorderableRow(
-                    index: reorderIndex,
-                    session: reorderSession,
-                    onReorder: onReorder
-                ) {
-                    observedRow
-                }
-            } else {
-                observedRow
-            }
         }
+        observedRow
             .listRowInsets(EdgeInsets(
                 top: CGFloat(__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__),
                 leading: CGFloat(__NEXA_NATIVE_LIST_ROW_HORIZONTAL_INSET__),
@@ -5466,10 +5302,11 @@ mod tests {
     };
     use nexa_ir::{
         Action, AnimationSpec, Color, ColorExpression, ColorValue, Component, Expr, FastListMove,
-        Function, FunctionParameter, IconSpec, ImageScale, ImageSource, LayoutKind, ListAxis,
-        ListCommon, ListPlan, Module, Node, NumericType, PickerDateProps, PickerDateSelection,
-        PickerDateStyle, PickerDateType, Screen, ScreenId, SectionedListCommon, State, SystemIcon,
-        TaskExecutor, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        FastListSwipeActions, Function, FunctionParameter, IconSpec, ImageScale, ImageSource,
+        LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node, NumericType, PickerDateProps,
+        PickerDateSelection, PickerDateStyle, PickerDateType, Screen, ScreenId,
+        SectionedListCommon, State, SystemIcon, TaskExecutor, TextStyle, Type, ViewStyle,
+        ViewTransition, WhenCase,
     };
 
     #[test]
@@ -5547,11 +5384,7 @@ mod tests {
         let root = NEXA_SHARED_COMPONENT_PRIMITIVES
             .split("struct NexaEdgeToEdgeRoot<Content: View>")
             .nth(1)
-            .and_then(|source| {
-                source
-                    .split("// nexa-codegen: NexaLayoutRoot")
-                    .next()
-            })
+            .and_then(|source| source.split("// nexa-codegen: NexaLayoutRoot").next())
             .unwrap_or_default();
 
         assert!(root.contains("GeometryReader { proxy in"));
@@ -5626,9 +5459,10 @@ mod tests {
         assert!(probe.contains("guard insets != lastReportedInsets || windowSize != lastReportedWindowSize else { return }"));
 
         let dev_runtime = include_str!("../../../../runtime/ios/NexaDevRuntime.swift");
-        assert!(dev_runtime.contains(
-            "NexaEdgeToEdgeRoot(edgeToEdge: !rootOwnsNavigationSafeArea) { _ in"
-        ));
+        assert!(
+            dev_runtime
+                .contains("NexaEdgeToEdgeRoot(edgeToEdge: !rootOwnsNavigationSafeArea) { _ in")
+        );
         assert!(dev_runtime.contains("nexaDevRootOwnsNavigationSafeArea(rootNodes)"));
         assert!(!dev_runtime.contains("NexaDevEdgeToEdgeRoot"));
         assert!(!dev_runtime.contains("NexaDevSafeAreaInsetsProbe"));
@@ -7096,19 +6930,22 @@ mod tests {
                             enabled: Expr::State("moveEnabled".to_owned(), Type::Bool),
                             actions: Vec::new(),
                         }),
-                        swipe_actions: Some(vec![Node::Button {
-                            label: Expr::String("Delete".to_owned()),
-                            icon: None,
-                            loading: None,
-                            disabled: None,
-                            style: None,
-                            size: None,
-                            shape: None,
-                            tint: None,
-                            glass: false,
-                            accessibility_label: None,
-                            actions: Vec::new(),
-                        }]),
+                        swipe_actions: Some(FastListSwipeActions {
+                            children: vec![Node::Button {
+                                label: Expr::String("Delete".to_owned()),
+                                icon: None,
+                                loading: None,
+                                disabled: None,
+                                style: None,
+                                size: None,
+                                shape: None,
+                                tint: None,
+                                glass: false,
+                                accessibility_label: None,
+                                actions: Vec::new(),
+                            }],
+                            ..Default::default()
+                        }),
                         sticky_header: None,
                         refresh: None,
                         gap: 0.0,
@@ -7146,34 +6983,22 @@ mod tests {
         ));
         assert!(swift.contains("scrollView.contentSize.width > scrollView.bounds.width + 1"));
         assert!(swift.contains(
-            "NexaNativeListRowPrimitive(position: listPosition, showDividers: true, prioritizeSwipeActions: true, reorderIndex: listPosition, reorderEnabled: nexa_moveEnabled, onReorder: { source, destination in"
+            "NexaNativeListRowPrimitive(position: listPosition, showDividers: true, prioritizeSwipeActions: true) {"
         ));
-        assert!(swift.contains("LongPressGesture(minimumDuration: 0.35)"));
-        assert!(swift.contains(
-            ".sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))"
-        ));
-        assert!(swift.contains("NexaFastListRowFramesKey.self"));
-        assert!(swift.contains("proxy.scrollTo(rowCount - 1, anchor: .bottom)"));
+        assert!(swift.contains("proxy.scrollTo(count - 1, anchor: .bottom)"));
         assert!(swift.contains("updateNativeScrollView(scrollView)"));
-        assert!(swift.contains("rowFrames.min(by:"));
-        assert!(swift.contains("session.update(to: drag.location, perform: onReorder)"));
-        assert!(swift.contains("@Published fileprivate(set) var dragOffset: CGFloat = 0"));
-        assert!(swift.contains("@ObservedObject private var state: NexaFastListReorderRowState"));
-        assert!(swift.contains("rowStates = rowStates.filter"));
-        assert!(!swift.contains("@Observable"));
-        assert!(swift.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
-        assert!(swift.contains(".zIndex(isDragging ? 1 : 0)"));
-        assert!(!swift.contains(".onDrag {"));
-        assert!(!swift.contains(".onDrop("));
-        assert!(!swift.contains("NexaFastListReorderDropDelegate"));
-        assert!(!swift.contains("UniformTypeIdentifiers"));
-        assert!(swift.contains(
-            "NexaNativeListPrimitive(scrollEnabled: true, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, reorderEnabled: true, rowCount:"
-        ));
+        assert!(swift.contains(".onMove { sourceOffsets, insertionIndex in"));
+        assert!(swift.contains("guard let source = sourceOffsets.first else { return }"));
         assert!(swift.contains("let nexa_from: Int32 = Int32(source)"));
-        assert!(!swift.contains("isReorderable"));
-        assert!(!swift.contains(".onMove {"));
-        assert!(!swift.contains("\\.editMode"));
+        assert!(swift.contains("let nexa_to: Int32 = Int32(destination)"));
+        assert!(swift.contains("guard source != destination else { return }"));
+        assert!(swift.contains(".moveDisabled(!(nexa_moveEnabled))"));
+        assert!(!swift.contains("NexaFastListReorder"));
+        assert!(!swift.contains("LongPressGesture(minimumDuration: 0.35)"));
+        assert!(!swift.contains("NexaFastListRowFramesKey"));
+        assert!(!swift.contains("reorderIndex:"));
+        assert!(!swift.contains("reorderEnabled:"));
+        assert!(!swift.contains("onReorder:"));
         // Swipe actions can still require UIKit-backed control styling; the
         // native List assertion above is the reliable renderer check.
 
@@ -7200,9 +7025,7 @@ mod tests {
         };
         common.scroll_enabled = Some(Expr::Bool(false));
         let disabled_swift = generate(&disabled_module);
-        assert!(disabled_swift.contains(
-            "NexaNativeListPrimitive(scrollEnabled: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, reorderEnabled: true, rowCount:"
-        ));
+        assert!(disabled_swift.contains("scrollEnabled: false"));
         assert!(disabled_swift.contains(".scrollDisabled(!scrollEnabled)"));
 
         let mut referenced_module = module.clone();

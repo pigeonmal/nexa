@@ -872,6 +872,18 @@
         "android": "covered"
       }
     ],
+    "FastListSwipeEdge": [
+      {
+        "name": "Leading",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Trailing",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "FontWeight": [
       {
         "name": "Normal",

@@ -159,8 +159,10 @@ private func checkTable(style: UITableView.Style, count: Int, benchmark: Bool) -
         verify(registry.testTrackedCount == 3, "Registration should prune expired weak entries")
         registry.removeAll()
         registry.forEach { _, _ in preconditionFailure("Cleared headers must not be visited") }
+        runHorizontalListViewportChecks()
+        runVerticalListRestoreChecks()
         let results = [checkTable(style: .plain, count: 20000, benchmark: true), checkTable(style: .grouped, count: 1000, benchmark: false)]
-        let output: [String: Any] = ["tables": results, "registryChecks": "ordering, replacement identity, collapsed views, weak ownership, removal", "visibility": runVisibilityChecks()]
+        let output: [String: Any] = ["tables": results, "registryChecks": "ordering, replacement identity, collapsed views, weak ownership, removal", "visibility": runVisibilityChecks(), "fixedGrid": runFixedGridChecks()]
         print(String(data: try! JSONSerialization.data(withJSONObject: output, options: [.sortedKeys]), encoding: .utf8)!)
     }
 }

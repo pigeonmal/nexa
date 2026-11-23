@@ -190,6 +190,11 @@ public final class NexaFastListRef {
         offsetAction = scrollToOffset
     }
 
+    func detach(from view: AnyObject) {
+        guard attachedView === view else { return }
+        detach()
+    }
+
     func detach() {
         attachedView = nil
         nativeScrollView = nil

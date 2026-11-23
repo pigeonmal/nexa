@@ -2105,10 +2105,9 @@ fn flexible_row_spacers_yield_space_to_text_before_wrapping() {
 
 #[test]
 fn zero_thickness_divider_needs_no_native_layout_node() {
-    let module = compile(
-        r##"app HiddenDivider { body { Divider(color: "#356EAF", thickness: 0) } }"##,
-    )
-    .expect("zero thickness should be accepted");
+    let module =
+        compile(r##"app HiddenDivider { body { Divider(color: "#356EAF", thickness: 0) } }"##)
+            .expect("zero thickness should be accepted");
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
@@ -6459,7 +6458,9 @@ fn omitted_progress_compiles_to_native_indeterminate_indicators() {
     assert!(swift.contains(
         "NexaProgressBarPrimitive(progress: nil, tint: nil, trackColor: nil, thickness: nil, cornerRadius: nil)"
     ));
-    assert!(swift.contains("IndeterminateTrack(\n                tint: tint ?? Color.accentColor,"));
+    assert!(
+        swift.contains("IndeterminateTrack(\n                tint: tint ?? Color.accentColor,")
+    );
     assert!(swift.contains(".accessibilityRepresentation { ProgressView() }"));
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);

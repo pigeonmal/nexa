@@ -9,11 +9,16 @@ struct NexaMasonryGeometry {
     private struct Band {
         let firstItem: Int
         let count: Int
-        let columns: [ColumnStart]
+        // Each stored column start belongs to at least one distinct item.
+        // The layout's Int32 row-count contract therefore bounds both fields.
+        let columnOffset: Int32
+        let columnLength: Int32
         let height: CGFloat
         let stride: CGFloat
 
         var end: Int { firstItem + count }
+        var firstColumn: Int { Int(columnOffset) }
+        var columnCount: Int { Int(columnLength) }
     }
 
     private struct Segment {
@@ -24,7 +29,7 @@ struct NexaMasonryGeometry {
     }
 
     private struct Measurement {
-        let item: Int
+        var item: Int
         let height: CGFloat
     }
 
@@ -35,6 +40,7 @@ struct NexaMasonryGeometry {
     private var itemCount = 0
     private var columnWidth: CGFloat = 0
     private var bands: [Band] = []
+    private var bandColumns: [ColumnStart] = []
     private var segments: [[Segment]]
     private var measurements: [Measurement] = []
     private var firstDirtyItem: Int?
@@ -60,12 +66,47 @@ struct NexaMasonryGeometry {
         firstDirtyItem = min(firstDirtyItem ?? item, item)
     }
 
+    mutating func moveItem(from source: Int, to destination: Int) {
+        guard source >= 0, source < itemCount,
+              destination >= 0, destination < itemCount,
+              source != destination
+        else { return }
+
+        let firstChangedItem = min(source, destination)
+        let sourceMeasurement = Self.partition(measurements) { $0.item < source }
+        var movedMeasurement: Measurement?
+        if sourceMeasurement < measurements.count, measurements[sourceMeasurement].item == source {
+            movedMeasurement = measurements.remove(at: sourceMeasurement)
+        }
+
+        let lower = Self.partition(measurements) { $0.item < firstChangedItem }
+        let upper = Self.partition(measurements) { $0.item <= max(source, destination) }
+        let shift = source < destination ? -1 : 1
+        for index in lower..<upper {
+            measurements[index].item += shift
+        }
+
+        if var movedMeasurement {
+            movedMeasurement.item = destination
+            let insertion = Self.partition(measurements) { $0.item < destination }
+            measurements.insert(movedMeasurement, at: insertion)
+        }
+        firstDirtyItem = min(firstDirtyItem ?? firstChangedItem, firstChangedItem)
+    }
+
     mutating func prepare(width: CGFloat, count: Int) {
         guard firstDirtyItem != nil || self.width != width || itemCount != count else { return }
         let reset = self.width != width || count < itemCount
         var dirtyItem = firstDirtyItem ?? itemCount
         if reset {
-            measurements.removeAll(keepingCapacity: true)
+            measurements.removeAll(keepingCapacity: count >= itemCount)
+            if count < itemCount {
+                bands.removeAll()
+                bandColumns.removeAll()
+                for column in segments.indices {
+                    segments[column].removeAll()
+                }
+            }
             dirtyItem = 0
         } else if count > itemCount, let last = bands.last, last.height == estimatedHeight {
             // Merge incremental appends into the final estimated band.
@@ -77,8 +118,12 @@ struct NexaMasonryGeometry {
         columnWidth = max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
 
         let firstBand = Self.partition(bands) { $0.end <= dirtyItem }
-        var item = firstBand < bands.count ? bands[firstBand].firstItem : dirtyItem
-        bands.removeSubrange(firstBand...)
+        var item = dirtyItem
+        if firstBand < bands.count {
+            item = bands[firstBand].firstItem
+            bandColumns.removeSubrange(bands[firstBand].firstColumn...)
+            bands.removeSubrange(firstBand...)
+        }
         var bottoms: [CGFloat] = []
         bottoms.reserveCapacity(columns)
         for column in 0..<columns {
@@ -93,7 +138,7 @@ struct NexaMasonryGeometry {
             appendEstimates(from: &item, to: measurement.item, bottoms: &bottoms)
             let column = bottoms.indices.min { bottoms[$0] < bottoms[$1] } ?? 0
             let y = bottoms[column] == 0 ? 0 : bottoms[column] + spacing
-            appendBand(firstItem: item, count: 1, starts: [ColumnStart(column: column, y: y)],
+            appendBand(firstItem: item, count: 1, starts: CollectionOfOne(ColumnStart(column: column, y: y)),
                        height: measurement.height, bottoms: &bottoms)
             item += 1
         }
@@ -105,7 +150,7 @@ struct NexaMasonryGeometry {
         guard item >= 0, item < itemCount else { return nil }
         let band = bands[Self.partition(bands) { $0.end <= item }]
         let offset = item - band.firstItem
-        return frame(in: band, slot: offset % band.columns.count, row: offset / band.columns.count)
+        return frame(in: band, slot: offset % band.columnCount, row: offset / band.columnCount)
     }
 
     func forEachFrame(in rect: CGRect, _ emit: (Int, CGRect) -> Void) {
@@ -118,7 +163,7 @@ struct NexaMasonryGeometry {
             while index < lane.count {
                 let segment = lane[index]
                 let band = bands[segment.band]
-                let y = band.columns[segment.slot].y
+                let y = bandColumns[band.firstColumn + segment.slot].y
                 guard y < rect.maxY else { break }
                 let firstRow = max(0, min(CGFloat(segment.count),
                     ((rect.minY - y - band.height) / band.stride).rounded(.down) + 1))
@@ -127,7 +172,7 @@ struct NexaMasonryGeometry {
                     let frame = frame(in: band, slot: segment.slot, row: row)
                     guard frame.minY < rect.maxY else { break }
                     if frame.maxY > rect.minY {
-                        emit(band.firstItem + segment.slot + row * band.columns.count, frame)
+                        emit(band.firstItem + segment.slot + row * band.columnCount, frame)
                     }
                     row += 1
                 }
@@ -137,7 +182,7 @@ struct NexaMasonryGeometry {
     }
 
     private func frame(in band: Band, slot: Int, row: Int) -> CGRect {
-        let start = band.columns[slot]
+        let start = bandColumns[band.firstColumn + slot]
         return CGRect(x: CGFloat(start.column) * (columnWidth + spacing),
                       y: start.y + CGFloat(row) * band.stride,
                       width: columnWidth, height: band.height)
@@ -177,14 +222,18 @@ struct NexaMasonryGeometry {
         }
     }
 
-    private mutating func appendBand(
-        firstItem: Int, count: Int, starts: [ColumnStart], height: CGFloat, bottoms: inout [CGFloat]
-    ) {
+    private mutating func appendBand<Starts: Collection>(
+        firstItem: Int, count: Int, starts: Starts, height: CGFloat, bottoms: inout [CGFloat]
+    ) where Starts.Element == ColumnStart {
         let stride = height + spacing
         let bandIndex = bands.count
-        bands.append(Band(firstItem: firstItem, count: count, columns: starts, height: height, stride: stride))
+        let columnCount = starts.count
+        bands.append(Band(firstItem: firstItem, count: count,
+                          columnOffset: Int32(bandColumns.count), columnLength: Int32(columnCount),
+                          height: height, stride: stride))
+        bandColumns.append(contentsOf: starts)
         for (slot, start) in starts.enumerated() {
-            let rows = (count - 1 - slot) / starts.count + 1
+            let rows = (count - 1 - slot) / columnCount + 1
             let bottom = start.y + CGFloat(rows - 1) * stride + height
             bottoms[start.column] = bottom
             segments[start.column].append(Segment(band: bandIndex, slot: slot, count: rows, bottom: bottom))

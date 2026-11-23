@@ -824,8 +824,11 @@ fn invocation_child_nodes(inv: &ast::ComponentInvocation) -> Vec<&Vec<ast::Node>
         ast::ChildBody::None | ast::ChildBody::Actions(_) => {}
     }
     for modifier in &inv.modifiers {
-        if let ast::ModifierBody::Nodes(nodes) = &modifier.body {
-            groups.push(nodes);
+        match &modifier.body {
+            ast::ModifierBody::Nodes(nodes) | ast::ModifierBody::BoundNodes { nodes, .. } => {
+                groups.push(nodes)
+            }
+            _ => {}
         }
     }
     groups

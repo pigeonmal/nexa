@@ -3185,7 +3185,10 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
                     enabled: folder.fold_expr(callback.enabled),
                     actions: folder.fold_actions(callback.actions),
                 }),
-                swipe_actions: common.swipe_actions.map(|nodes| folder.fold_nodes(nodes)),
+                swipe_actions: common.swipe_actions.map(|mut swipe| {
+                    swipe.children = folder.fold_nodes(swipe.children);
+                    swipe
+                }),
                 sticky_header: common.sticky_header.map(|h| folder.fold_nodes(h)),
                 refresh: common.refresh.map(|r| FastListRefresh {
                     state: r.state,
@@ -3220,7 +3223,10 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
                     enabled: folder.fold_expr(callback.enabled),
                     actions: folder.fold_actions(callback.actions),
                 }),
-                swipe_actions: common.swipe_actions.map(|nodes| folder.fold_nodes(nodes)),
+                swipe_actions: common.swipe_actions.map(|mut swipe| {
+                    swipe.children = folder.fold_nodes(swipe.children);
+                    swipe
+                }),
                 sticky_header: common.sticky_header.map(|h| folder.fold_nodes(h)),
                 refresh: common.refresh.map(|r| FastListRefresh {
                     state: r.state,
@@ -3250,7 +3256,10 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
                     .map(|enabled| folder.fold_expr(enabled)),
                 children: folder.fold_nodes(common.children),
                 section_header: common.section_header.map(|h| folder.fold_nodes(h)),
-                swipe_actions: common.swipe_actions.map(|nodes| folder.fold_nodes(nodes)),
+                swipe_actions: common.swipe_actions.map(|mut swipe| {
+                    swipe.children = folder.fold_nodes(swipe.children);
+                    swipe
+                }),
                 refresh: common.refresh.map(|r| FastListRefresh {
                     state: r.state,
                     actions: folder.fold_actions(r.actions),

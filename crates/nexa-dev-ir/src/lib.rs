@@ -11,7 +11,7 @@ use nexa_ir::walk::IrFolder;
 use nexa_ir::{Action, Expr, Function, Module, Node, State, walk};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 86;
+pub const DEV_IR_FORMAT_VERSION: u16 = 87;
 
 /// Template token for native DevRuntime schemas. Native hosts receive this
 /// value from the same constant used to encode and validate Dev IR modules.

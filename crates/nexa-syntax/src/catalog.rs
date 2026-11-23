@@ -755,8 +755,8 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
     },
     DotModifierEntry {
         name: "swipeActions",
-        summary: "Native trailing actions for list rows",
-        snippet: "swipeActions {\n    Button(\"Delete\", icon: \"trash\") {\n        $0\n    }\n}",
+        summary: "Native actions for list rows at either edge",
+        snippet: "swipeActions(edge: Trailing, allowsFullSwipe: false) {\n    item, index in\n    Button(\"Delete\", icon: \"trash\", tint: \"#C62828\") {\n        $0\n    }\n}",
     },
     DotModifierEntry {
         name: "safeAreaInset",
@@ -889,6 +889,8 @@ pub enum ModifierBody {
     EventActions,
     /// `.stickyHeader { ... }` child nodes.
     Nodes,
+    /// Child nodes with optional explicit lexical bindings.
+    BoundNodes,
 }
 
 /// A trailing `.name { ... }` modifier accepted after a component block.
@@ -2693,8 +2695,8 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             },
             ModifierSchema {
                 name: "swipeActions",
-                arguments: &[],
-                body: ModifierBody::Nodes,
+                arguments: &[opt("edge"), opt("allowsFullSwipe")],
+                body: ModifierBody::BoundNodes,
                 required: false,
             },
         ],
@@ -3263,6 +3265,7 @@ pub fn render_syntax_audit() -> String {
                             ModifierBody::Actions => "actions",
                             ModifierBody::EventActions => "event actions",
                             ModifierBody::Nodes => "nodes",
+                            ModifierBody::BoundNodes => "nodes with optional bindings",
                         },
                         if modifier.required {
                             "required"

@@ -35,8 +35,8 @@ app ComponentParity {
     screen Catalog {
         Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
-                NavigationLink(destination: TextCases) {
-                    Text("Text styles and sizing")
+                NavigationLink(destination: FastListCases) {
+                    Text("FastList parameters")
                 }
             }
             Section(title: "Layout") {
@@ -1940,13 +1940,16 @@ app ComponentParity {
         state fixedGridPosition: Int32 = 0
         state allowGridScroll: Bool = true
         state listScrollEnabled: Bool = true
-        state listPage: Int32 = 9
+        state listPage: Int32 = 10
         state listScrollCount: Int32 = 0
         state listEndReachedCount: Int32 = 0
         state listSectionItems: Array<Array<String>> = [["First section row", "Second section row"], ["Third section row"]]
         state listMovableItems: Array<SheetAuditItem> = [SheetAuditItem(1, "Move task one"), SheetAuditItem(2, "Move task two"), SheetAuditItem(3, "Move task three")]
         state listMoveEnabled: Bool = true
         state listMoveCount: Int32 = 0
+        state masonryMovableItems: Array<SheetAuditItem> = [SheetAuditItem(101, "Project overview"), SheetAuditItem(102, "Weekly priorities"), SheetAuditItem(103, "Design review"), SheetAuditItem(104, "Release checklist"), SheetAuditItem(105, "Customer notes"), SheetAuditItem(106, "Team updates"), SheetAuditItem(107, "Sprint planning"), SheetAuditItem(108, "Research findings"), SheetAuditItem(109, "Launch timeline"), SheetAuditItem(110, "Open questions"), SheetAuditItem(111, "Product metrics"), SheetAuditItem(112, "Next steps")]
+        state masonryMoveEnabled: Bool = true
+        state masonryMoveCount: Int32 = 0
         state listDeleteCount: Int32 = 0
         PagePager(selected: listPage, accessibilityLabel: "FastList cases") {
             Tab(index: 0) {
@@ -2126,7 +2129,7 @@ app ComponentParity {
                         listDeleteCount = 0
                     }
                     Text("Long-press and drag a row to reorder it on either platform.")
-                    Text("Turn reordering off to use swipe actions on either platform.")
+                    Text("Swipe a row to reveal actions; long-press and drag to reorder.")
                     FastList(listMovableItems, key:.id, showDividers: true, accessibilityLabel: "FastList keyed movable tasks") {
                         item, index in
                         Row(gap: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
@@ -2137,7 +2140,8 @@ app ComponentParity {
                         from, to ->
                         listMoveCount += 1
                         listMovableItems.move(from, to)
-                    }.swipeActions {
+                    }.swipeActions(edge: Trailing, allowsFullSwipe: false) {
+                        item, index in
                         Button("Delete", icon: "delete", style: Borderless) {
                             listDeleteCount += 1
                             listMovableItems.remove(index)
@@ -2147,16 +2151,29 @@ app ComponentParity {
             }
             Tab(index: 10) {
                 Column(gap: 12, padding: 16) {
-                    Text("FastList · masonry", fontSize: 24, fontWeight: Bold)
-                    Text("Two columns · variable-height cards · 12 dp gap")
-                    FastList(count: 12, axis: Masonry(2), gap: 12, accessibilityLabel: "Masonry cards") {
-                        index in
+                    Text("FastList · reorderable masonry", fontSize: 24, fontWeight: Bold)
+                    Text("Two columns · variable-height cards · long-press and drag to reorder")
+                    Text("Move events: \(masonryMoveCount)")
+                    Switch(value: masonryMoveEnabled, label: "Allow card reordering")
+                    Button("Reset masonry cards") {
+                        masonryMovableItems = [SheetAuditItem(101, "Project overview"), SheetAuditItem(102, "Weekly priorities"), SheetAuditItem(103, "Design review"), SheetAuditItem(104, "Release checklist"), SheetAuditItem(105, "Customer notes"), SheetAuditItem(106, "Team updates"), SheetAuditItem(107, "Sprint planning"), SheetAuditItem(108, "Research findings"), SheetAuditItem(109, "Launch timeline"), SheetAuditItem(110, "Open questions"), SheetAuditItem(111, "Product metrics"), SheetAuditItem(112, "Next steps")]
+                        masonryMoveCount = 0
+                    }
+                    FastList(masonryMovableItems, key: .id, axis: Masonry(2), gap: 12, accessibilityLabel: "Reorderable masonry cards") {
+                        item, index in
                         Column(gap: 8, padding: 12, background: "#E8F0FF", cornerRadius: 12) {
-                            Text("Masonry card \(index)", fontWeight: Semibold)
-                            if index % 3 == 0 {
-                                Text("Additional details make this card taller than its neighbors.")
+                            Text("\(index + 1). \(item.title)", fontWeight: Semibold)
+                            if item.id % 3 == 0 {
+                                Text("This card has extra project details for a taller masonry tile.")
+                            }
+                            if item.id % 4 == 0 {
+                                Text("Updated for this week's review.")
                             }
                         }
+                    }.onMove(enabled: masonryMoveEnabled) {
+                        from, to ->
+                        masonryMoveCount += 1
+                        masonryMovableItems.move(from, to)
                     }
                 }
             }
@@ -2964,7 +2981,7 @@ app ComponentParity {
                                 from, to ->
                                 sheetMoveCount += 1
                                 sheetMovableItems.move(from, to)
-                            }.swipeActions {
+                            }.swipeActions(edge: Trailing, allowsFullSwipe: false) {
                                 Button("Delete", icon: "delete", style: Borderless) {
                                     sheetListDeleteCount += 1
                                 }

@@ -47,24 +47,6 @@ private func nexaDevNumberFlowAnimation(_ raw: Any?) -> Animation {
     }
 }
 
-private struct NexaDevScrollIndicatorVisibility: ViewModifier {
-    let hideHorizontal: Bool
-    let hideVertical: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if hideHorizontal && hideVertical {
-            content.scrollIndicators(.hidden)
-        } else if hideHorizontal {
-            content.scrollIndicators(.hidden, axes: .horizontal)
-        } else if hideVertical {
-            content.scrollIndicators(.hidden, axes: .vertical)
-        } else {
-            content
-        }
-    }
-}
-
 private enum NexaDevDimension: Equatable {
     case fixed(CGFloat)
     case parentFraction(CGFloat)
@@ -356,23 +338,6 @@ private func nexaDevTransition(_ raw: Any?) -> AnyTransition? {
     }
 }
 
-private struct NexaDevFastListBounceBehavior: ViewModifier {
-    let axes: Axis.Set
-    let allowsShortContentBounce: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 16.4, *) {
-            content.scrollBounceBehavior(
-                allowsShortContentBounce ? .always : .basedOnSize,
-                axes: axes
-            )
-        } else {
-            content
-        }
-    }
-}
-
 private func nexaDevUsesIconOnlyButtonLabel(_ rawLabel: Any?, comment: Any?) -> Bool {
     guard comment == nil || comment is NSNull,
           let expression = rawLabel as? [String: Any]
@@ -570,53 +535,6 @@ extension EnvironmentValues {
 
 }
 
-struct NexaDevListPositionPreference: PreferenceKey {
-    static let defaultValue: [Int: CGRect] = [:]
-
-    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, newest in newest })
-    }
-}
-
-/// Reserves an end-reached notification synchronously while SwiftUI is
-/// delivering list preferences. Preference callbacks may enqueue multiple
-/// main-queue updates before @State writes are applied, so this gate must be a
-/// reference value and claim the item count before dispatching the action.
-private final class NexaDevListEndReachedGate {
-    private var lastReachedCount: Int?
-    private var pendingCount: Int?
-
-    func reset() {
-        lastReachedCount = nil
-        pendingCount = nil
-    }
-
-    func claim(count: Int) -> Bool {
-        guard count > 0, lastReachedCount != count, pendingCount != count else { return false }
-        pendingCount = count
-        return true
-    }
-
-    func complete(count: Int) -> Bool {
-        guard pendingCount == count, lastReachedCount != count else { return false }
-        pendingCount = nil
-        lastReachedCount = count
-        return true
-    }
-
-    func cancel(count: Int) {
-        if pendingCount == count { pendingCount = nil }
-    }
-}
-
-struct NexaDevViewportSizePreference: PreferenceKey {
-    static let defaultValue: CGSize = .zero
-
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
 @MainActor
 enum NexaDevFastListAxis {
     case vertical
@@ -624,24 +542,6 @@ enum NexaDevFastListAxis {
     case grid(Int)
     case adaptiveGrid(Int)
     case masonry(Int)
-
-    var scrollAxis: Axis.Set {
-        if case .horizontal = self { return .horizontal }
-        return .vertical
-    }
-
-    var anchor: UnitPoint {
-        switch self {
-        case .vertical: .top
-        case .horizontal: .leading
-        case .grid, .adaptiveGrid, .masonry: .topLeading
-        }
-    }
-
-    var tracksHorizontalOffset: Bool {
-        if case .horizontal = self { return true }
-        return false
-    }
 }
 
 private struct NexaDevFastListRow: Identifiable {
@@ -649,17 +549,6 @@ private struct NexaDevFastListRow: Identifiable {
     let index: Int
     let sectionIndex: Int
     let itemIndex: Int
-}
-
-private func nexaDevSectionOffsets(_ sectionCounts: [Int]) -> [Int] {
-    var offsets: [Int] = []
-    offsets.reserveCapacity(sectionCounts.count)
-    var total = 0
-    for sectionCount in sectionCounts {
-        offsets.append(total)
-        total += sectionCount
-    }
-    return offsets
 }
 
 @MainActor
@@ -729,8 +618,6 @@ private struct NexaDevFastListSwipeActionContent: View {
     }
 }
 
-private let nexaDevFastListDefaultRowMinHeight: CGFloat = 52
-
 @MainActor
 struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeaderContent: View, SwipeActionContent: View>: View {
     let count: Int
@@ -745,7 +632,6 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     let rowHeight: Double?
     let spacing: Double
     let scrollPosition: Int?
-    let controlledPositionRevision: Int
     let sectionCounts: [Int]?
     let sectionOffsets: [Int]?
     let componentRef: NexaFastListRef?
@@ -753,6 +639,8 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     let stickyHeader: StickyHeaderContent?
     let sectionHeader: ((Int) -> SectionHeaderContent)?
     let swipeActions: ((Int, Int, Int) -> SwipeActionContent)?
+    let swipeEdge: HorizontalEdge
+    let swipeAllowsFullSwipe: Bool
     let row: (Int, Int, Int) -> RowContent
     let onMove: ((IndexSet, Int) -> Void)?
     let moveEnabled: Bool
@@ -763,17 +651,6 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     @Environment(\.nexaDevPageRestoreRevision) private var pageRestoreRevision
-    @State private var canUpdateScrollPosition = false
-    @State private var lastReportedVisibleIndex: Int?
-    @State private var observedControlledPositionRevision: Int?
-    @State private var endReachedGate = NexaDevListEndReachedGate()
-    @State private var followsBottom = true
-    @State private var horizontalViewportSize: CGSize = .zero
-
-    @State private var scrollPositionCommandRevision = 0
-    @State private var pendingProgrammaticScrollPosition: Int?
-    @State private var suppressesProgrammaticScrollCallbacks = false
-    @State private var didReportScrollBeginDrag = false
 
     private func identifiedRows(
         count: Int,
@@ -791,37 +668,18 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
         }
     }
 
-    private var gatedOnEndReached: (() -> Void)? {
-        guard let onEndReached else { return nil }
-        let itemCount = count
-        let gate = endReachedGate
-        return {
-            guard gate.claim(count: itemCount) else { return }
-            onEndReached()
-        }
-    }
-
     @ViewBuilder
     private func nativeRow(_ item: NexaDevFastListRow) -> some View {
         let content = NexaNativeListRowPrimitive(
             position: item.index,
             showDividers: showDividers,
-            prioritizeSwipeActions: swipeActions != nil,
-            reorderIndex: onMove == nil ? nil : item.index,
-            reorderEnabled: moveEnabled,
-            onReorder: onMove.map { move in
-                { source, destination in
-                    move(IndexSet(integer: source), destination)
-                }
-            }
+            prioritizeSwipeActions: swipeActions != nil
         ) {
             row(item.index, item.sectionIndex, item.itemIndex)
         }
         if let swipeActions {
-            content.swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                if !moveEnabled {
-                    swipeActions(item.index, item.sectionIndex, item.itemIndex)
-                }
+            content.swipeActions(edge: swipeEdge, allowsFullSwipe: swipeAllowsFullSwipe) {
+                swipeActions(item.index, item.sectionIndex, item.itemIndex)
             }
         } else {
             content
@@ -830,14 +688,12 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
 
     @ViewBuilder
     var body: some View {
-        Group {
         if usesPlatformList {
             NexaNativeListPrimitive(
                 spacing: CGFloat(spacing),
                 scrollEnabled: scrollEnabled,
                 hideHorizontalScrollbar: hideHorizontalScrollbar,
                 hideVerticalScrollbar: hideVerticalScrollbar,
-                reorderEnabled: onMove != nil,
                 rowCount: count,
                 componentRef: componentRef
             ) {
@@ -866,40 +722,67 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                             }
                         }
                     }
-                } else if onMove != nil {
+                } else if let onMove {
                     ForEach(identifiedRows(count: count)) { item in
                         nativeRow(item)
                     }
+                    .onMove(perform: onMove)
+                    .moveDisabled(!moveEnabled)
                 } else {
                     ForEach(identifiedRows(count: count)) { item in
                         nativeRow(item)
                     }
                 }
             }
-        } else if case .vertical = axis, sectionCounts == nil, onMove == nil,
-                  (!pageSnap || componentRef != nil) {
-            NexaFastListPrimitive(
-                rowCount: count,
-                rowHeight: rowHeight.map { CGFloat($0) },
-                spacing: CGFloat(spacing),
-                showDividers: showDividers,
-                hideHorizontalScrollbar: hideHorizontalScrollbar,
-                hideVerticalScrollbar: hideVerticalScrollbar,
-                scrollEnabled: scrollEnabled,
-                rowKey: rowKey.map { key in { index in key(index, 0, index) } },
-                reverseLayout: reverseLayout,
-                pageSnap: pageSnap,
-                scrollPosition: scrollPosition.map(Int32.init),
-                componentRef: componentRef,
-                restoreRevision: pageRestoreRevision,
-                onScrollPositionChanged: onScrollPositionChanged,
-                isRefreshing: isRefreshing,
-                onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached,
-                onScroll: onScroll,
-                headerContent: stickyHeader.map { header in { header } },
-                rowContent: { index in row(index, 0, index) }
-            )
+        } else if case .vertical = axis, sectionCounts == nil {
+            if let stickyHeader {
+                NexaFastListPrimitive(
+                    rowCount: count,
+                    rowHeight: rowHeight.map { CGFloat($0) },
+                    spacing: CGFloat(spacing),
+                    showDividers: showDividers,
+                    hideHorizontalScrollbar: hideHorizontalScrollbar,
+                    hideVerticalScrollbar: hideVerticalScrollbar,
+                    scrollEnabled: scrollEnabled,
+                    rowKey: rowKey.map { key in { index in key(index, 0, index) } },
+                    reverseLayout: reverseLayout,
+                    pageSnap: pageSnap,
+                    scrollPosition: scrollPosition.map(Int32.init),
+                    componentRef: componentRef,
+                    restoreRevision: pageRestoreRevision,
+                    onScrollPositionChanged: onScrollPositionChanged,
+                    isRefreshing: isRefreshing,
+                    onRefresh: onRefresh,
+                    onEndReached: onEndReached,
+                    onScroll: onScroll,
+                    onScrollBeginDrag: onScrollBeginDrag,
+                    headerContent: { stickyHeader },
+                    rowContent: { index in row(index, 0, index) }
+                )
+            } else {
+                NexaFastListPrimitive(
+                    rowCount: count,
+                    rowHeight: rowHeight.map { CGFloat($0) },
+                    spacing: CGFloat(spacing),
+                    showDividers: showDividers,
+                    hideHorizontalScrollbar: hideHorizontalScrollbar,
+                    hideVerticalScrollbar: hideVerticalScrollbar,
+                    scrollEnabled: scrollEnabled,
+                    rowKey: rowKey.map { key in { index in key(index, 0, index) } },
+                    reverseLayout: reverseLayout,
+                    pageSnap: pageSnap,
+                    scrollPosition: scrollPosition.map(Int32.init),
+                    componentRef: componentRef,
+                    restoreRevision: pageRestoreRevision,
+                    onScrollPositionChanged: onScrollPositionChanged,
+                    isRefreshing: isRefreshing,
+                    onRefresh: onRefresh,
+                    onEndReached: onEndReached,
+                    onScroll: onScroll,
+                    onScrollBeginDrag: onScrollBeginDrag,
+                    rowContent: { index in row(index, 0, index) }
+                )
+            }
         } else if case .horizontal = axis, sectionCounts == nil {
             NexaFastHorizontalListPrimitive(
                 rowCount: count,
@@ -914,7 +797,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached,
+                onEndReached: onEndReached,
                 onScroll: onScroll,
                 rowContent: { index in row(index, 0, index) }
             )
@@ -933,7 +816,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached,
+                onEndReached: onEndReached,
                 onScroll: onScroll,
                 rowContent: { index in row(index, 0, index) }
             )
@@ -953,7 +836,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached,
+                onEndReached: onEndReached,
                 onScroll: onScroll,
                 rowContent: { index in row(index, 0, index) }
             )
@@ -967,13 +850,19 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 hideVerticalScrollbar: hideVerticalScrollbar,
                 scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
+                onMove: onMove.map { move in
+                    { source, target in
+                        move(IndexSet(integer: source), target > source ? target + 1 : target)
+                    }
+                },
+                moveEnabled: moveEnabled,
                 masonry: true,
                 scrollPosition: scrollPosition.map(Int32.init),
                 componentRef: componentRef,
                 onScrollPositionChanged: onScrollPositionChanged,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
-                onEndReached: gatedOnEndReached,
+                onEndReached: onEndReached,
                 onScroll: onScroll,
                 rowContent: { index in row(index, 0, index) }
             )
@@ -1002,552 +891,6 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                     row(start + itemIndex, sectionIndex, itemIndex)
                 }
             )
-        } else if let onMove {
-            List {
-                ForEach(identifiedRows(count: count)) { item in
-                    NexaNativeListRowPrimitive(position: item.index, showDividers: showDividers) {
-                        row(item.index, item.sectionIndex, item.itemIndex)
-                    }
-                }
-                .onMove(perform: onMove)
-                .moveDisabled(!moveEnabled)
-            }
-        } else if pageSnap {
-            if #available(iOS 17.0, *) {
-                NexaSwiftUIPageSnapList(
-                    rowCount: count,
-                    scrollPosition: scrollPosition,
-                    scrollEnabled: scrollEnabled,
-                    hideHorizontalScrollbar: hideHorizontalScrollbar,
-                    hideVerticalScrollbar: hideVerticalScrollbar,
-                    onScrollPositionChanged: onScrollPositionChanged,
-                    onRefresh: onRefresh,
-                    onScroll: onScroll.map { callback in { _ in callback() } },
-                    onEndReached: gatedOnEndReached.map { callback in { _ in callback() } },
-                    rowContent: { index in row(index, 0, index) }
-                )
-            } else {
-                GeometryReader { _ in
-                    NexaDevPageSnapList(
-                        count: count,
-                        scrollPosition: scrollPosition,
-                        scrollEnabled: scrollEnabled,
-                        hideHorizontalScrollbar: hideHorizontalScrollbar,
-                        hideVerticalScrollbar: hideVerticalScrollbar,
-                        row: row,
-                        onScrollPositionChanged: { onScrollPositionChanged?($0) },
-                        onScroll: onScroll,
-                        onEndReached: gatedOnEndReached
-                    )
-                }
-            }
-        } else {
-            if case .horizontal = axis {
-                ScrollViewReader { proxy in
-                    scrollView(proxy: proxy, viewportSize: horizontalViewportSize)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .background(GeometryReader { viewport in
-                            Color.clear.preference(
-                                key: NexaDevViewportSizePreference.self,
-                                value: viewport.size
-                            )
-                        })
-                        .onPreferenceChange(NexaDevViewportSizePreference.self) { size in
-                            guard horizontalViewportSize != size else { return }
-                            DispatchQueue.main.async {
-                                horizontalViewportSize = size
-                            }
-                        }
-                }
-            } else {
-                GeometryReader { viewport in
-                    ScrollViewReader { proxy in
-                        scrollView(proxy: proxy, viewportSize: viewport.size)
-                    }
-                }
-            }
-        }
-        }
-        .scrollDisabled(!scrollEnabled)
-        .modifier(NexaDevScrollIndicatorVisibility(
-            hideHorizontal: hideHorizontalScrollbar,
-            hideVertical: hideVerticalScrollbar
-        ))
-    }
-
-    private func scrollView(proxy: ScrollViewProxy, viewportSize: CGSize) -> some View {
-        ScrollView(axis.scrollAxis) {
-            listContent
-        }
-        .refreshable {
-            onRefresh?()
-        }
-        .modifier(NexaDevFastListBounceBehavior(
-            axes: axis.scrollAxis,
-            allowsShortContentBounce: onRefresh != nil
-        ))
-        .coordinateSpace(name: "nexa-dev-fast-list")
-        .simultaneousGesture(DragGesture(minimumDistance: 4).onChanged { _ in
-            if !didReportScrollBeginDrag {
-                didReportScrollBeginDrag = true
-                onScrollBeginDrag?()
-            }
-            guard pendingProgrammaticScrollPosition != nil || suppressesProgrammaticScrollCallbacks else { return }
-            scrollPositionCommandRevision += 1
-            suppressesProgrammaticScrollCallbacks = false
-            if pendingProgrammaticScrollPosition != nil {
-                pendingProgrammaticScrollPosition = nil
-                canUpdateScrollPosition = true
-            }
-        }.onEnded { _ in
-            didReportScrollBeginDrag = false
-        })
-        .onAppear {
-            observedControlledPositionRevision = controlledPositionRevision
-            if let scrollPosition, (0..<count).contains(scrollPosition) {
-                scheduleProgrammaticScroll(to: scrollPosition, proxy: proxy, anchor: axis.anchor)
-            } else if reverseLayout && count > 0 {
-                scheduleProgrammaticScroll(to: count - 1, proxy: proxy, anchor: .bottom)
-            } else {
-                canUpdateScrollPosition = true
-            }
-        }
-        .onChange(of: controlledPositionRevision) { revision in
-            guard observedControlledPositionRevision != revision else { return }
-            observedControlledPositionRevision = revision
-            guard let index = scrollPosition,
-                  (0..<count).contains(index)
-            else { return }
-            guard index != lastReportedVisibleIndex else { return }
-            scheduleProgrammaticScroll(to: index, proxy: proxy, anchor: axis.anchor)
-        }
-        .onChange(of: reverseLayout) { isReversed in
-            guard isReversed, count > 0 else { return }
-            scheduleProgrammaticScroll(to: count - 1, proxy: proxy, anchor: .bottom)
-        }
-        .onChange(of: count) { newCount in
-            endReachedGate.reset()
-            scrollPositionCommandRevision += 1
-            guard reverseLayout, followsBottom, newCount > 0 else { return }
-            scheduleProgrammaticScroll(to: newCount - 1, proxy: proxy, anchor: .bottom)
-        }
-        .onPreferenceChange(NexaDevListPositionPreference.self) { offsets in
-            let viewportExtent = axis.tracksHorizontalOffset ? viewportSize.width : viewportSize.height
-            let leadingOffset: (CGRect) -> CGFloat = { frame in
-                axis.tracksHorizontalOffset ? frame.minX : frame.minY
-            }
-            var leadingVisibleIndex: Int?
-            var leadingVisibleOffset: CGFloat?
-            var reachedEndCandidate = false
-            var followingBottomCandidate = false
-            let finalVisibleIndex = reverseLayout ? 0 : count - 1
-            for (index, frame) in offsets {
-                let isVisible = axis.tracksHorizontalOffset
-                    ? frame.maxX > 0 && frame.minX < viewportExtent
-                    : frame.maxY > 0 && frame.minY < viewportExtent
-                guard isVisible else { continue }
-
-                let offset = leadingOffset(frame)
-                if leadingVisibleOffset.map({ offset < $0 }) ?? true {
-                    leadingVisibleIndex = index
-                    leadingVisibleOffset = offset
-                }
-                if count > 0 && index == finalVisibleIndex { reachedEndCandidate = true }
-                if count > 0 && index == count - 1 { followingBottomCandidate = true }
-            }
-            guard let visibleIndex = leadingVisibleIndex else {
-                DispatchQueue.main.async {
-                    if reverseLayout { followsBottom = false }
-                }
-                return
-            }
-            let isAtEnd = reachedEndCandidate
-            let isFollowingBottom = followingBottomCandidate
-
-            // Preference changes run during SwiftUI's update transaction. Defer
-            // both state writes and Nexa actions so scroll callbacks cannot
-            // recursively invalidate the view tree being measured.
-            let commandRevision = scrollPositionCommandRevision
-            let canReportScroll = canUpdateScrollPosition
-            let capturedControlledPositionRevision = controlledPositionRevision
-            // Reserve before deferring. SwiftUI can call this preference
-            // observer more than once in the same update transaction, before
-            // an asynchronously deferred @State mutation becomes visible.
-            let shouldReportEndReached = isAtEnd && endReachedGate.claim(count: count)
-            DispatchQueue.main.async {
-                guard scrollPositionCommandRevision == commandRevision else {
-                    if shouldReportEndReached { endReachedGate.cancel(count: count) }
-                    return
-                }
-                if observedControlledPositionRevision != capturedControlledPositionRevision {
-                    observedControlledPositionRevision = capturedControlledPositionRevision
-                    if let target = scrollPosition,
-                       (0..<count).contains(target),
-                       target != lastReportedVisibleIndex {
-                        if shouldReportEndReached { endReachedGate.cancel(count: count) }
-                        scheduleProgrammaticScroll(to: target, proxy: proxy, anchor: axis.anchor)
-                        return
-                    }
-                }
-                if reverseLayout { followsBottom = isFollowingBottom }
-
-                let pendingPosition = pendingProgrammaticScrollPosition
-                let reachedProgrammaticTarget = pendingPosition == visibleIndex
-                if pendingPosition == nil || reachedProgrammaticTarget {
-                    if reachedProgrammaticTarget {
-                        pendingProgrammaticScrollPosition = nil
-                        canUpdateScrollPosition = true
-                    }
-
-                    let isInitialPosition = lastReportedVisibleIndex == nil
-                    let positionChanged = lastReportedVisibleIndex != visibleIndex
-                    let canAcceptPosition = reachedProgrammaticTarget || !suppressesProgrammaticScrollCallbacks
-                    if positionChanged && canAcceptPosition {
-                        lastReportedVisibleIndex = visibleIndex
-                        if !isInitialPosition && (canReportScroll || reachedProgrammaticTarget) {
-                            onScrollPositionChanged?(visibleIndex)
-                            onScroll?()
-                        }
-                    }
-                }
-
-                // Match native lists: fire once when the actual final row is
-                // visible, then re-arm only when the item count changes.
-                if shouldReportEndReached && endReachedGate.complete(count: count) {
-                    onEndReached?()
-                }
-            }
-        }
-    }
-
-    private func scheduleProgrammaticScroll(
-        to position: Int,
-        proxy: ScrollViewProxy,
-        anchor: UnitPoint
-    ) {
-        scrollPositionCommandRevision += 1
-        let commandRevision = scrollPositionCommandRevision
-        suppressesProgrammaticScrollCallbacks = true
-        pendingProgrammaticScrollPosition = position
-        canUpdateScrollPosition = false
-        DispatchQueue.main.async {
-            guard scrollPositionCommandRevision == commandRevision else { return }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                proxy.scrollTo(position, anchor: anchor)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var listContent: some View {
-        switch axis {
-        case .vertical:
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: stickyHeader != nil || sectionCounts != nil ? [.sectionHeaders] : []) {
-                if let sectionCounts, let sectionOffsets {
-                    ForEach(sectionCounts.indices, id: \.self) { sectionIndex in
-                        let start = sectionOffsets[sectionIndex]
-                        Section {
-                                ForEach(0..<sectionCounts[sectionIndex], id: \.self) { itemIndex in
-                                listItemWithDivider(
-                                    start + itemIndex,
-                                    section: sectionIndex,
-                                    item: itemIndex,
-                                    hasNext: itemIndex + 1 < sectionCounts[sectionIndex]
-                                )
-                            }
-                        } header: {
-                            if let sectionHeader {
-                                sectionHeader(sectionIndex)
-                            } else {
-                                EmptyView()
-                            }
-                        }
-                    }
-                } else {
-                    if let stickyHeader {
-                        Section { ForEach(0..<count, id: \.self) { index in listItemWithDivider(index, section: 0, item: index, hasNext: index + 1 < count) } }
-                        header: { stickyHeader }
-                    } else {
-                        ForEach(0..<count, id: \.self) { index in listItemWithDivider(index, section: 0, item: index, hasNext: index + 1 < count) }
-                    }
-                }
-            }
-        case .horizontal:
-            LazyHStack(alignment: .top, spacing: CGFloat(spacing)) {
-                ForEach(0..<count, id: \.self) { index in
-                    listItem(index, section: 0, item: index, horizontal: true)
-                }
-            }
-        case let .grid(columns):
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: CGFloat(spacing)), count: max(1, columns)),
-                alignment: .leading,
-                spacing: CGFloat(spacing)
-            ) {
-                ForEach(0..<count, id: \.self) { index in
-                    listItem(index, section: 0, item: index, horizontal: false)
-                }
-            }
-        case let .adaptiveGrid(minCellWidth):
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: CGFloat(max(1, minCellWidth))), spacing: CGFloat(spacing))],
-                alignment: .leading,
-                spacing: CGFloat(spacing)
-            ) {
-                ForEach(0..<count, id: \.self) { index in
-                    listItem(index, section: 0, item: index, horizontal: false)
-                }
-            }
-        case let .masonry(columns):
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: CGFloat(spacing)), count: max(1, columns)),
-                alignment: .leading,
-                spacing: CGFloat(spacing)
-            ) {
-                ForEach(0..<count, id: \.self) { index in
-                    listItem(index, section: 0, item: index, horizontal: false)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func listItemWithDivider(
-        _ index: Int,
-        section: Int,
-        item: Int,
-        hasNext: Bool
-    ) -> some View {
-        VStack(spacing: 0) {
-            listItem(index, section: section, item: item, horizontal: false)
-            if showDividers && hasNext { Divider() }
-        }
-    }
-
-    private func listItem(_ index: Int, section: Int, item: Int, horizontal: Bool) -> some View {
-        let sectionRowCount = sectionCounts.flatMap { counts in
-            counts.indices.contains(section) ? counts[section] : nil
-        } ?? count
-        let usesVerticalSpacing: Bool = {
-            if case .vertical = axis { return true }
-            return false
-        }()
-        return row(index, section, item)
-            .frame(minWidth: horizontal ? rowHeight.map { CGFloat($0) } : nil)
-            .frame(
-                minHeight: rowHeight.map { CGFloat($0) } ?? nexaDevFastListDefaultRowMinHeight,
-                alignment: .center
-            )
-            .frame(maxWidth: horizontal ? nil : .infinity, alignment: .leading)
-            .padding(.top, usesVerticalSpacing && item > 0 ? CGFloat(spacing) / 2 : 0)
-            .padding(.bottom, usesVerticalSpacing && item + 1 < sectionRowCount ? CGFloat(spacing) / 2 : 0)
-            .id(index)
-            .background(GeometryReader { geometry in
-                let frame = geometry.frame(in: .named("nexa-dev-fast-list"))
-                Color.clear.preference(
-                    key: NexaDevListPositionPreference.self,
-                    value: [index: frame]
-                )
-            })
-    }
-}
-
-@MainActor
-private final class NexaDevPageSnapTableView: UITableView {
-    var onViewportSizeChanged: ((CGSize) -> Void)?
-    private var reportedBoundsSize = CGSize.zero
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        guard bounds.size != reportedBoundsSize else { return }
-        reportedBoundsSize = bounds.size
-        onViewportSizeChanged?(bounds.size)
-    }
-}
-
-@MainActor
-private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
-    let count: Int
-    let scrollPosition: Int?
-    let scrollEnabled: Bool
-    let hideHorizontalScrollbar: Bool
-    let hideVerticalScrollbar: Bool
-    let row: (Int, Int, Int) -> RowContent
-    let onScrollPositionChanged: (Int) -> Void
-    let onScroll: (() -> Void)?
-    let onEndReached: (() -> Void)?
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            count: count,
-            scrollPosition: scrollPosition,
-            row: row,
-            onScrollPositionChanged: onScrollPositionChanged,
-            onScroll: onScroll,
-            onEndReached: onEndReached
-        )
-    }
-
-    func makeUIView(context: Context) -> UITableView {
-        let tableView = NexaDevPageSnapTableView(frame: .zero, style: .plain)
-        let coordinator = context.coordinator
-        tableView.onViewportSizeChanged = { [weak tableView, weak coordinator] size in
-            DispatchQueue.main.async {
-                guard let tableView, let coordinator else { return }
-                coordinator.updatePageHeight(size.height, in: tableView)
-            }
-        }
-        tableView.dataSource = coordinator
-        tableView.delegate = coordinator
-        tableView.isPagingEnabled = true
-        tableView.isScrollEnabled = scrollEnabled
-        nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment)
-        tableView.separatorStyle = .none
-        tableView.allowsSelection = false
-        tableView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
-        tableView.showsVerticalScrollIndicator = !hideVerticalScrollbar
-        tableView.backgroundColor = .clear
-        tableView.rowHeight = 1
-        tableView.estimatedRowHeight = 1
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "NexaDevPageSnapCell")
-        tableView.reloadData()
-        return tableView
-    }
-
-    func updateUIView(_ tableView: UITableView, context: Context) {
-        nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment)
-        let coordinator = context.coordinator
-        let previousCount = coordinator.count
-        let previousPosition = coordinator.scrollPosition
-        let previousPage = coordinator.currentPage(in: tableView)
-        coordinator.count = max(0, count)
-        coordinator.scrollPosition = scrollPosition
-        tableView.isScrollEnabled = scrollEnabled
-        tableView.showsHorizontalScrollIndicator = !hideHorizontalScrollbar
-        tableView.showsVerticalScrollIndicator = !hideVerticalScrollbar
-        coordinator.row = row
-        coordinator.onScrollPositionChanged = onScrollPositionChanged
-        coordinator.onScroll = onScroll
-        coordinator.onEndReached = onEndReached
-        if previousCount != coordinator.count {
-            coordinator.lastEndReachedCount = nil
-            tableView.reloadData()
-            tableView.layoutIfNeeded()
-            let targetPage = scrollPosition ?? previousPage
-            coordinator.scrollToPage(targetPage, in: tableView)
-        }
-        if let scrollPosition, scrollPosition != previousPosition {
-            coordinator.scrollToPage(scrollPosition, in: tableView)
-        }
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
-        var count: Int
-        var scrollPosition: Int?
-        var pageHeight: CGFloat = 0
-        var row: (Int, Int, Int) -> RowContent
-        var onScrollPositionChanged: (Int) -> Void
-        var onScroll: (() -> Void)?
-        var onEndReached: (() -> Void)?
-        var lastReportedPage: Int?
-        var lastEndReachedCount: Int?
-
-        init(
-            count: Int,
-            scrollPosition: Int?,
-            row: @escaping (Int, Int, Int) -> RowContent,
-            onScrollPositionChanged: @escaping (Int) -> Void,
-            onScroll: (() -> Void)?,
-            onEndReached: (() -> Void)?
-        ) {
-            self.count = max(0, count)
-            self.scrollPosition = scrollPosition
-            self.row = row
-            self.onScrollPositionChanged = onScrollPositionChanged
-            self.onScroll = onScroll
-            self.onEndReached = onEndReached
-            self.lastReportedPage = nil
-            self.lastEndReachedCount = nil
-        }
-
-        func updatePageHeight(_ height: CGFloat, in tableView: UITableView) {
-            guard height > 0, abs(height - pageHeight) > 0.5 else { return }
-            let page = pageHeight > 0
-                ? currentPage(in: tableView)
-                : min(max(scrollPosition ?? 0, 0), max(0, count - 1))
-            pageHeight = height
-            tableView.rowHeight = height
-            tableView.estimatedRowHeight = height
-            tableView.reloadData()
-            tableView.layoutIfNeeded()
-            scrollToPage(page, in: tableView)
-        }
-
-        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            count
-        }
-
-        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: "NexaDevPageSnapCell",
-                for: indexPath
-            )
-            cell.selectionStyle = .none
-            cell.contentConfiguration = UIHostingConfiguration {
-                row(indexPath.row, 0, indexPath.row)
-                    .frame(width: tableView.bounds.width, height: pageHeight, alignment: .topLeading)
-            }
-            .margins(.all, 0)
-            return cell
-        }
-
-        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-            reportSettledPage(in: scrollView)
-        }
-
-        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-            if !decelerate { reportSettledPage(in: scrollView) }
-        }
-
-        func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-            reportSettledPage(in: scrollView)
-        }
-
-        func scrollToPage(_ requestedPage: Int, in tableView: UITableView) {
-            guard count > 0, pageHeight > 0 else { return }
-            let page = min(max(requestedPage, 0), count - 1)
-            let targetOffsetY = CGFloat(page) * pageHeight - tableView.adjustedContentInset.top
-            guard abs(tableView.contentOffset.y - targetOffsetY) > 1 else { return }
-            tableView.scrollToRow(
-                at: IndexPath(row: page, section: 0),
-                at: .top,
-                animated: false
-            )
-            lastReportedPage = page
-        }
-
-        func currentPage(in tableView: UITableView) -> Int {
-            guard pageHeight > 0, count > 0 else { return 0 }
-            let position = (tableView.contentOffset.y + tableView.adjustedContentInset.top) / pageHeight
-            return min(max(Int(position.rounded()), 0), count - 1)
-        }
-
-        private func reportSettledPage(in scrollView: UIScrollView) {
-            guard let tableView = scrollView as? UITableView, count > 0 else { return }
-            let page = currentPage(in: tableView)
-            guard page != lastReportedPage else { return }
-            lastReportedPage = page
-            onScrollPositionChanged(page)
-            onScroll?()
-            if page >= count - 1, lastEndReachedCount != count {
-                lastEndReachedCount = count
-                onEndReached?()
-            } else if page < count - 1 {
-                lastEndReachedCount = nil
-            }
         }
     }
 }
@@ -3210,10 +2553,6 @@ struct NexaDevNodeList: View {
             let countSource = plan["Count"] as? [String: Any]
             let itemSource = plan["Items"] as? [String: Any]
             let sectionSource = plan["Sections"] as? [String: Any]
-            var listFields = options
-            for (key, value) in countPlan where key != "common" {
-                listFields[key] = value
-            }
             let countExpression = countSource?["count"]
             let itemExpression = itemSource?["collection"]
             let sourceItems: [Any]?
@@ -3235,85 +2574,108 @@ struct NexaDevNodeList: View {
             let itemCount = countExpression.map {
                 max(0, (store.evaluate($0, locals: locals, scope: scope) as? NSNumber)?.intValue ?? 0)
             } ?? (sourceItems?.count ?? 0)
-            let sectionCounts = sourceSections?.map(\.count)
-            let sectionOffsets = sectionCounts.map(nexaDevSectionOffsets)
-            let count = sectionCounts?.reduce(0, +) ?? itemCount
-            store.updateFastListEndReachedCount(identity: identity, scope: scope, count: count)
+            let sectionMetadata = sourceSections.map { sections in
+                var counts: [Int] = []
+                var offsets: [Int] = []
+                counts.reserveCapacity(sections.count)
+                offsets.reserveCapacity(sections.count)
+                var total = 0
+                for section in sections {
+                    offsets.append(total)
+                    counts.append(section.count)
+                    total += section.count
+                }
+                return (counts: counts, offsets: offsets, total: total)
+            }
+            let count = sectionMetadata?.total ?? itemCount
             let axis: NexaDevFastListAxis
-            if listFields["axis"] as? String == "Horizontal" {
+            if options["axis"] as? String == "Horizontal" {
                 axis = .horizontal
-            } else if let grid = (listFields["axis"] as? [String: Any])?["Grid"] as? [String: Any],
+            } else if let grid = (options["axis"] as? [String: Any])?["Grid"] as? [String: Any],
                       let columns = grid["columns"] as? Int {
                 axis = .grid(max(1, columns))
-            } else if let grid = (listFields["axis"] as? [String: Any])?["AutoGrid"] as? [String: Any],
+            } else if let grid = (options["axis"] as? [String: Any])?["AutoGrid"] as? [String: Any],
                       let minCellWidth = grid["min_cell_width"] as? Int {
                 axis = .adaptiveGrid(max(1, minCellWidth))
-            } else if let masonry = (listFields["axis"] as? [String: Any])?["Masonry"] as? [String: Any],
+            } else if let masonry = (options["axis"] as? [String: Any])?["Masonry"] as? [String: Any],
                       let columns = masonry["columns"] as? Int {
                 axis = .masonry(max(1, columns))
             } else {
                 axis = .vertical
             }
-            let reverseLayout = listFields[NexaDevKeys.reverseLayout] as? Bool ?? false
-            let pageSnap = listFields[NexaDevKeys.pageSnap] as? Bool ?? false
-            let scrollEnabledExpression = listFields["scroll_enabled"].flatMap {
+            let reverseLayout = options[NexaDevKeys.reverseLayout] as? Bool ?? false
+            let pageSnap = options[NexaDevKeys.pageSnap] as? Bool ?? false
+            let scrollEnabledExpression = options["scroll_enabled"].flatMap {
                 $0 is NSNull ? nil : $0
             }
             let scrollEnabled = scrollEnabledExpression.map {
                 store.truthy(store.evaluate($0, locals: locals, scope: scope))
             } ?? true
-            let showDividers = listFields["show_dividers"] as? Bool ?? true
-            let hideHorizontalScrollbar = listFields[NexaDevKeys.hideHorizontalScrollbar] as? Bool ?? false
-            let hideVerticalScrollbar = listFields[NexaDevKeys.hideVerticalScrollbar] as? Bool ?? false
-            let indexName = listFields["index"] as? String ?? "index"
-            let itemName = listFields["item"] as? String
-            let sectionName = listFields["section"] as? String ?? "section"
-            let children = listFields["children"] as? [Any] ?? []
-            let itemExtent = listFields["item_extent"] as? Double
-            let spacing = listFields["gap"] as? Double ?? 0
-            let scrollPositionName = listFields["scroll_position"] as? String
+            let showDividers = options["show_dividers"] as? Bool ?? true
+            let hideHorizontalScrollbar = options[NexaDevKeys.hideHorizontalScrollbar] as? Bool ?? false
+            let hideVerticalScrollbar = options[NexaDevKeys.hideVerticalScrollbar] as? Bool ?? false
+            let indexName = options["index"] as? String ?? "index"
+            let itemName = countPlan["item"] as? String
+            let sectionName = countPlan["section"] as? String ?? "section"
+            let children = options["children"] as? [Any] ?? []
+            let itemExtent = options["item_extent"] as? Double
+            let spacing = options["gap"] as? Double ?? 0
+            let scrollPositionName = options["scroll_position"] as? String
             let requestedIndex = scrollPositionName.flatMap { name in
                 (store.value(name, scope: scope) as? NSNumber)?.intValue
             }
             let scrollPositionCommandRevision = scrollPositionName.map {
                 store.stateCommandRevision($0, scope: scope)
             } ?? 0
-            let stickyHeaderNodes = listFields["sticky_header"] as? [Any]
-            let swipeActionNodes = listFields["swipe_actions"] as? [Any]
+            let stickyHeaderNodes = options["sticky_header"] as? [Any]
+            let swipeConfig = options["swipe_actions"] as? [String: Any]
+            let swipeActionNodes = swipeConfig?["children"] as? [Any]
+            let swipeEdge: HorizontalEdge = (swipeConfig?["edge"] as? String) == "Leading" ? .leading : .trailing
+            let swipeAllowsFullSwipe = swipeConfig?["allows_full_swipe"] as? Bool ?? false
             let stickyHeader: AnyView? = stickyHeaderNodes.map { nodes in
                 AnyView(NexaDevNodeList(nodes: nodes, module: module, store: store, parameters: locals, stateScope: scope)
                     .environment(\.nexaDevNodeIdentity, "\(identity)/sticky-header"))
             }
-            let sectionHeaderNodes = listFields["section_header"] as? [Any]
+            let sectionHeaderNodes = options["section_header"] as? [Any]
             let sectionHeader: ((Int) -> AnyView)? = sectionHeaderNodes.map { nodes in
                 { sectionIndex in
-                    AnyView(NexaDevNodeList(
+                    var headerLocals = locals
+                    headerLocals[sectionName] = sectionIndex
+                    if let sourceSections, sourceSections.indices.contains(sectionIndex) {
+                        headerLocals["sectionItems"] = sourceSections[sectionIndex]
+                    }
+                    return AnyView(NexaDevNodeList(
                         nodes: nodes,
                         module: module,
                         store: store,
-                            parameters: locals.merging([sectionName: sectionIndex]) { _, newest in newest },
+                        parameters: headerLocals,
                         stateScope: scope
                     )
                     .environment(\.nexaDevNodeIdentity, "\(identity)/section-header/\(sectionIndex)"))
                 }
             }
-            let onScrollActions = listFields["on_scroll"] as? [Any]
-            let onScrollBeginDragActions = listFields["on_scroll_begin_drag"] as? [Any]
-            let onEndReachedActions = listFields["on_end_reached"] as? [Any]
-            let componentRef = listFields["component_ref"].flatMap { value -> NexaFastListRef? in
+            let onScrollActions = options["on_scroll"] as? [Any]
+            let onScrollBeginDragActions = options["on_scroll_begin_drag"] as? [Any]
+            let onEndReachedActions = options["on_end_reached"] as? [Any]
+            let componentRef = options["component_ref"].flatMap { value -> NexaFastListRef? in
                 guard !(value is NSNull) else { return nil }
                 return store.evaluate(value, locals: locals, scope: scope) as? NexaFastListRef
             }
-            let onMove = listFields["on_move"] as? [String: Any]
-            let usesPlatformList = onMove != nil || swipeActionNodes != nil
+            let onMove = options["on_move"] as? [String: Any]
+            let isMasonry: Bool = {
+                if case .masonry = axis { return true }
+                return false
+            }()
+            let usesPlatformList = (onMove != nil && !isMasonry) || swipeActionNodes != nil
             let moveEnabled = onMove?["enabled"].map {
                 store.truthy(store.evaluate($0, locals: locals, scope: scope))
             } ?? false
-            let refresh = listFields["refresh"] as? [String: Any]
+            let refresh = options["refresh"] as? [String: Any]
             let refreshState = refresh?["state"] as? String
             let refreshActions = refresh?["actions"] as? [Any] ?? []
             let makeRowLocals: (Int, Int, Int) -> [String: Any] = { index, sectionIndex, itemIndex in
-                var rowLocals = locals.merging([indexName: itemIndex]) { _, newest in newest }
+                var rowLocals = locals
+                rowLocals[indexName] = itemIndex
                 if let sourceSections, let itemName,
                    sourceSections.indices.contains(sectionIndex),
                    sourceSections[sectionIndex].indices.contains(itemIndex) {
@@ -3324,7 +2686,7 @@ struct NexaDevNodeList: View {
                 }
                 return rowLocals
             }
-            let keyExpression = listFields["key"].flatMap { $0 is NSNull ? nil : $0 }
+            let keyExpression = options["key"].flatMap { $0 is NSNull ? nil : $0 }
             let rowKey: ((Int, Int, Int) -> AnyHashable)? = keyExpression.map { expression in
                 { index, sectionIndex, itemIndex in
                     let value = store.evaluate(
@@ -3335,7 +2697,7 @@ struct NexaDevNodeList: View {
                     return (value as? AnyHashable) ?? AnyHashable(store.stringify(value))
                 }
             }
-            let taskOwner = "\(scope)/fast-list/\(identity)"
+            let taskOwner = onEndReachedActions.map { _ in "\(scope)/fast-list/\(identity)" }
             return AnyView(NexaDevFastList(
                 count: count,
                 usesPlatformList: usesPlatformList,
@@ -3349,9 +2711,8 @@ struct NexaDevNodeList: View {
                 rowHeight: itemExtent,
                 spacing: spacing,
                 scrollPosition: requestedIndex,
-                controlledPositionRevision: scrollPositionCommandRevision,
-                sectionCounts: sectionCounts,
-                sectionOffsets: sectionOffsets,
+                sectionCounts: sectionMetadata?.counts,
+                sectionOffsets: sectionMetadata?.offsets,
                 componentRef: componentRef,
                 rowKey: rowKey,
                 stickyHeader: stickyHeader,
@@ -3368,6 +2729,8 @@ struct NexaDevNodeList: View {
                         ).environment(\.nexaDevNodeIdentity, "\(identity)/swipe-actions/\(index)")
                     }
                 },
+                swipeEdge: swipeEdge,
+                swipeAllowsFullSwipe: swipeAllowsFullSwipe,
                 row: { index, sectionIndex, itemIndex in
                     let rowLocals = makeRowLocals(index, sectionIndex, itemIndex)
                     return AnyView(NexaDevNodeList(
@@ -3383,6 +2746,7 @@ struct NexaDevNodeList: View {
                         guard moveEnabled else { return }
                         guard let from = source.first else { return }
                         let to = destination > from ? destination - 1 : destination
+                        guard from != to else { return }
                         let callbackLocals = locals.merging([
                             callback["from"] as? String ?? "from": NSNumber(value: from),
                             callback["to"] as? String ?? "to": NSNumber(value: to),
@@ -3414,13 +2778,8 @@ struct NexaDevNodeList: View {
                 },
                 onEndReached: onEndReachedActions.map { actions in
                     {
-                        guard store.claimFastListEndReached(
-                            identity: identity,
-                            scope: scope,
-                            count: count
-                        ) else { return }
                         var callbackLocals = locals
-                        callbackLocals[nexaDevTaskOwnerLocal] = taskOwner
+                        if let taskOwner { callbackLocals[nexaDevTaskOwnerLocal] = taskOwner }
                         store.perform(actions, scope: scope, locals: callbackLocals)
                     }
                 },
@@ -3429,7 +2788,7 @@ struct NexaDevNodeList: View {
                     { store.perform(refreshActions, scope: scope, locals: locals) }
                 }
             ).onDisappear {
-                store.clearNativeTasks(owner: taskOwner)
+                if let taskOwner { store.clearNativeTasks(owner: taskOwner) }
             })
         case "Switch":
             let name = fields["state"] as? String ?? ""

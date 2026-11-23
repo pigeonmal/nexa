@@ -629,6 +629,10 @@ pub enum ModifierBody {
         actions: Vec<Stmt>,
     },
     Nodes(Vec<Node>),
+    BoundNodes {
+        parameters: Vec<String>,
+        nodes: Vec<Node>,
+    },
 }
 
 #[derive(Clone, Debug)]

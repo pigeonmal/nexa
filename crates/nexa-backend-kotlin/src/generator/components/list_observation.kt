@@ -5,7 +5,6 @@ internal inline fun <Item> nexaLeadingVisibleDataItemIndex(
     visibleItems: List<Item>,
     fallback: Int,
     stickyHeaderOffset: Int,
-    reverseLayout: Boolean,
     viewportStartOffset: Int,
     viewportEndOffset: Int,
     itemIndex: (Item) -> Int,
@@ -31,7 +30,6 @@ internal inline fun <Item> nexaLeadingVisibleDataItemIndex(
     }
     var leadingIndex = -1
     var firstDataIndex = -1
-    var maximumVisibleIndex = -1
     var position = 0
     while (position < visibleItems.size) {
         val item = visibleItems[position++]
@@ -39,17 +37,15 @@ internal inline fun <Item> nexaLeadingVisibleDataItemIndex(
         val end = offset + itemSize(item)
         if (end <= viewportStartOffset || offset >= viewportEndOffset) continue
         val index = itemIndex(item)
-        if (index > maximumVisibleIndex) maximumVisibleIndex = index
         if (index < stickyHeaderOffset) continue
         if (firstDataIndex < 0) firstDataIndex = index
         if (hasStickyHeader && offset < stickyEnd && end > stickyStart) continue
-        if (leadingIndex < 0 || (reverseLayout && index > leadingIndex) || (!reverseLayout && index < leadingIndex)) {
+        if (leadingIndex < 0 || index < leadingIndex) {
             leadingIndex = index
         }
     }
     if (leadingIndex >= 0) return leadingIndex
-    val visibleFallback = if (reverseLayout) maximumVisibleIndex else firstDataIndex
-    return if (visibleFallback >= 0) visibleFallback else fallback
+    return if (firstDataIndex >= 0) firstDataIndex else fallback
 }
 
 // nexa-codegen: nexaListEndIsVisible
@@ -77,4 +73,25 @@ internal inline fun <Item> nexaListEndIsVisible(
         if (end <= headerStart || start >= headerStart + itemSize(header)) return true
     }
     return false
+}
+
+// nexa-codegen: nexaSectionedListLayoutIndex
+internal inline fun <Section> nexaSectionedListLayoutIndex(
+    sections: List<Section>,
+    row: Int,
+    hasHeader: Boolean,
+    hasSectionGap: Boolean,
+    sectionSize: (Section) -> Int,
+): Int {
+    var remaining = row
+    var layoutIndex = 0
+    for (sectionIndex in sections.indices) {
+        val count = sectionSize(sections[sectionIndex])
+        if (hasHeader) layoutIndex++
+        if (remaining < count) return layoutIndex + remaining
+        remaining -= count
+        layoutIndex += count
+        if (hasSectionGap && sectionIndex < sections.lastIndex) layoutIndex++
+    }
+    return 0
 }

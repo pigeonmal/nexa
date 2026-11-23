@@ -2303,9 +2303,8 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
             "    implementation(\"androidx.compose.material:material-icons-extended\")\n",
         );
     } else if features.uses_navigation {
-        dependencies.push_str(
-            "    implementation(\"androidx.compose.material:material-icons-core\")\n",
-        );
+        dependencies
+            .push_str("    implementation(\"androidx.compose.material:material-icons-core\")\n");
     }
     if has_widgets {
         dependencies.push_str(

@@ -749,21 +749,41 @@ fn walk_invocation(
             if let Some(item_name) = item_name.filter(|name| *name != "_") {
                 row_names.insert(item_name.to_owned());
             }
+            let swipe_action_references = |name: &str| {
+                inv.modifiers
+                    .iter()
+                    .find_map(|modifier| {
+                        (modifier.name == "swipeActions")
+                            .then_some(&modifier.body)
+                            .and_then(|body| match body {
+                                ast::ModifierBody::BoundNodes { parameters, nodes }
+                                    if parameters.iter().any(|parameter| parameter == name) =>
+                                {
+                                    Some(nodes)
+                                }
+                                _ => None,
+                            })
+                    })
+                    .is_some_and(|nodes| nodes_reference_name(nodes, name, target))
+            };
             if index_name != "_" && !nodes_reference_name(&rows.children, index_name, target) {
-                push_warning(
-                    warnings,
-                    WarningCode::UNUSED_FAST_LIST_BINDING,
-                    inv.span,
-                    format!(
-                        "unused FastList index binding `{index_name}`{}",
-                        target_suffix(target)
-                    ),
-                    file,
-                );
+                if !swipe_action_references(index_name) {
+                    push_warning(
+                        warnings,
+                        WarningCode::UNUSED_FAST_LIST_BINDING,
+                        inv.span,
+                        format!(
+                            "unused FastList index binding `{index_name}`{}",
+                            target_suffix(target)
+                        ),
+                        file,
+                    );
+                }
             }
             if let Some(item_name) = item_name
                 && rows.key.is_none()
                 && !nodes_reference_name(&rows.children, item_name, target)
+                && !swipe_action_references(item_name)
             {
                 push_warning(
                     warnings,
@@ -781,6 +801,7 @@ fn walk_invocation(
                 && !nodes_reference_name(&rows.children, section_name, target)
                 && !modifier_nodes("sectionHeader")
                     .is_some_and(|header| nodes_reference_name(header, section_name, target))
+                && !swipe_action_references(section_name)
             {
                 push_warning(
                     warnings,
@@ -854,6 +875,11 @@ fn walk_invocation(
                     }
                     ast::ModifierBody::Nodes(nodes) => {
                         walk_child_nodes(nodes, names, used, target, file, warnings)
+                    }
+                    ast::ModifierBody::BoundNodes { parameters, nodes } => {
+                        let mut scoped_names = names.clone();
+                        scoped_names.extend(parameters.iter().cloned());
+                        walk_child_nodes(nodes, &scoped_names, used, target, file, warnings)
                     }
                 }
             }

@@ -57,6 +57,17 @@ for columns in [1, 2, 3, 5, 11] {
                 verifyGeometry(geometry, count: count, columns: columns, width: width, spacing: spacing, measurements: measurements)
             }
         }
+        for (from, to) in [(0, 29), (29, 0), (17, 599), (599, 17), (138, 139), (139, 138)] {
+            var heights = (0..<count).map { measurements[$0] }
+            let moved = heights.remove(at: from)
+            heights.insert(moved, at: to)
+            measurements = Dictionary(uniqueKeysWithValues: heights.enumerated().compactMap { index, height in
+                height.map { (index, $0) }
+            })
+            geometry.moveItem(from: from, to: to)
+            geometry.prepare(width: width, count: count)
+            verifyGeometry(geometry, count: count, columns: columns, width: width, spacing: spacing, measurements: measurements)
+        }
         count += 130
         geometry.prepare(width: width, count: count)
         verifyGeometry(geometry, count: count, columns: columns, width: width, spacing: spacing, measurements: measurements)

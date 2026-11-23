@@ -155,8 +155,6 @@ final class NexaDevStateStore: ObservableObject {
     private var scopeRevisions: [String: NexaDevScopeRevision] = [:]
     private var stateReaders: [String: Set<String>] = [:]
     private var stateCommandRevisions: [String: Int] = [:]
-    private var fastListEndReachedCounts: [String: Int] = [:]
-    private var fastListEndReachedKeys = Set<String>()
 
     func revisionObserver(for scope: String) -> NexaDevScopeRevision {
         if let observer = scopeRevisions[scope] { return observer }
@@ -167,23 +165,6 @@ final class NexaDevStateStore: ObservableObject {
 
     func invalidateScope(_ scope: String) {
         scopeRevisions[scope]?.invalidate()
-    }
-
-    func updateFastListEndReachedCount(identity: String, scope: String, count: Int) {
-        let key = "\(scope)|\(identity)"
-        guard fastListEndReachedCounts[key] != count else { return }
-        fastListEndReachedCounts[key] = count
-        fastListEndReachedKeys.remove(key)
-    }
-
-    func claimFastListEndReached(identity: String, scope: String, count: Int) -> Bool {
-        guard count > 0 else { return false }
-        let key = "\(scope)|\(identity)"
-        if fastListEndReachedCounts[key] != count {
-            fastListEndReachedCounts[key] = count
-            fastListEndReachedKeys.remove(key)
-        }
-        return fastListEndReachedKeys.insert(key).inserted
     }
 
     func invalidateAllScopes() {
@@ -546,8 +527,6 @@ final class NexaDevStateStore: ObservableObject {
     func install(module: [String: Any]) {
         currentModule = module
         let isHotReplacement = hasInstalledModule
-        fastListEndReachedCounts.removeAll(keepingCapacity: true)
-        fastListEndReachedKeys.removeAll(keepingCapacity: true)
         if isHotReplacement { clearNativeTasks() }
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
@@ -1029,11 +1008,6 @@ final class NexaDevStateStore: ObservableObject {
         }
         for key in Array(stateCommandRevisions.keys) where key.hasPrefix(statePrefix) {
             stateCommandRevisions.removeValue(forKey: key)
-        }
-        let listPrefix = "\(scope)|"
-        for key in Array(fastListEndReachedCounts.keys) where key.hasPrefix(listPrefix) {
-            fastListEndReachedCounts.removeValue(forKey: key)
-            fastListEndReachedKeys.remove(key)
         }
         scopeRevisions.removeValue(forKey: scope)
 

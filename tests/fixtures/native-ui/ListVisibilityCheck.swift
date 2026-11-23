@@ -18,7 +18,7 @@ private func referenceLeading(_ table: UITableView, reverse: Bool) -> Int? {
     let paths = table.indexPathsForVisibleRows ?? []
     guard !reverse, let header = table.headerView(forSection: 0) else {
         let positions = paths.map(\.row)
-        return reverse ? positions.max() : positions.min()
+        return positions.min()
     }
     let top = max(table.bounds.minY + table.adjustedContentInset.top, header.frame.maxY)
     return paths.compactMap { path in

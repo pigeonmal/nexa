@@ -191,6 +191,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val foregroundTasks = ConcurrentHashMap<String, NexaDevForegroundTask>()
     internal val values = mutableStateMapOf<String, Any>()
+    private val stateCommandRevisions = mutableMapOf<String, Int>()
     /** Native component handles persist separately from hot-reload state. */
     internal val componentRefs = mutableMapOf<String, Any>()
     internal val animationSpecs = mutableStateMapOf<String, androidx.compose.animation.core.FiniteAnimationSpec<Float>>()
@@ -768,6 +769,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             values.remove(key)
             typeSignatures.remove(key)
         }
+        stateCommandRevisions.keys.removeAll { it.startsWith(statePrefix) }
     }
 
     fun hotRestart() {
@@ -775,6 +777,7 @@ internal class NexaDevStateStore(internal val context: Context) {
         clearNativeEventSubscriptions()
         animationSpecs.clear()
         activeScreenParameters.clear()
+        stateCommandRevisions.clear()
         val current = currentModule ?: module ?: return
         val states = current.optJSONArray("states") ?: JSONArray()
         val screens = current.optJSONArray("screens") ?: JSONArray()
@@ -977,16 +980,38 @@ internal class NexaDevStateStore(internal val context: Context) {
         openEditorHandler?.invoke(diagnostic)
     }
 
-    fun state(name: String, scope: String = "app"): Any =
-        values["$scope/state/$name"] ?: values["app/state/$name"] ?: moduleValues[name] ?: JSONObject.NULL
-
-    fun setState(name: String, value: Any, scope: String = "app") {
-        val target = if (values.containsKey("$scope/state/$name") || !scope.startsWith("screen/")) {
-            "$scope/state/$name"
+    private fun stateStorageKey(name: String, scope: String): String {
+        val scopedKey = "$scope/state/$name"
+        return if (values.containsKey(scopedKey) || !scope.startsWith("screen/")) {
+            scopedKey
         } else {
             "app/state/$name"
         }
-        if (values[target] != value) runtimeTrace("state_update ${runtimeTraceScope(scope)}:$name")
+    }
+
+    fun state(name: String, scope: String = "app"): Any =
+        values[stateStorageKey(name, scope)] ?: moduleValues[name] ?: JSONObject.NULL
+
+    fun stateCommandRevision(name: String, scope: String = "app"): Int =
+        stateCommandRevisions[stateStorageKey(name, scope)] ?: 0
+
+    fun setState(name: String, value: Any, scope: String = "app") {
+        val target = stateStorageKey(name, scope)
+        if (values[target] == value) return
+        stateCommandRevisions[target] = (stateCommandRevisions[target] ?: 0) + 1
+        runtimeTrace("state_update ${runtimeTraceScope(scope)}:$name")
+        values[target] = value
+    }
+
+    fun setScrollPositionFromNative(
+        name: String,
+        value: Int,
+        scope: String = "app",
+        expectedCommandRevision: Int,
+    ) {
+        val target = stateStorageKey(name, scope)
+        if ((stateCommandRevisions[target] ?: 0) != expectedCommandRevision) return
+        if ((values[target] as? Number)?.toInt() == value) return
         values[target] = value
     }
 

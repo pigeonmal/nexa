@@ -152,21 +152,20 @@ private data class Item(val index: Int, val offset: Int, val size: Int)
 
 // Original AOT behavior is the reference: prefetched items do not count;
 // pinned headers obscure rows, with a conservative visible fallback.
-private fun reference(items: List<Item>, fallback: Int, headerOffset: Int, reverse: Boolean, start: Int, end: Int): Int {
+private fun reference(items: List<Item>, fallback: Int, headerOffset: Int, start: Int, end: Int): Int {
     val visible = items.filter { it.offset + it.size > start && it.offset < end }
     val header = if (headerOffset > 0) visible.firstOrNull { it.index == 0 } else null
     var leading = -1
     for (item in visible) {
         if (item.index < headerOffset) continue
         if (header != null && item.offset < header.offset + header.size && item.offset + item.size > header.offset) continue
-        if (leading < 0 || (reverse && item.index > leading) || (!reverse && item.index < leading)) leading = item.index
+        if (leading < 0 || item.index < leading) leading = item.index
     }
-    return if (leading >= 0) leading else if (reverse) visible.maxOfOrNull { it.index } ?: fallback
-        else visible.firstOrNull { it.index >= headerOffset }?.index ?: fallback
+    return if (leading >= 0) leading else visible.firstOrNull { it.index >= headerOffset }?.index ?: fallback
 }
 
-private fun observed(items: List<Item>, fallback: Int, headerOffset: Int, reverse: Boolean, start: Int, end: Int): Int =
-    nexaLeadingVisibleDataItemIndex(items, fallback, headerOffset, reverse, start, end,
+private fun observed(items: List<Item>, fallback: Int, headerOffset: Int, start: Int, end: Int): Int =
+    nexaLeadingVisibleDataItemIndex(items, fallback, headerOffset, start, end,
         itemIndex = { it.index }, itemOffset = { it.offset }, itemSize = { it.size })
 
 private fun checkScrollObservation() {
@@ -175,9 +174,9 @@ private fun checkScrollObservation() {
         val items = (0 until random.nextInt(0, 40)).map { Item(it, random.nextInt(-500, 1000), random.nextInt(0, 200)) }.shuffled(random)
         val start = random.nextInt(-100, 200)
         val end = start + random.nextInt(0, 800)
-        for (header in 0..1) for (reverse in listOf(false, true)) {
-            val expected = reference(items, 17, header, reverse, start, end)
-            check(observed(items, 17, header, reverse, start, end) == expected)
+        for (header in 0..1) {
+            val expected = reference(items, 17, header, start, end)
+            check(observed(items, 17, header, start, end) == expected)
         }
         val finalIndex = random.nextInt(0, 40)
         for (sticky in listOf(false, true)) {
@@ -193,22 +192,22 @@ private fun checkScrollObservation() {
     val items = (0 until 40).map { Item(it, it * 56 - 112, 56) }
     var checksum = 0
     repeat(20000) {
-        checksum += observed(items, 0, 1, false, 0, 800)
-        checksum += reference(items, 0, 1, false, 0, 800)
+        checksum += observed(items, 0, 1, 0, 800)
+        checksum += reference(items, 0, 1, 0, 800)
     }
     val bean = java.lang.management.ManagementFactory.getThreadMXBean() as? com.sun.management.ThreadMXBean
     if (bean != null && bean.isThreadAllocatedMemorySupported) {
         bean.isThreadAllocatedMemoryEnabled = true
         val thread = Thread.currentThread().id
         var before = bean.getThreadAllocatedBytes(thread)
-        repeat(20000) { checksum += reference(items, 0, 1, false, 0, 800) }
+        repeat(20000) { checksum += reference(items, 0, 1, 0, 800) }
         val referenceBytes = bean.getThreadAllocatedBytes(thread) - before
         before = bean.getThreadAllocatedBytes(thread)
-        repeat(20000) { checksum += observed(items, 0, 1, false, 0, 800) }
+        repeat(20000) { checksum += observed(items, 0, 1, 0, 800) }
         val optimizedBytes = bean.getThreadAllocatedBytes(thread) - before
         println("scroll allocations: reference=$referenceBytes optimized=$optimizedBytes iterations=20000 checksum=$checksum")
     }
-    println("native Kotlin scroll observation: 6000 reference comparisons passed")
+    println("native Kotlin scroll observation: 4000 reference comparisons passed")
 }
 
 

@@ -980,6 +980,14 @@ const ANDROID_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
         include_str!("../../../runtime/android/NexaDevRenderer.kt"),
     ),
     (
+        "NexaFastListReorder.kt",
+        include_str!("../../../runtime/android/NexaFastListReorder.kt"),
+    ),
+    (
+        "NexaFastListSwipe.kt",
+        include_str!("../../../runtime/android/NexaFastListSwipe.kt"),
+    ),
+    (
         "NexaDevRuntime.kt",
         include_str!("../../../runtime/android/NexaDevRuntime.kt"),
     ),
@@ -3260,6 +3268,36 @@ mod tests {
     }
 
     #[test]
+    fn dev_android_registers_shared_list_reordering_in_the_app_package() {
+        let module = nexa_compiler::compile("app ListProbe { body { Text(\"Ready\") } }")
+            .expect("compile a host with no reorderable lists");
+        let (filename, source) = super::ANDROID_DEV_RUNTIME_FILES
+            .iter()
+            .find(|(name, _)| *name == "NexaFastListReorder.kt")
+            .expect("reorder support must be staged even when enabled later by hot reload");
+        let generated = dev_runtime_source(filename, source, "dev.nexa.listprobe", &module);
+        assert!(generated.starts_with("package dev.nexa.listprobe\n"));
+        assert!(generated.contains("internal fun NexaFastStaggeredGridReorderableItem("));
+        assert!(generated.contains("internal fun rememberNexaFastListReorderState("));
+    }
+
+    #[test]
+    fn dev_android_registers_shared_list_swipe_actions_in_the_app_package() {
+        let module = nexa_compiler::compile("app ListProbe { body { Text(\"Ready\") } }")
+            .expect("compile a host with no swipe actions");
+        let (filename, source) = super::ANDROID_DEV_RUNTIME_FILES
+            .iter()
+            .find(|(name, _)| *name == "NexaFastListSwipe.kt")
+            .expect("swipe support must be staged even when introduced by hot reload");
+        let generated = dev_runtime_source(filename, source, "dev.nexa.listprobe", &module);
+        assert!(generated.starts_with("package dev.nexa.listprobe\n"));
+        assert!(generated.contains("internal fun NexaFastListSwipePrimitive("));
+        assert!(generated.contains("viewConfiguration.touchSlop"));
+        assert!(generated.contains("latestOnFullSwipe.value?.invoke()"));
+        assert!(!generated.contains("__NEXA_PACKAGE__"));
+    }
+
+    #[test]
     fn generated_android_projects_pin_native_title_material3_version_without_menus() {
         let config = super::config::ProjectConfig::from_defaults(&[], "TitleParity")
             .expect("resolve default project configuration");
@@ -3610,7 +3648,9 @@ mod tests {
         assert!(swift.contains("case (\"gilroy\", \"Semibold\"): return \"Gilroy-Semibold\""));
         assert!(swift.contains("case (\"gilroy\", \"Medium\"): return \"Gilroy-Regular\""));
         assert!(swift.contains("case (\"gilroy\", \"Bold\"): return \"Gilroy-Semibold\""));
-        assert!(swift.contains("if !(style[\"font_family\"] is String), let weight = weight ?? semanticWeight"));
+        assert!(swift.contains(
+            "if !(style[\"font_family\"] is String), let weight = weight ?? semanticWeight"
+        ));
         assert!(swift.contains("fontFamily: family"));
         assert!(kotlin.contains("\"gilroy\" to FontWeight.SemiBold ->"));
         assert!(kotlin.contains(

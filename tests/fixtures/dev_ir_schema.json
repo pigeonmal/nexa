@@ -4,7 +4,7 @@
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
   "protocol_version": 15,
 
-  "dev_ir_format_version": 86,
+  "dev_ir_format_version": 87,
   "view_transitions": [
     "Fade",
     "SlideFromBottom",

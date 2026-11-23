@@ -7,52 +7,24 @@ use nexa_compiler::{Target, compile_file_with_warnings_for_target};
 use nexa_testkit::TestProject;
 
 #[test]
-fn ios_dev_runtime_reserves_end_reached_before_deferring_actions() {
+fn ios_end_reached_callbacks_fire_again_after_leaving_the_end() {
     let runtime = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
     let state = include_str!("../../../runtime/ios/NexaDevState.swift");
-    let observer = runtime
-        .split(".onPreferenceChange(NexaDevListPositionPreference.self)")
-        .nth(1)
-        .expect("iOS DevRuntime should observe visible FastList rows")
-        .split("\n    }\n\n    private func scheduleProgrammaticScroll")
-        .next()
-        .expect("the list preference observer should end before scroll scheduling");
-
-    assert!(
-        runtime.contains("private final class NexaDevListEndReachedGate")
-            && runtime.contains("func claim(count: Int) -> Bool")
-            && runtime.contains("func complete(count: Int) -> Bool")
-            && runtime.contains("func cancel(count: Int)")
-            && runtime.contains("pendingCount = count")
-            && runtime.contains("lastReachedCount = count"),
-        "the iOS DevRuntime should reserve end callbacks before dispatch and commit or cancel the reservation afterward"
+    let native = include_str!("../../nexa-backend-swift/src/generator/components/list_runtime.rs");
+    assert!(!runtime.contains("NexaDevListPositionPreference"));
+    assert!(!runtime.contains("NexaDevPageSnapList"));
+    assert_eq!(
+        native
+            .matches("self.rowCount == count,\n                      self.isAtEnd,\n                      self.endReachedGeneration == generation")
+            .count(),
+        3,
+        "shared UIKit list callbacks must discard stale edge notifications on every list layout"
     );
     assert!(
-        runtime.contains("@State private var endReachedGate = NexaDevListEndReachedGate()")
-            && runtime.contains("endReachedGate.reset()")
-            && runtime.contains("private var gatedOnEndReached: (() -> Void)?")
-            && runtime.matches("onEndReached: gatedOnEndReached").count() >= 5,
-        "native and SwiftUI list callbacks should share a per-view once-per-count gate"
-    );
-    assert!(
-        runtime.contains(
-            "store.updateFastListEndReachedCount(identity: identity, scope: scope, count: count)"
-        ) && runtime.contains("store.claimFastListEndReached(")
-            && state.contains("private var fastListEndReachedCounts: [String: Int] = [:]")
-            && state.contains("private var fastListEndReachedKeys = Set<String>()")
-            && state.contains(
-                "func updateFastListEndReachedCount(identity: String, scope: String, count: Int)"
-            )
-            && state.contains(
-                "func claimFastListEndReached(identity: String, scope: String, count: Int) -> Bool"
-            ),
-        "DevRuntime must keep its once-per-count reservation in the persistent state store so native list recreation cannot duplicate callbacks"
-    );
-    assert!(
-        runtime.contains("@Environment(\\.nexaDevNodeIdentity) private var nodeIdentity")
-            && runtime.contains("identity: \"\\(nodeIdentity)/\\(index)\"")
-            && runtime.contains("identity: \"\\(identity)/children/\\(index)\""),
-        "the persistent callback reservation key should use a stable tree path to distinguish separate FastLists"
+        !runtime.contains("store.claimFastListEndReached(")
+            && !runtime.contains("store.updateFastListEndReachedCount(")
+            && !state.contains("fastListEndReachedKeys"),
+        "DevRuntime must rely on native edge tracking so a later end crossing can fire again"
     );
     let scroll_action = runtime
         .split("onScroll: onScrollActions.map { actions in")
@@ -67,46 +39,8 @@ fn ios_dev_runtime_reserves_end_reached_before_deferring_actions() {
         ),
         "queued iOS DevRuntime scroll actions must be discarded when a newer explicit scroll-position command supersedes them"
     );
-    let claim = observer
-        .find("let shouldReportEndReached = isAtEnd && endReachedGate.claim(count: count)")
-        .expect("the observer should reserve the callback before deferring work");
-    let dispatch = observer[claim..]
-        .find("DispatchQueue.main.async {")
-        .expect("the reserved notification should be followed by deferred SwiftUI updates");
-    assert!(
-        dispatch > 0,
-        "end-reached must be claimed synchronously before enqueueing deferred actions"
-    );
-    assert!(
-        observer.contains(
-            "if shouldReportEndReached && endReachedGate.complete(count: count) {\n                    onEndReached?()\n                }"
-        )
-            && !observer.contains("didReachEnd"),
-        "the deferred callback should only run for a committed reservation and must not rely on deferred @State deduplication"
-    );
-    assert!(
-        observer.contains("if shouldReportEndReached { endReachedGate.cancel(count: count) }")
-            && observer.contains("shouldReportEndReached && endReachedGate.complete(count: count)"),
-        "a superseded preference update must release its end-reached reservation, while a current update commits it exactly once"
-    );
-    assert!(
-        runtime.contains("@State private var suppressesProgrammaticScrollCallbacks = false")
-            && runtime.contains("suppressesProgrammaticScrollCallbacks = true")
-            && runtime.contains("let controlledPositionRevision: Int")
-            && runtime.contains(".onChange(of: controlledPositionRevision)")
-            && runtime.contains("observedControlledPositionRevision != revision")
-            && runtime
-                .contains("let capturedControlledPositionRevision = controlledPositionRevision")
-            && runtime.contains(
-                "observedControlledPositionRevision != capturedControlledPositionRevision"
-            )
-            && runtime
-                .contains("reachedProgrammaticTarget || !suppressesProgrammaticScrollCallbacks")
-            && runtime.contains(
-                "pendingProgrammaticScrollPosition != nil || suppressesProgrammaticScrollCallbacks"
-            ),
-        "controlled scrolls should report the settled target once and ignore stale intermediate visible-row preferences until a user drag"
-    );
+    assert!(runtime.contains("onEndReached: onEndReachedActions.map { actions in"));
+    assert!(runtime.contains("store.perform(actions, scope: scope, locals: callbackLocals)"));
 }
 
 #[test]
@@ -126,20 +60,26 @@ fn android_dev_runtime_keeps_scroll_observer_stable_across_recomposition() {
         "callback identities must not restart snapshotFlow and replay the current row as a scroll"
     );
     assert!(
-        runtime.contains("LaunchedEffect(listState, count, watchesPosition, watchesEnd, settledOnly, trackMotion)")
-            && runtime.contains("NexaDevScrollSnapshot(")
-            && runtime.contains("val moving = (trackMotion || settledOnly) && listState.isScrollInProgress")
-            && runtime.contains("snapshot.leadingPosition")
-            && runtime.contains("snapshot.reachedEnd")
-            && runtime.contains("snapshot.isScrollInProgress")
-            && runtime.contains("if (settledOnly && moving)")
-            && runtime.contains("if (!watchesPosition && !watchesEnd) return")
-            && runtime.contains("}.first { it }")
-            && runtime.contains("val callbackCount = if (isScrollInProgress || previousScrollWasInProgress)")
-            && runtime.contains("repeat(callbackCount) {")
-            && runtime.contains("scrollWasInProgress[0] = isScrollInProgress"),
-        "Android grid and list observers should synthesize callbacks for each crossed row while remaining scoped to list/count changes"
+        runtime.contains("LaunchedEffect(listState, settledOnly)")
+            && runtime.contains("position != lastVisiblePosition")
+            && runtime.contains("currentPosition.value(position)")
+            && runtime.contains("if (onEndReached != null && count > 0)")
+            && runtime.contains("}.distinctUntilChanged().collect { reachedEnd ->")
+            && runtime
+                .contains("var wasAtEnd by rememberSaveable(count) { mutableStateOf(false) }")
+            && runtime.contains("if (!wasAtEnd) currentEndReached.value()")
+            && runtime.contains("wasAtEnd = false")
+            && !runtime.contains("}.first { it }")
+            && !runtime.contains("repeat(callbackCount) {"),
+        "position observations report real transitions and end-reached fires once per visible edge"
     );
+    assert!(runtime.contains("store.setScrollPositionFromNative("));
+    assert!(runtime.contains("LaunchedEffect(listState, scrollPositionCommandRevision, count"));
+    assert!(!runtime.contains("nativeScrollPositionEcho"));
+    let state = include_str!("../../../runtime/android/NexaDevState.kt");
+    assert!(state.contains("fun stateCommandRevision(name: String, scope: String = \"app\"): Int"));
+    assert!(state.contains("expectedCommandRevision: Int"));
+    assert!(state.contains("(stateCommandRevisions[target] ?: 0) != expectedCommandRevision"));
 }
 
 #[test]
@@ -210,7 +150,7 @@ app ScrollCallbacks {
         "{swift}"
     );
     assert!(
-        swift.contains("callbackState.lastEndReachedCount != rowCount"),
+        swift.contains("page == rowCount - 1 && !callbackState.isAtEnd"),
         "{swift}"
     );
     assert!(
@@ -242,7 +182,10 @@ app ScrollCallbacks {
     assert_eq!(
         swift
             .matches("if isApplyingProgrammaticScrollPosition { return }")
-            .count(),
+            .count()
+            + swift
+                .matches("guard !isApplyingProgrammaticScrollPosition,")
+                .count(),
         3,
         "vertical, horizontal, and grid delegates must ignore transient rows during controlled scrolls\n{swift}"
     );
@@ -255,29 +198,21 @@ app ScrollCallbacks {
     );
     assert_eq!(
         swift
-            .matches("isIgnoringProgrammaticScrollCallbacks = true")
+            .matches("isApplyingProgrammaticScrollPosition = false")
             .count(),
-        3,
-        "bound-index scrolling on each UIKit axis must suppress duplicate delegate notifications\n{swift}"
-    );
-    assert_eq!(
-        swift
-            .matches("!isIgnoringProgrammaticScrollCallbacks")
-            .count(),
-        3,
-        "every UIKit axis must exclude delayed controlled-scroll events from its scroll callback path\n{swift}"
+        6,
+        "each UIKit axis must clear its position guard after the synchronous scroll\n{swift}"
     );
     assert!(
-        swift
-            .matches("isIgnoringProgrammaticScrollCallbacks = false")
-            .count()
-            >= 3,
-        "each UIKit list axis must resume native scroll notifications when the user starts dragging\n{swift}"
+        !swift.contains("isIgnoringProgrammaticScrollCallbacks"),
+        "a position restore must not suppress a later ComponentRef scroll\n{swift}"
     );
     assert_eq!(
-        swift.matches("scrollCallbackGeneration += 1").count(),
-        3,
-        "each UIKit list axis must invalidate deferred callbacks when the controlled position changes\n{swift}"
+        swift
+            .matches("coordinator.scrollCallbackGeneration += 1")
+            .count(),
+        6,
+        "each UIKit list axis must invalidate deferred callbacks on a new command and when dismantled\n{swift}"
     );
     assert_eq!(
         swift
@@ -296,14 +231,14 @@ app ScrollCallbacks {
         "each UIKit programmatic callback must discard stale generations and positions before invoking actions\n{swift}"
     );
     assert!(
-        swift.contains("reportProgrammaticScrollPosition(logicalPosition)"),
+        swift.contains("reportProgrammaticScrollPosition(visiblePosition)"),
         "{swift}"
     );
     assert_eq!(
         swift
             .matches("reportProgrammaticScrollPosition(position)")
             .count(),
-        4,
+        5,
         "{swift}"
     );
     assert!(
@@ -314,7 +249,7 @@ app ScrollCallbacks {
     );
     assert!(
         swift.contains(
-            "if !isScrollPositionEcho {\n            coordinator.reconfigureVisibleRows(in: tableView, preservingViewport: true)"
+            "if !isScrollPositionEcho {\n            coordinator.reconfigureVisibleRows(in: tableView)"
         ),
         "vertical UIKit lists must not reconfigure hosted cells for their own scroll-position state echo\n{swift}"
     );
@@ -371,14 +306,16 @@ app ScrollCallbacks {
         "restoration must not be blocked by a stale UIKit callback position after the page became visible\n{swift}"
     );
     assert!(
-        swift.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 0.45)"),
+        swift.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: restore)"),
         "restoration must wait for the pager's selection animation to finish\n{swift}"
     );
     assert!(
-        swift.contains("self.restoreRevision == revision")
-            && swift.contains("self.applyScrollPosition(to: tableView, force: true)"),
+        restoration.contains("self.restoreRevision == revision")
+            && restoration.contains("tableView.dataSource === self")
+            && restoration.contains("self.applyScrollPosition(to: tableView)"),
         "a delayed restore must still match the currently selected page revision before moving the list\n{swift}"
     );
+    assert!(swift.contains("coordinator.cancelPendingScrollPositionRestore()"));
     assert!(
         swift.contains("private var positions: [Int] = []"),
         "{swift}"
@@ -400,7 +337,7 @@ app ScrollCallbacks {
         "{swift}"
     );
     assert!(
-        swift.contains("let positions = visibleRows.lazy.map(\\.row)")
+        swift.contains("return visibleRows.lazy.map(\\.row).min()")
             && swift.contains("return unobscuredPositions.min()"),
         "UIKit visible rows should be normalized and rows covered by a pinned header excluded before deriving callback positions\n{swift}"
     );
@@ -464,22 +401,27 @@ app ScrollCallbacks {
         "{kotlin}"
     );
     assert!(
-        kotlin.contains("snapshotFlow { nexaListState2.isScrollInProgress to leadingVisibleDataItemIndex() }")
-            && kotlin.contains("val previousScrollWasInProgress = nexaScrollWasInProgressnexaListState2[0]")
-            && kotlin.contains("kotlin.math.abs(firstVisiblePosition - nexaPreviousScrollPositionnexaListState2).coerceAtLeast(1)")
-            && kotlin.contains("repeat(nexaScrollCallbackCountnexaListState2) {")
-            && kotlin.contains("nexaScrollWasInProgressnexaListState2[0] = isScrollInProgress"),
-        "Android AOT should synthesize one callback for each leading row crossed during a user scroll\n{kotlin}"
+        kotlin.contains("snapshotFlow { leadingVisibleDataItemIndex() }")
+            && kotlin.contains("firstVisiblePosition != lastVisiblePosition")
+            && kotlin.contains("rememberUpdatedState {")
+            && !kotlin.contains("nexaScrollCallbackCount"),
+        "Android AOT should deliver observed row transitions through the latest closure"
     );
-    assert!(kotlin.contains("nexaHasInitialScrollPosition"), "{kotlin}");
     assert!(kotlin.contains("nexaReportedScrollPosition"), "{kotlin}");
     assert!(
         kotlin.contains("if (nexaReportedScrollPosition"),
         "{kotlin}"
     );
-    assert!(kotlin.contains("else if (target != "), "{kotlin}");
+    assert!(kotlin.contains("> 0 && target != ("), "{kotlin}");
     assert!(kotlin.contains("= -1"), "{kotlin}");
-    assert!(kotlin.contains("}.first { it }"), "{kotlin}");
+    assert!(
+        kotlin.contains("}.distinctUntilChanged().collect { reachedEnd ->"),
+        "{kotlin}"
+    );
+    assert!(
+        !kotlin.contains("}.first { it }"),
+        "end-reached observation must stay active so leaving and reaching the end again is observable\n{kotlin}"
+    );
     assert!(kotlin.contains("nexaListEndIsVisible("), "{kotlin}");
     assert!(kotlin.contains("nexaEndReached"), "{kotlin}");
     assert!(
@@ -495,8 +437,9 @@ app ScrollCallbacks {
         "Android position callbacks must ignore lazy-list items retained just outside the viewport\n{kotlin}"
     );
     assert!(
-        kotlin.contains("reverseLayout && index > leadingIndex"),
-        "reverse Android callbacks should choose the last in-viewport layout item, after filtering prefetched rows\n{kotlin}"
+        kotlin.contains("val logicalPosition = firstVisiblePosition")
+            && !kotlin.contains("reverseLayout && index > leadingIndex"),
+        "reverse Android callbacks should report the leading source row at the bottom\n{kotlin}"
     );
     assert!(
         kotlin.contains("layoutInfo.visibleItemsInfo, nexaListCount1 + 0 - 1, false,")
@@ -512,13 +455,16 @@ app ScrollCallbacks {
         "Android end detection should only count an in-viewport final row that is not obscured by the pinned header\n{kotlin}"
     );
     assert!(
-        kotlin.contains("by rememberSaveable(nexaListCount0) { mutableIntStateOf(-1) }"),
-        "the end-reached marker must survive lazy pager page disposal/recreation\n{kotlin}"
+        kotlin.contains("nexaWasAtEndnexaListState0 by rememberSaveable(nexaListCount0) { mutableStateOf(false) }"),
+        "the edge latch must survive pager page disposal and re-arm after leaving the end\n{kotlin}"
     );
     assert!(
-        kotlin.contains("import androidx.compose.runtime.saveable.rememberSaveable"),
-        "the saved end-reached marker must use the Compose saveable state holder\n{kotlin}"
+        kotlin.contains(
+            "if (!nexaWasAtEndnexaListState0) nexaEndReachedActionnexaListState0.value()"
+        ) && kotlin.contains("nexaWasAtEndnexaListState0 = false"),
+        "the saved edge latch should suppress repeated end callbacks while visible and reset after leaving\n{kotlin}"
     );
+    assert!(kotlin.contains("import androidx.compose.runtime.saveable.rememberSaveable"));
     assert!(kotlin.contains("leadingVisibleDataItemIndex()"), "{kotlin}");
     assert!(
         kotlin.contains("(firstVisiblePosition - 1).coerceAtLeast(0)"),
@@ -593,8 +539,8 @@ app FastListBeginDrag {
     );
     let ios_dev_runtime = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
     assert!(
-        ios_dev_runtime.contains("onScrollBeginDrag?()")
-            && ios_dev_runtime.contains("didReportScrollBeginDrag"),
+        ios_dev_runtime.contains("onScrollBeginDrag: onScrollBeginDrag")
+            && ios_dev_runtime.contains("onScrollBeginDrag: onScrollBeginDragActions.map"),
         "iOS DevRuntime should emit one drag-start event per user gesture"
     );
 }

@@ -41,7 +41,6 @@ pub(crate) fn render_with_dev_runtime(features: &Features, dev_runtime: bool) ->
     );
     imports.add(features.uses_scroll_header || dev_runtime, "Combine");
     imports.add(features.uses_widgets, "WidgetKit");
-    imports.add(features.facts.ui.lists.reorderable, "Combine");
     crate::generator::components::controls::imports(features, &mut imports);
     crate::generator::components::list_runtime::imports(features, &mut imports);
     crate::generator::components::links::imports(features, &mut imports);
@@ -72,12 +71,12 @@ mod tests {
     }
 
     #[test]
-    fn reorderable_lists_import_combine_for_deployment_target_compatible_row_state() {
+    fn native_list_reordering_does_not_import_custom_observation_support() {
         let mut features = Features::default();
         features.facts.ui.lists.reorderable = true;
         let imports = render(&features);
 
-        assert!(imports.contains("import Combine\n"));
+        assert!(!imports.contains("import Combine\n"));
         assert!(!imports.contains("import Observation\n"));
     }
 

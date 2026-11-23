@@ -1979,6 +1979,58 @@ impl Parser {
         Ok(nodes)
     }
 
+    fn bound_node_block(&mut self) -> Result<ModifierBody, CompileError> {
+        self.expect(Kind::LBrace, "expected `{` to open block")?;
+        let mut parameters = Vec::new();
+        if self.node_block_starts_with_bindings() {
+            loop {
+                let (name, name_span) = self.ident()?;
+                if parameters.iter().any(|existing| existing == &name) {
+                    return Err(CompileError::new(
+                        name_span,
+                        format!("modifier binding `{name}` is declared more than once"),
+                    ));
+                }
+                parameters.push(name);
+                if !self.take(&Kind::Comma) {
+                    break;
+                }
+            }
+            self.expect_word("in")?;
+        }
+
+        let mut nodes = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            nodes.push(self.node()?);
+            self.optional_semicolon();
+        }
+        self.expect(Kind::RBrace, "expected `}` to close block")?;
+        Ok(ModifierBody::BoundNodes { parameters, nodes })
+    }
+
+    fn node_block_starts_with_bindings(&self) -> bool {
+        let mut cursor = self.cursor;
+        let mut parameter_count = 0;
+        let mut expects_identifier = true;
+        loop {
+            let Some(token) = self.tokens.get(cursor) else {
+                return false;
+            };
+            match &token.kind {
+                Kind::Ident(name) if name == "in" => {
+                    return parameter_count > 0 && !expects_identifier;
+                }
+                Kind::Ident(_) if expects_identifier => {
+                    parameter_count += 1;
+                    expects_identifier = false;
+                }
+                Kind::Comma if !expects_identifier => expects_identifier = true,
+                _ => return false,
+            }
+            cursor += 1;
+        }
+    }
+
     fn tab_declarations(
         &mut self,
         pager: bool,
@@ -2475,6 +2527,7 @@ impl Parser {
                     }
                 }
                 catalog::ModifierBody::Nodes => ModifierBody::Nodes(self.block_nodes()?),
+                catalog::ModifierBody::BoundNodes => self.bound_node_block()?,
             };
             modifiers.push(DotModifier {
                 name: modifier,

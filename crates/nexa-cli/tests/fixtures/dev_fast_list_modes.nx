@@ -8,23 +8,27 @@ app FastListModesSmoke {
     state refreshCount: Int32 = 0
 
     body {
-        Text("Events $scrollEvents pages $pagesLoaded refreshes $refreshCount refreshing $isRefreshing")
-        RefreshControl(isRefreshing: isRefreshing) {
-            FastList(sections: sections, rowHeight: 44) { item, index, section in
-                Text("Section $section row $index: $item")
-            }.sectionHeader {
-                Text("Section $section")
+        Column {
+            Text("Events $scrollEvents pages $pagesLoaded refreshes $refreshCount refreshing $isRefreshing")
+            Column(height: 260) {
+                RefreshControl(isRefreshing: isRefreshing) {
+                    FastList(sections: sections, rowHeight: 44) { item, index, section in
+                        Text("Section $section row $index: $item")
+                    }.sectionHeader {
+                        Text("Section $section")
+                    }
+                }.onRefresh {
+                    refreshCount = refreshCount + 1
+                    isRefreshing = true
+                }
             }
-        }.onRefresh {
-            refreshCount = refreshCount + 1
-            isRefreshing = true
-        }
-        FastList(count: itemCount, axis: Grid(2), scrollPosition: scrollPosition, rowHeight: 48) { index in
-            Text("Grid $index")
-        }.onScroll {
-            scrollEvents = scrollEvents + 1
-        }.onEndReached {
-            pagesLoaded = pagesLoaded + 1
+            FastList(count: itemCount, axis: Grid(2), scrollPosition: scrollPosition, rowHeight: 48) { index in
+                Text("Grid $index")
+            }.onScroll {
+                scrollEvents = scrollEvents + 1
+            }.onEndReached {
+                pagesLoaded = pagesLoaded + 1
+            }
         }
     }
 }

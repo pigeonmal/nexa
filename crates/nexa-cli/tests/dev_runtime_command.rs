@@ -123,15 +123,14 @@ fn ios_dev_virtualized_lists_keep_specialized_row_views() {
     assert!(list_runtime.contains("RowContent: View"));
     assert!(list_runtime.contains("StickyHeaderContent: View"));
     assert!(list_runtime.contains("SectionHeaderContent: View"));
-    assert!(list_runtime.contains("private struct NexaDevPageSnapList<RowContent: View>"));
+    assert!(!list_runtime.contains("NexaDevPageSnapList"));
+    assert!(list_runtime.contains("pageSnap: pageSnap"));
     assert!(list_runtime.contains("some RandomAccessCollection<NexaDevFastListRow>"));
     assert!(list_runtime.contains("(0..<max(0, count)).lazy.map"));
-    assert!(
-        runtime.contains("private func nexaDevSectionOffsets(_ sectionCounts: [Int]) -> [Int]")
-    );
+    assert!(runtime.contains("offsets.append(total)"));
+    assert!(runtime.contains("return (counts: counts, offsets: offsets, total: total)"));
     assert!(!runtime.contains("sectionCounts.prefix(sectionIndex).reduce(0, +)"));
     assert!(!runtime.contains("let visibleRows = offsets.filter"));
-    assert!(runtime.contains("var leadingVisibleIndex: Int?"));
     assert!(
         !list_runtime.contains("AnyView"),
         "virtualized list row and header paths should retain concrete view types"
@@ -174,10 +173,11 @@ fn android_dev_scroll_tracking_does_not_allocate_filtered_visible_rows() {
     assert!(!shared_helper.contains(".filter"));
     assert!(!shared_helper.contains("Int?"));
     assert!(shared_helper.contains("while (position < visibleItems.size)"));
-    assert!(runtime.contains("private data class NexaDevScrollSnapshot("));
+    assert!(!runtime.contains("NexaDevScrollSnapshot"));
     assert!(!runtime.contains("visibleItemCount"));
-    assert_eq!(runtime.matches("NexaDevObserveFastList(").count(), 4);
-    assert!(runtime.contains("if (!watchesPosition && !watchesEnd) return"));
+    assert_eq!(runtime.matches("NexaDevObserveFastList(").count(), 5);
+    assert!(runtime.contains("if (onPosition != null) {"));
+    assert!(runtime.contains("if (onEndReached != null && count > 0) {"));
     assert!(!runtime.contains("isScrollInProgress to Triple("));
     assert!(!runtime.contains("listState.layoutInfo.viewportStartOffset"));
     assert!(!runtime.contains("listState.layoutInfo.viewportEndOffset"));

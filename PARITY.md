@@ -1,6 +1,6 @@
 # Nexa Agent Review
 
-> **In progress** · 22 reviewed · 3 in progress · 19 pending · iOS + Android · native AOT + DevRuntime
+> **In progress** · 23 reviewed · 3 in progress · 18 pending · iOS + Android · native AOT + DevRuntime
 
 Review shared behavior and appearance across iOS and Android. Build success and sampled device checks do not establish exhaustive parity.
 
@@ -48,10 +48,11 @@ python3 tests/render_component_parity_report.py --check
 - Human verification approved (2026-11-18): the user approved KeyboardCases parity on iOS and Android after the iOS focused-input avoidance and KeyboardToolbar joined the keyboard opening animation. Agent Review is approved; active route advances to IconCases.
 - TextCases and IconCases follow-up (2026-11-18): the parity app now demonstrates discovered font weight fallbacks and system, prebuilt-font, and SVG-generated icons across component slots. Focused dual-target regressions pass; both route reviews remain in progress pending simulator and human verification.
 - TextCases and IconCases DevRuntime follow-up (2026-11-20): both routes were opened on the iOS 27.0 simulator and Android API 31 emulator. Text font-weight fallback and custom system/font/SVG icon coverage pass focused tests; IconCases remains the active route. AOT simulator review and human approval remain pending.
+- Human verification approved (2026-11-22): the user approved TextCases (TextRoute) on iOS and Android after the font-family algorithm follow-up. Agent Review is approved; the next unapproved route in App.nx order is FastListCases.
 
 ## Route review
 
-Active route: **IconCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
+Active route: **FastListCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
 
 | Route | Human review | Agent Review |
 |---|---|---|
@@ -63,7 +64,7 @@ Active route: **IconCases**. Human approval also approves Agent Review; Agent Re
 | TitleLeadingCases | Approved | Approved |
 | TitleNoToolbarCases | Approved | Approved |
 | DividerCases | Approved | Approved |
-| TextCases | Pending | In progress |
+| TextCases | Approved | Approved |
 | ButtonCases | Approved | Approved |
 | PressableCases | Approved | Approved |
 | TextInputCases | Approved | Approved |
@@ -76,7 +77,7 @@ Active route: **IconCases**. Human approval also approves Agent Review; Agent Re
 | EmptyCases | Approved | Approved |
 | ProgressBarCases | Approved | Approved |
 | ProgressRingCases | Approved | Approved |
-| FastListCases | Pending | Pending |
+| FastListCases | Pending | In progress |
 | ScrollViewCases | Pending | Pending |
 | HapticCases | Pending | Pending |
 | MarqueeCases | Pending | In progress |

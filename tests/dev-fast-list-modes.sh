@@ -115,10 +115,16 @@ last_row = nodes.get("Section 1 row 1: B2")
 if first_row is None or last_row is None:
     raise SystemExit("sectioned-list bounds are missing from Android accessibility output")
 parse = lambda node: tuple(map(int, re.findall(r"\d+", node.attrib["bounds"])))
-_, top, _, _ = parse(first_row)
+_, top, _, first_row_bottom = parse(first_row)
 _, _, _, list_bottom = parse(last_row)
 screen_bounds = parse(next(root.iter("node")))
-print(screen_bounds[2] // 2, top, min(list_bottom + 36, screen_bounds[3] - 16))
+# Material scales the drag before testing its refresh threshold. The
+# gesture stays captured by the same list even after passing its bottom.
+# Start near the bottom of the first row so the gesture clears the
+# system's top edge even when the fixture is edge to edge.
+pull_start = first_row_bottom - 4
+pull_distance = 2 * (list_bottom - top)
+print(screen_bounds[2] * 46 // 100, pull_start, min(pull_start + pull_distance, screen_bounds[3] - 16))
 PY
     )
     read -r refresh_x refresh_start_y refresh_end_y <<< "$refresh_bounds"

@@ -1,6 +1,9 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
+use nexa_ir::{
+    Action, Expr, FastListMove, FastListRefresh, FastListSwipeActions, FastListSwipeEdge, ListAxis,
+    ListPlan, Module, Node,
+};
 
 use crate::generator::{
     components::render_children,
@@ -28,7 +31,7 @@ struct SectionedPieces<'a> {
     item: &'a str,
     key: Option<&'a Expr>,
     children: &'a [Node],
-    swipe_actions: Option<&'a [Node]>,
+    swipe_actions: Option<&'a FastListSwipeActions>,
     section_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
     component_ref: Option<&'a Expr>,
@@ -37,7 +40,6 @@ struct SectionedPieces<'a> {
 struct OpenListConfig<'a> {
     axis: ListAxis,
     uses_platform_list: bool,
-    reorder_enabled: bool,
     show_dividers: bool,
     hide_horizontal_scrollbar: bool,
     hide_vertical_scrollbar: bool,
@@ -55,6 +57,7 @@ struct OpenListConfig<'a> {
     sticky_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
     component_ref: Option<&'a Expr>,
+    on_move: Option<&'a FastListMove>,
 }
 
 struct ListConstructorConfig<'a> {
@@ -70,6 +73,8 @@ struct ListConstructorConfig<'a> {
     reverse_layout: bool,
     page_snap: bool,
     component_ref: Option<&'a Expr>,
+    move_callback: Option<&'a str>,
+    move_enabled: Option<&'a str>,
 }
 
 fn render_swipe_action_content(
@@ -119,7 +124,7 @@ pub(crate) fn render_virtualized_list(
                     item,
                     key: common.key.as_ref(),
                     children: &common.children,
-                    swipe_actions: common.swipe_actions.as_deref(),
+                    swipe_actions: common.swipe_actions.as_ref(),
                     section_header: common.section_header.as_deref(),
                     refresh: common.refresh.as_ref(),
                     component_ref: common.component_ref.as_ref(),
@@ -131,7 +136,7 @@ pub(crate) fn render_virtualized_list(
             return;
         }
         ListPlan::Count { count, common } => {
-            let uses_platform_list = common.swipe_actions.is_some();
+            let uses_platform_list = plan.uses_platform_list();
             let row_key = common
                 .key
                 .as_ref()
@@ -140,7 +145,6 @@ pub(crate) fn render_virtualized_list(
                 OpenListConfig {
                     axis: common.axis,
                     uses_platform_list,
-                    reorder_enabled: common.on_move.is_some(),
                     show_dividers: common.show_dividers,
                     hide_horizontal_scrollbar: common.hide_horizontal_scrollbar,
                     hide_vertical_scrollbar: common.hide_vertical_scrollbar,
@@ -158,6 +162,7 @@ pub(crate) fn render_virtualized_list(
                     sticky_header: common.sticky_header.as_deref(),
                     refresh: common.refresh.as_ref(),
                     component_ref: common.component_ref.as_ref(),
+                    on_move: common.on_move.as_ref(),
                 },
                 &RenderScope { module, features },
                 depth,
@@ -179,7 +184,7 @@ pub(crate) fn render_virtualized_list(
             item,
             common,
         } => {
-            let uses_platform_list = common.on_move.is_some() || common.swipe_actions.is_some();
+            let uses_platform_list = plan.uses_platform_list();
             let collection_expression = expression(collection);
             let collection = format!("nexa_list_values_{}", out.next_id());
             out.line_at(
@@ -202,7 +207,6 @@ pub(crate) fn render_virtualized_list(
                 OpenListConfig {
                     axis: common.axis,
                     uses_platform_list,
-                    reorder_enabled: common.on_move.is_some(),
                     show_dividers: common.show_dividers,
                     hide_horizontal_scrollbar: common.hide_horizontal_scrollbar,
                     hide_vertical_scrollbar: common.hide_vertical_scrollbar,
@@ -220,6 +224,7 @@ pub(crate) fn render_virtualized_list(
                     sticky_header: common.sticky_header.as_deref(),
                     refresh: common.refresh.as_ref(),
                     component_ref: common.component_ref.as_ref(),
+                    on_move: common.on_move.as_ref(),
                 },
                 &RenderScope { module, features },
                 depth,
@@ -249,30 +254,13 @@ pub(crate) fn render_virtualized_list(
         ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.show_dividers,
         ListPlan::Sections { .. } => true,
     };
-    let prioritize_swipe_actions = plan.swipe_actions().is_some();
     let reorder = plan.on_move();
+    let prioritize_swipe_actions = plan.swipe_actions().is_some().to_string();
     if uses_platform_list {
         out.line_at(
             depth + 2,
-            format_args!("NexaNativeListRowPrimitive(position: listPosition, showDividers: {show_dividers}, prioritizeSwipeActions: {prioritize_swipe_actions}, reorderIndex: {}, reorderEnabled: {}, onReorder: {{ source, destination in", reorder.map(|_| "listPosition").unwrap_or("nil"), reorder.map(|move_list| expression(&move_list.enabled)).unwrap_or_else(|| "false".to_owned())),
+            format_args!("NexaNativeListRowPrimitive(position: listPosition, showDividers: {show_dividers}, prioritizeSwipeActions: {prioritize_swipe_actions}) {{"),
         );
-        if let Some(on_move) = reorder {
-            out.line_at(
-                depth + 3,
-                format_args!("let {}: Int32 = Int32(source)", state_name(&on_move.from)),
-            );
-            out.line_at(
-                depth + 3,
-                format_args!(
-                    "let {}: Int32 = Int32(destination > source ? destination - 1 : destination)",
-                    state_name(&on_move.to)
-                ),
-            );
-            render_actions(&on_move.actions, depth + 3, out);
-            out.line_at(depth + 2, format_args!("}}) {{"));
-        } else {
-            out.line_at(depth + 2, format_args!("}}) {{"));
-        }
     }
     render_children(
         plan.children(),
@@ -286,20 +274,18 @@ pub(crate) fn render_virtualized_list(
         indent(out, depth + 2);
         out.push('}');
     }
-    if let Some(actions) = plan.swipe_actions() {
+    if let Some(actions) = plan.swipe_action_configuration() {
         out.push('\n');
         indent(out, depth + 2);
-        out.push_str(".swipeActions(edge: .trailing, allowsFullSwipe: false) {\n");
-        if let Some(on_move) = plan.on_move() {
-            out.line_at(
-                depth + 3,
-                format_args!("if !({}) {{", expression(&on_move.enabled)),
-            );
-            render_swipe_action_content(actions, module, features, depth + 4, out);
-            out.line_at(depth + 3, format_args!("}}"));
-        } else {
-            render_swipe_action_content(actions, module, features, depth + 3, out);
-        }
+        let edge = match actions.edge {
+            FastListSwipeEdge::Leading => ".leading",
+            FastListSwipeEdge::Trailing => ".trailing",
+        };
+        out.push_str(&format!(
+            ".swipeActions(edge: {edge}, allowsFullSwipe: {}) {{\n",
+            actions.allows_full_swipe
+        ));
+        render_swipe_action_content(&actions.children, module, features, depth + 3, out);
         out.push('\n');
         indent(out, depth + 2);
         out.push('}');
@@ -308,6 +294,47 @@ pub(crate) fn render_virtualized_list(
     if uses_platform_list {
         indent(out, depth + 1);
         out.push_str("}\n");
+    }
+    if let Some(on_move) = reorder.filter(|_| uses_platform_list) {
+        out.line_at(
+            depth + 1,
+            format_args!(".onMove {{ sourceOffsets, insertionIndex in"),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!("guard ({}) else {{ return }}", expression(&on_move.enabled)),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!("guard let source = sourceOffsets.first else {{ return }}"),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "let destination = insertionIndex > source ? insertionIndex - 1 : insertionIndex"
+            ),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!("guard source != destination else {{ return }}"),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!("let {}: Int32 = Int32(source)", state_name(&on_move.from)),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "let {}: Int32 = Int32(destination)",
+                state_name(&on_move.to)
+            ),
+        );
+        render_actions(&on_move.actions, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(
+            depth + 1,
+            format_args!(".moveDisabled(!({}))", expression(&on_move.enabled)),
+        );
     }
     indent(out, depth);
     out.push('}');
@@ -366,7 +393,8 @@ fn render_sectioned_list(
     );
     let row_uses = |binding: &str| {
         row_references_binding(children, binding)
-            || swipe_actions.is_some_and(|nodes| row_references_binding(nodes, binding))
+            || swipe_actions
+                .is_some_and(|actions| row_references_binding(&actions.children, binding))
     };
     let section_starts = format!("nexa_list_section_starts_{}", out.next_id());
     if uses_platform_list {
@@ -495,8 +523,21 @@ fn render_sectioned_list(
         indent(out, depth + 4);
         out.push('}');
         if let Some(actions) = swipe_actions {
-            out.push_str(".swipeActions(edge: .trailing, allowsFullSwipe: false) {\n");
-            render_swipe_action_content(actions, scope.module, scope.features, depth + 5, out);
+            let edge = match actions.edge {
+                FastListSwipeEdge::Leading => ".leading",
+                FastListSwipeEdge::Trailing => ".trailing",
+            };
+            out.push_str(&format!(
+                ".swipeActions(edge: {edge}, allowsFullSwipe: {}) {{\n",
+                actions.allows_full_swipe
+            ));
+            render_swipe_action_content(
+                &actions.children,
+                scope.module,
+                scope.features,
+                depth + 5,
+                out,
+            );
             out.push('\n');
             indent(out, depth + 4);
             out.push('}');
@@ -679,6 +720,8 @@ fn list_constructor(config: ListConstructorConfig<'_>) -> String {
         reverse_layout,
         page_snap,
         component_ref,
+        move_callback,
+        move_enabled,
     } = config;
     let key = row_key.map_or_else(String::new, |key| {
         format!(", rowKey: {{ listPosition in {key} }}")
@@ -726,11 +769,50 @@ fn list_constructor(config: ListConstructorConfig<'_>) -> String {
             )
         }
         ListAxis::Masonry { columns } => {
+            let reorder_arguments = move_callback.map_or_else(String::new, |callback| {
+                format!(
+                    ", onMove: {callback}, moveEnabled: {}",
+                    move_enabled.unwrap_or("true")
+                )
+            });
             format!(
-                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{spacing_argument}{scrollbar_arguments}{scroll_enabled_argument}{key}{component_ref_argument}, masonry: true)"
+                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{spacing_argument}{scrollbar_arguments}{scroll_enabled_argument}{key}{component_ref_argument}{reorder_arguments}, masonry: true)"
             )
         }
     }
+}
+
+fn render_masonry_move_callback(
+    callback: &FastListMove,
+    depth: usize,
+    out: &mut SourceWriter,
+) -> String {
+    let name = format!("nexaMasonryMove{}", out.next_id());
+    out.line_at(
+        depth,
+        format_args!("let {name}: (Int, Int) -> Void = {{ source, destination in"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "guard ({}) else {{ return }}",
+            expression(&callback.enabled)
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("let {}: Int32 = Int32(source)", state_name(&callback.from)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "let {}: Int32 = Int32(destination)",
+            state_name(&callback.to)
+        ),
+    );
+    render_actions(&callback.actions, depth + 1, out);
+    out.line_at(depth, format_args!("}}"));
+    name
 }
 
 fn open_list(
@@ -742,7 +824,6 @@ fn open_list(
     let OpenListConfig {
         axis,
         uses_platform_list,
-        reorder_enabled,
         show_dividers,
         hide_horizontal_scrollbar,
         hide_vertical_scrollbar,
@@ -760,10 +841,17 @@ fn open_list(
         sticky_header,
         refresh,
         component_ref,
+        on_move,
     } = config;
     let scroll_enabled = scroll_enabled
         .map(expression)
         .unwrap_or_else(|| "true".to_owned());
+    let masonry_move_callback = on_move
+        .filter(|_| !uses_platform_list && matches!(axis, ListAxis::Masonry { .. }))
+        .map(|callback| render_masonry_move_callback(callback, depth, out));
+    let masonry_move_enabled = on_move
+        .filter(|_| masonry_move_callback.is_some())
+        .map(|callback| expression(&callback.enabled));
     if uses_platform_list {
         let identified_rows = row_key.map(|identity| {
             let rows = format!("nexa_list_rows_{}", out.next_id());
@@ -777,14 +865,9 @@ fn open_list(
             out.line_at(depth, format_args!("}}"));
             rows
         });
-        let reorder_argument = if reorder_enabled {
-            ", reorderEnabled: true"
-        } else {
-            ""
-        };
         let arguments = if spacing > 0.0 {
             format!(
-                "spacing: {}, scrollEnabled: {scroll_enabled}, hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}{reorder_argument}, rowCount: {row_count}{}",
+                "spacing: {}, scrollEnabled: {scroll_enabled}, hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}, rowCount: {row_count}{}",
                 format_float(spacing),
                 component_ref
                     .map(|reference| format!(", componentRef: {}", expression(reference)))
@@ -792,7 +875,7 @@ fn open_list(
             )
         } else {
             format!(
-                "scrollEnabled: {scroll_enabled}, hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}{reorder_argument}, rowCount: {row_count}{}",
+                "scrollEnabled: {scroll_enabled}, hideHorizontalScrollbar: {hide_horizontal_scrollbar}, hideVerticalScrollbar: {hide_vertical_scrollbar}, rowCount: {row_count}{}",
                 component_ref
                     .map(|reference| format!(", componentRef: {}", expression(reference)))
                     .unwrap_or_default(),
@@ -826,6 +909,7 @@ fn open_list(
         || sticky_header.is_some()
         || refresh.is_some()
         || component_ref.is_some()
+        || masonry_move_callback.is_some()
     {
         let mut constructor = list_constructor(ListConstructorConfig {
             axis,
@@ -840,6 +924,8 @@ fn open_list(
             reverse_layout,
             page_snap,
             component_ref: None,
+            move_callback: masonry_move_callback.as_deref(),
+            move_enabled: masonry_move_enabled.as_deref(),
         });
         constructor.pop();
         out.push_str(&constructor);
@@ -913,6 +999,8 @@ fn open_list(
             reverse_layout,
             page_snap,
             component_ref,
+            move_callback: masonry_move_callback.as_deref(),
+            move_enabled: masonry_move_enabled.as_deref(),
         }));
     }
     out.push_str(" { listPosition in\n");
@@ -1059,7 +1147,6 @@ mod tests {
             OpenListConfig {
                 axis: ListAxis::Horizontal,
                 uses_platform_list: false,
-                reorder_enabled: false,
                 show_dividers: false,
                 hide_horizontal_scrollbar: false,
                 hide_vertical_scrollbar: false,
@@ -1077,6 +1164,7 @@ mod tests {
                 sticky_header: None,
                 refresh: None,
                 component_ref: Some(&reference),
+                on_move: None,
             },
             &scope,
             0,

@@ -1034,6 +1034,9 @@ internal fun NexaRefreshControlPrimitive(
 }
 
 // nexa-codegen: NexaButtonPrimitive
+internal val LocalNexaFastListSwipeClose =
+    androidx.compose.runtime.staticCompositionLocalOf<(() -> Unit)?> { null }
+
 @androidx.compose.runtime.Composable
 internal fun NexaButtonPrimitive(
     label: String,
@@ -1069,6 +1072,11 @@ internal fun NexaButtonPrimitive(
         else -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_DEFAULT_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__.toFloat()))
     }
     val enabled = !loading && !disabled
+    val closeSwipe = LocalNexaFastListSwipeClose.current
+    val onClickAndCloseSwipe: () -> Unit = {
+        closeSwipe?.invoke()
+        onClick()
+    }
     val plainButtonStyle = resolvedStyle == "Plain" || resolvedStyle == "Borderless"
     val defaultPlainContentColor = if (resolvedStyle == "Borderless") {
         androidx.compose.material3.MaterialTheme.colorScheme.primary
@@ -1125,7 +1133,7 @@ internal fun NexaButtonPrimitive(
     when (resolvedStyle) {
         "Plain", "Borderless" -> androidx.compose.material3.TextButton(
             modifier = accessibleModifier,
-            onClick = onClick,
+            onClick = onClickAndCloseSwipe,
             enabled = enabled,
             shape = resolvedShape,
             colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
@@ -1145,7 +1153,7 @@ internal fun NexaButtonPrimitive(
             val outlinedTint = tint ?: defaultTint
             androidx.compose.material3.FilledTonalButton(
                 modifier = accessibleModifier,
-                onClick = onClick,
+                onClick = onClickAndCloseSwipe,
                 enabled = enabled,
                 shape = resolvedShape,
                 colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = outlinedTint, disabledContentColor = outlinedTint.copy(alpha = 0.38f)),
@@ -1156,7 +1164,7 @@ internal fun NexaButtonPrimitive(
         }
         else -> androidx.compose.material3.Button(
             modifier = accessibleModifier,
-            onClick = onClick,
+            onClick = onClickAndCloseSwipe,
             enabled = enabled,
             shape = resolvedShape,
             colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = tint ?: androidx.compose.ui.graphics.Color.Unspecified),
@@ -3926,65 +3934,25 @@ internal fun NexaNativeListDividerPrimitive() {
 
 "#;
 
-const NEXA_FAST_LIST_SWIPE_PRIMITIVE: &str = r#"private val LocalNexaFastListSwipePagerLock =
-    androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.MutableState<Boolean>?> { null }
+const NEXA_FAST_LIST_REORDER_PRIMITIVE_SOURCE: &str =
+    include_str!("../../../../runtime/android/NexaFastListReorder.kt");
 
-@androidx.compose.runtime.Composable
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-internal fun NexaFastListSwipePrimitive(
-    resetKey: Any?,
-    backgroundContent: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
-    content: @androidx.compose.runtime.Composable () -> Unit,
-) {
-    androidx.compose.runtime.key(resetKey) {
-        val state = androidx.compose.material3.rememberSwipeToDismissBoxState()
-        androidx.compose.runtime.LaunchedEffect(state, resetKey) {
-            state.reset()
-        }
-        val pagerGestureLock = LocalNexaFastListSwipePagerLock.current
-        val pagerGestureLockModifier = if (pagerGestureLock == null) {
-            androidx.compose.ui.Modifier
-        } else {
-            androidx.compose.ui.Modifier.pointerInput(pagerGestureLock) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    pagerGestureLock.value = true
-                    try {
-                        var pointerPressed = true
-                        while (pointerPressed) {
-                            pointerPressed = awaitPointerEvent().changes.any { it.pressed }
-                        }
-                    } finally {
-                        pagerGestureLock.value = false
-                    }
-                }
-            }
-        }
-        androidx.compose.material3.SwipeToDismissBox(
-            state = state,
-            modifier = pagerGestureLockModifier,
-            backgroundContent = {
-                androidx.compose.foundation.layout.Row(
-                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                    content = backgroundContent,
-                )
-            },
-            content = {
-                androidx.compose.foundation.layout.Box(
-                    modifier = androidx.compose.ui.Modifier
-                        .fillMaxWidth()
-                        .background(androidx.compose.material3.MaterialTheme.colorScheme.surface),
-                ) {
-                    content()
-                }
-            },
-        )
-    }
+fn fast_list_reorder_primitive_body() -> &'static str {
+    NEXA_FAST_LIST_REORDER_PRIMITIVE_SOURCE
+        .split_once("// nexa-codegen: NexaFastListReorderState\n")
+        .map(|(_, body)| body)
+        .unwrap_or_default()
 }
 
-"#;
+const NEXA_FAST_LIST_SWIPE_PRIMITIVE_SOURCE: &str =
+    include_str!("../../../../runtime/android/NexaFastListSwipe.kt");
+
+fn fast_list_swipe_primitive_body() -> &'static str {
+    NEXA_FAST_LIST_SWIPE_PRIMITIVE_SOURCE
+        .split_once("// nexa-codegen: NexaFastListSwipePrimitive\n")
+        .map(|(_, body)| body)
+        .unwrap_or_default()
+}
 
 #[cfg(test)]
 fn shared_component_primitives() -> String {
@@ -4344,6 +4312,7 @@ fn shared_component_primitives_with_wave(
     source.push_str(include_str!("components/text_input_edit.kt"));
     source.push_str(include_str!("components/scroll_view.kt"));
     source.push_str(include_str!("components/list_observation.kt"));
+    source.push_str(include_str!("components/list_ref.kt"));
     source.push_str(include_str!("components/marquee.kt"));
     let text_reveal = include_str!("components/text_reveal.kt")
         .replace(
@@ -4452,6 +4421,7 @@ fn generate_with_analysis(
 public typealias NexaComponentRefError<Failure> = dev.nexa.core.NexaComponentRefError<Failure>
 
 public class NexaFastListRef {
+    private var generation = 0L
     private var indexAction: ((Int, Boolean, Double) -> Unit)? = null
     private var topAction: ((Boolean) -> Unit)? = null
     private var endAction: ((Boolean) -> Unit)? = null
@@ -4462,14 +4432,17 @@ public class NexaFastListRef {
         scrollToTop: (Boolean) -> Unit,
         scrollToEnd: (Boolean) -> Unit,
         scrollToOffset: (Double, Boolean) -> Unit
-    ) {
+    ): Long {
+        generation += 1
         indexAction = scrollToIndex
         topAction = scrollToTop
         endAction = scrollToEnd
         offsetAction = scrollToOffset
+        return generation
     }
 
-    public fun detach() {
+    public fun detach(expectedGeneration: Long) {
+        if (generation != expectedGeneration) return
         indexAction = null
         topAction = null
         endAction = null
@@ -4500,7 +4473,7 @@ public class NexaFastListRef {
         offset: Double,
         animated: Boolean = true,
     ): NexaResult<Unit, NexaComponentRefError<Unit>> =
-        offsetAction?.let { it(offset.coerceAtLeast(0.0), animated); dev.nexa.core.NexaResult.Success(Unit) }
+        offsetAction?.takeIf { offset.isFinite() }?.let { it(offset.coerceAtLeast(0.0), animated); dev.nexa.core.NexaResult.Success(Unit) }
             ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
 }
 
@@ -4696,12 +4669,17 @@ public class NexaBottomSheetRef {
                     &nexa_codegen::design_system::ANDROID_NATIVE_LIST_SECTION_SPACING.to_string(),
                 );
             out.push_str(&native_list_primitives);
+            // The dev host stages this source separately, even for an app
+            // that adds its first reorderable list after startup.
+            if features.facts.ui.lists.reorderable && !include_all_shared_primitives {
+                out.push_str(fast_list_reorder_primitive_body());
+            }
         }
         if features.uses_horizontal_list {
             out.push_str(NEXA_HORIZONTAL_LIST_NESTED_SCROLL_PRIMITIVE);
         }
-        if features.facts.ui.lists.swipe_actions {
-            out.push_str(NEXA_FAST_LIST_SWIPE_PRIMITIVE);
+        if features.facts.ui.lists.swipe_actions && !include_all_shared_primitives {
+            out.push_str(fast_list_swipe_primitive_body());
         }
         if features.uses_adaptive_tabs {
             out.push_str(NEXA_APP_BOTTOM_BAR_PRIMITIVE);
@@ -5058,7 +5036,7 @@ public class NexaBottomSheetRef {
 mod tests {
     use super::{
         NEXA_APP_BOTTOM_BAR_PRIMITIVE, NEXA_NATIVE_LIST_PRIMITIVES,
-        NEXA_SHARED_COMPONENT_PRIMITIVES, generate,
+        NEXA_SHARED_COMPONENT_PRIMITIVES, fast_list_reorder_primitive_body, generate,
         generate_units_with_network_and_project_features, generate_units_with_project_features,
         shared_component_primitives, shared_component_primitives_with_wave,
     };
@@ -5079,6 +5057,28 @@ mod tests {
         assert!(helper.contains("androidx.compose.ui.graphics.Color(0xFF0A84FF)"));
         assert!(!helper.contains("__NEXA_"));
         assert!(!helper.contains("0xD63031"));
+    }
+
+    #[test]
+    fn fast_list_reorder_primitive_uses_compose_long_press_drag_and_typed_state() {
+        let helper = fast_list_reorder_primitive_body();
+
+        assert!(helper.contains("internal class NexaFastListReorderState"));
+        assert!(helper.contains("mutableIntStateOf(-1)"));
+        assert!(helper.contains("mutableFloatStateOf(0f)"));
+        assert!(helper.contains("detectDragGesturesAfterLongPress("));
+        assert!(helper.contains("listState.layoutInfo.visibleItemsInfo"));
+        assert!(helper.contains("targetUnderDraggedItem(visible, dragged)"));
+        assert!(helper.contains("dragged.index != source"));
+        assert!(helper.contains("it.key == sourceKey && it.index == source"));
+        assert!(helper.contains("val key = reorderState.activeKey()"));
+        assert!(helper.contains("currentOnMove.value(from, target)"));
+        assert!(helper.contains("onDragCancel = {"));
+        assert!(helper.contains("settlingOffset.animateTo("));
+        assert!(!helper.contains("shadowElevation"));
+        assert!(!helper.contains("masonryPreview"));
+        assert!(!helper.contains("awaitEachGesture"));
+        assert!(!helper.contains("awaitFirstDown"));
     }
 
     fn braced_block(source: &str, start: usize) -> &str {
@@ -5323,10 +5323,11 @@ mod tests {
             identity: "test-fast-list-ref".to_owned(),
         });
         let referenced_kotlin = generate(&referenced_module);
-        assert!(referenced_kotlin.contains("SideEffect {"));
+        assert!(!kotlin.contains("internal fun NexaBindFastListRef("));
+        assert!(referenced_kotlin.contains("NexaBindFastListRef("));
         assert!(referenced_kotlin.contains("scrollToEnd = { animated -> if ("));
-        assert!(referenced_kotlin.contains("DisposableEffect(nexaFastListRef"));
-        assert!(referenced_kotlin.contains("onDispose { nexaFastListRef"));
+        assert!(referenced_kotlin.contains("DisposableEffect(reference)"));
+        assert!(referenced_kotlin.contains("onDispose { reference.detach(generation) }"));
 
         let mut computed_items_module = module;
         let Node::FastList { plan } = &mut computed_items_module.body[0] else {
@@ -5495,18 +5496,14 @@ mod tests {
         assert!(kotlin.contains("key = { itemPosition -> itemPosition }"));
         assert!(kotlin.contains("val nexa_index: Int = itemPosition"));
         assert!(!kotlin.contains("nexaListCount0 - 1 - itemPosition"));
-        assert!(kotlin.contains("fun leadingVisibleDataItemIndex(): Int"));
-        assert!(kotlin.contains("visibleItems = layoutInfo.visibleItemsInfo,"));
-        assert!(kotlin.contains("(reverseLayout && index > leadingIndex)"));
+        assert!(kotlin.contains(
+            "fun leadingVisibleDataItemIndex(): Int = nexaListState0.firstVisibleItemIndex"
+        ));
         assert!(kotlin.contains("snapshotFlow { leadingVisibleDataItemIndex() }.collect"));
         assert!(kotlin.contains(
-            "val target = (nexaListCount0 - 1 - nexa_listPosition).coerceIn(0, (nexaListCount0 - 1).coerceAtLeast(0))"
+            "val target = nexa_listPosition.coerceIn(0, (nexaListCount0 - 1).coerceAtLeast(0))"
         ));
-        assert!(
-            kotlin.contains(
-                "nexaListState0.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1"
-            )
-        );
+        assert!(kotlin.contains("target != (nexaListState0.firstVisibleItemIndex)"));
 
         let mut observed_module = module.clone();
         let Node::FastList { plan } = &mut observed_module.body[0] else {
@@ -5522,19 +5519,18 @@ mod tests {
         common.on_scroll = Some(Vec::new());
         common.on_end_reached = Some(Vec::new());
         let observed_kotlin = generate(&observed_module);
-        assert!(observed_kotlin.contains("remember(nexaListState0) { booleanArrayOf(false) }"));
-        assert!(observed_kotlin.contains("if (!isInitialScrollPosition) {"));
+        assert!(observed_kotlin.contains("var lastVisiblePosition = -1"));
+        assert!(observed_kotlin.contains("if (lastVisiblePosition >= 0) nexaScrollAction"));
         assert!(observed_kotlin.contains("nexaListEndIsVisible("));
         assert!(
             observed_kotlin.contains("layoutInfo.visibleItemsInfo, nexaListCount0 + 1 - 1, true,")
         );
-        let reverse_target = "(nexaListCount0 - 1 - nexa_listPosition.coerceAtLeast(0)).coerceIn(0, (nexaListCount0 - 1).coerceAtLeast(0))";
+        let target = "nexa_listPosition.coerceIn(0, (nexaListCount0 - 1).coerceAtLeast(0))";
         assert!(observed_kotlin.contains(&format!(
-            "initialFirstVisibleItemIndex = if ({reverse_target} == 0) 0 else ({reverse_target} + 1)"
+            "initialFirstVisibleItemIndex = if ({target} == 0) 0 else ({target} + 1)"
         )));
-        let reverse_scroll_target = "(nexaListCount0 - 1 - nexa_listPosition).coerceIn(0, (nexaListCount0 - 1).coerceAtLeast(0))";
         assert!(observed_kotlin.contains(&format!(
-            "val target = if ({reverse_scroll_target} == 0) 0 else ({reverse_scroll_target} + 1)"
+            "val target = if ({target} == 0) 0 else ({target} + 1)"
         )));
     }
 
@@ -6293,8 +6289,12 @@ mod tests {
             .next()
             .unwrap_or_default();
         assert!(navigation.contains("containerColor = colorScheme.background,"));
-        assert!(navigation.contains("contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"));
-        assert!(!navigation.contains("windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"));
+        assert!(navigation.contains(
+            "contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"
+        ));
+        assert!(!navigation.contains(
+            "windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"
+        ));
         assert!(!navigation.contains("groupedSurface"));
         assert!(primitives.contains("TopAppBarDefaults.exitUntilCollapsedScrollBehavior()"));
         assert!(primitives.contains("TopAppBarDefaults.pinnedScrollBehavior()"));
@@ -6925,7 +6925,9 @@ mod tests {
                 "if (nexaListState0.isScrollInProgress) -1 else nexaListState0.settledPage"
             )
         );
-        assert!(kotlin.contains("if (firstVisiblePosition >= 0)"));
+        assert!(kotlin.contains(
+            "if (firstVisiblePosition >= 0 && firstVisiblePosition != lastVisiblePosition)"
+        ));
         assert_eq!(kotlin.matches("@OptIn(").count(), 4);
         assert!(kotlin.contains("internal fun NexaTextPrimitive("));
         assert!(kotlin.contains("textShadow: NexaGlyphShadow? = null"));

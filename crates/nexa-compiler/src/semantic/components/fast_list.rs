@@ -140,10 +140,42 @@ pub(super) fn lower_fast_list_component(
     };
     let sticky_header = take_modifier_nodes(&mut modifiers, span, "stickyHeader")?;
     let section_header = take_modifier_nodes(&mut modifiers, span, "sectionHeader")?;
-    let swipe_actions = take_modifier_nodes(&mut modifiers, span, "swipeActions")?;
+    let swipe_actions = match take_modifier_decl(&mut modifiers, "swipeActions") {
+        Some(mut modifier) => {
+            let edge = match modifier.arguments.remove("edge") {
+                Some(ast::Expr::Name(name, _)) if name == "Leading" => FastListSwipeEdge::Leading,
+                Some(ast::Expr::Name(name, _)) if name == "Trailing" => FastListSwipeEdge::Trailing,
+                Some(value) => {
+                    return Err(CompileError::new(
+                        value.span(),
+                        ".swipeActions `edge` must be `Leading` or `Trailing`",
+                    ));
+                }
+                None => FastListSwipeEdge::Trailing,
+            };
+            let allows_full_swipe = optional_bool(
+                modifier.arguments.remove("allowsFullSwipe"),
+                false,
+                ".swipeActions allowsFullSwipe",
+            )?;
+            if let Some(unknown) = modifier.arguments.keys().next() {
+                return Err(CompileError::new(
+                    modifier.span,
+                    format!(
+                        "unknown `.swipeActions` argument `{unknown}`; expected `edge` or `allowsFullSwipe`"
+                    ),
+                ));
+            }
+            let (parameters, actions) = match modifier.body {
+                ast::ModifierBody::BoundNodes { parameters, nodes } => (parameters, nodes),
+                _ => return Err(child_mismatch(span)),
+            };
+            Some((edge, allows_full_swipe, parameters, actions))
+        }
+        None => None,
+    };
     let sections_source = matches!(&source, ast::ListSource::Sections(_));
     let array_source = matches!(&source, ast::ListSource::Items(_));
-    let uses_platform_list = on_move.is_some() || swipe_actions.is_some();
     let axis = match axis {
         None => ListAxis::Vertical,
         Some(ast::Expr::Name(name, axis_span)) => match name.as_str() {
@@ -238,6 +270,8 @@ pub(super) fn lower_fast_list_component(
             ));
         }
     };
+    let uses_platform_list =
+        (on_move.is_some() && !matches!(axis, ListAxis::Masonry { .. })) || swipe_actions.is_some();
     if uses_platform_list
         && (!matches!(axis, ListAxis::Vertical)
             || reverse_layout
@@ -277,12 +311,11 @@ pub(super) fn lower_fast_list_component(
             || page_snap
             || item_extent.is_some()
             || sticky_header.is_some()
-            || on_move.is_some()
             || swipe_actions.is_some())
     {
         return Err(CompileError::new(
             span,
-            "FastList `Masonry` requires flat variable-height rows without reverseLayout, pageSnap, rowHeight, stickyHeader, reorder, or swipe actions",
+            "FastList `Masonry` requires flat variable-height rows without reverseLayout, pageSnap, rowHeight, stickyHeader, or swipe actions",
         ));
     }
     if reverse_layout && !matches!(axis, ListAxis::Vertical) {
@@ -518,6 +551,24 @@ pub(super) fn lower_fast_list_component(
         row_symbols.insert(item_name.clone(), (item_type.clone(), false));
     }
     let row_cx = child_cx.with_symbols(&row_symbols);
+    let swipe_symbols = if let Some((_, _, parameters, _)) = &swipe_actions {
+        let mut scoped_symbols = symbols.clone();
+        for parameter in parameters {
+            let Some((ty, _)) = row_symbols.get(parameter) else {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        ".swipeActions binding `{parameter}` must match a FastList row binding declared with `in`"
+                    ),
+                ));
+            };
+            scoped_symbols.insert(parameter.clone(), (ty.clone(), false));
+        }
+        scoped_symbols
+    } else {
+        symbols.clone()
+    };
+    let swipe_cx = child_cx.with_symbols(&swipe_symbols);
     let key = key
         .map(|key| {
             let item_name = item.as_deref().ok_or_else(|| {
@@ -579,29 +630,34 @@ pub(super) fn lower_fast_list_component(
             "FastList `sectionHeader` requires at least one header component",
         ));
     }
-    if swipe_actions.as_ref().is_some_and(Vec::is_empty) {
+    if swipe_actions
+        .as_ref()
+        .is_some_and(|(_, _, _, actions)| actions.is_empty())
+    {
         return Err(CompileError::new(
             span,
             "FastList `swipeActions` requires at least one action component",
         ));
     }
-    if swipe_actions.is_some() && lowered_children.len() != 1 {
-        return Err(CompileError::new(
-            span,
-            "FastList `swipeActions` requires exactly one row root component",
-        ));
-    }
     let swipe_actions = swipe_actions
-        .map(|actions| lower_nodes(actions, &row_cx))
+        .map(|(edge, allows_full_swipe, _, actions)| {
+            let children = lower_nodes(actions, &swipe_cx)?;
+            if children
+                .iter()
+                .any(|action| !matches!(action, Node::Button { .. }))
+            {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `swipeActions` accepts one or more Button actions",
+                ));
+            }
+            Ok(FastListSwipeActions {
+                edge,
+                allows_full_swipe,
+                children,
+            })
+        })
         .transpose()?;
-    if swipe_actions.as_ref().is_some_and(|actions| {
-        actions.len() != 1 || !matches!(actions.first(), Some(Node::Button { .. }))
-    }) {
-        return Err(CompileError::new(
-            span,
-            "FastList `swipeActions` currently requires one Button action",
-        ));
-    }
     let on_end_reached = on_end_reached
         .map(|actions| {
             lower_actions_with_aliases(

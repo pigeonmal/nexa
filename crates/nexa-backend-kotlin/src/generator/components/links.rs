@@ -6,10 +6,7 @@ use crate::generator::{components::render_children, expressions::expression, fea
 use crate::generator::engine::imports::ImportSet;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    imports.add(
-        features.uses_navigation_uri,
-        "android.net.Uri",
-    );
+    imports.add(features.uses_navigation_uri, "android.net.Uri");
     imports.add(features.uses_link, "androidx.compose.foundation.clickable");
     imports.add(
         features.uses_link,
