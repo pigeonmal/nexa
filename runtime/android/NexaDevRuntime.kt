@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.res.Configuration
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -33,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -76,6 +79,8 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
         ViewModelProvider(viewModelStoreOwner).get(NexaDevRuntimeViewModel::class.java)
     }
     val store = runtimeViewModel.store
+    val runtimeView = LocalView.current
+    val accessibilityManager = currentContext.getSystemService(AccessibilityManager::class.java)
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result -> NexaRuntime.dispatchPermissionResult(result) }
@@ -140,13 +145,22 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
             previousFrame = frame
         }
     }
-    // Test-only render fence: `withFrameNanos` resumes after the composition
-    // that read this module generation has been submitted to the frame, so a
-    // harness never captures the previous revision after an acknowledgement.
-    LaunchedEffect(store) {
+    // Wait until Compose submits the new module frame before notifying
+    // accessibility clients or acknowledging it to the render-fence harness.
+    LaunchedEffect(store, runtimeView) {
         snapshotFlow { store.moduleRevision }.collect { revision ->
             if (revision != 0) {
                 withFrameNanos { }
+                if (accessibilityManager?.isEnabled == true && runtimeView.isAttachedToWindow) {
+                    val event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED).apply {
+                        contentChangeTypes = AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE
+                    }
+                    try {
+                        runtimeView.sendAccessibilityEventUnchecked(event)
+                    } catch (_: IllegalStateException) {
+                        // Accessibility services can disconnect between the check and dispatch.
+                    }
+                }
                 store.frameFence.presented(revision)
             }
         }

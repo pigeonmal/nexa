@@ -35,8 +35,8 @@ app ComponentParity {
     screen Catalog {
         Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
-                NavigationLink(destination: FastListCases) {
-                    Text("FastList parameters")
+                NavigationLink(destination: HapticCases) {
+                    Text("Haptic feedback")
                 }
             }
             Section(title: "Layout") {

@@ -1,6 +1,6 @@
 # Nexa Agent Review
 
-> **In progress** · 23 reviewed · 3 in progress · 18 pending · iOS + Android · native AOT + DevRuntime
+> **In progress** · 25 reviewed · 3 in progress · 16 pending · iOS + Android · native AOT + DevRuntime
 
 Review shared behavior and appearance across iOS and Android. Build success and sampled device checks do not establish exhaustive parity.
 
@@ -49,10 +49,11 @@ python3 tests/render_component_parity_report.py --check
 - TextCases and IconCases follow-up (2026-11-18): the parity app now demonstrates discovered font weight fallbacks and system, prebuilt-font, and SVG-generated icons across component slots. Focused dual-target regressions pass; both route reviews remain in progress pending simulator and human verification.
 - TextCases and IconCases DevRuntime follow-up (2026-11-20): both routes were opened on the iOS 27.0 simulator and Android API 31 emulator. Text font-weight fallback and custom system/font/SVG icon coverage pass focused tests; IconCases remains the active route. AOT simulator review and human approval remain pending.
 - Human verification approved (2026-11-22): the user approved TextCases (TextRoute) on iOS and Android after the font-family algorithm follow-up. Agent Review is approved; the next unapproved route in App.nx order is FastListCases.
+- Human verification approved (2026-11-24): the user approved ScrollViewCases on iOS and Android. Agent Review is approved; active route advances to HapticCases.
 
 ## Route review
 
-Active route: **FastListCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
+Active route: **HapticCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
 
 | Route | Human review | Agent Review |
 |---|---|---|
@@ -77,9 +78,9 @@ Active route: **FastListCases**. Human approval also approves Agent Review; Agen
 | EmptyCases | Approved | Approved |
 | ProgressBarCases | Approved | Approved |
 | ProgressRingCases | Approved | Approved |
-| FastListCases | Pending | In progress |
-| ScrollViewCases | Pending | Pending |
-| HapticCases | Pending | Pending |
+| FastListCases | Approved | Approved |
+| ScrollViewCases | Approved | Approved |
+| HapticCases | Pending | In progress |
 | MarqueeCases | Pending | In progress |
 | RefreshCases | Approved | Approved |
 | KeyboardCases | Approved | Approved |
