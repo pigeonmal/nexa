@@ -1,6 +1,6 @@
 # Nexa Agent Review
 
-> **In progress** · 25 reviewed · 3 in progress · 16 pending · iOS + Android · native AOT + DevRuntime
+> **In progress** · 27 reviewed · 1 in progress · 16 pending · iOS + Android · native AOT + DevRuntime
 
 Review shared behavior and appearance across iOS and Android. Build success and sampled device checks do not establish exhaustive parity.
 
@@ -50,10 +50,12 @@ python3 tests/render_component_parity_report.py --check
 - TextCases and IconCases DevRuntime follow-up (2026-11-20): both routes were opened on the iOS 27.0 simulator and Android API 31 emulator. Text font-weight fallback and custom system/font/SVG icon coverage pass focused tests; IconCases remains the active route. AOT simulator review and human approval remain pending.
 - Human verification approved (2026-11-22): the user approved TextCases (TextRoute) on iOS and Android after the font-family algorithm follow-up. Agent Review is approved; the next unapproved route in App.nx order is FastListCases.
 - Human verification approved (2026-11-24): the user approved ScrollViewCases on iOS and Android. Agent Review is approved; active route advances to HapticCases.
+- Human verification approved (2026-11-24): the user approved HapticCases. Agent Review is approved; active route advances to MarqueeCases.
+- Human verification approved (2026-11-24): the user approved MarqueeCases. Agent Review is approved; the next unapproved route in App.nx order is IconCases.
 
 ## Route review
 
-Active route: **HapticCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
+Active route: **IconCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
 
 | Route | Human review | Agent Review |
 |---|---|---|
@@ -80,8 +82,8 @@ Active route: **HapticCases**. Human approval also approves Agent Review; Agent 
 | ProgressRingCases | Approved | Approved |
 | FastListCases | Approved | Approved |
 | ScrollViewCases | Approved | Approved |
-| HapticCases | Pending | In progress |
-| MarqueeCases | Pending | In progress |
+| HapticCases | Approved | Approved |
+| MarqueeCases | Approved | Approved |
 | RefreshCases | Approved | Approved |
 | KeyboardCases | Approved | Approved |
 | IconCases | Pending | In progress |
