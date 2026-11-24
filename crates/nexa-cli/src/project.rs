@@ -3279,6 +3279,15 @@ mod tests {
         assert!(generated.starts_with("package dev.nexa.listprobe\n"));
         assert!(generated.contains("internal fun NexaFastStaggeredGridReorderableItem("));
         assert!(generated.contains("internal fun rememberNexaFastListReorderState("));
+
+        let renderer = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+        assert!(
+            renderer.contains(
+                "stableRowKey(reorderState?.dataIndexForPosition(itemIndex) ?: itemIndex)"
+            )
+        );
+        assert!(renderer.contains("val rowLocals = listRowLocals(dataIndex)"));
+        assert!(renderer.contains("onMove = performMove,"));
     }
 
     #[test]

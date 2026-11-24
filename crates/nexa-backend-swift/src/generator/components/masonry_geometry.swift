@@ -181,6 +181,32 @@ struct NexaMasonryGeometry {
         }
     }
 
+    func nearestItem(to point: CGPoint, in rect: CGRect, preferring preferredItem: Int) -> Int? {
+        guard let preferredFrame = frame(for: preferredItem) else { return nil }
+        var nearestItem = preferredItem
+        var nearestDistance = Self.distanceSquared(from: point, to: preferredFrame)
+        let hysteresis: CGFloat = 8
+
+        forEachFrame(in: rect) { item, itemFrame in
+            guard item != preferredItem else { return }
+            let distance = Self.distanceSquared(from: point, to: itemFrame)
+            guard distance < nearestDistance else { return }
+            // Require a small, stable lead before changing the insertion slot.
+            // This avoids oscillation while the pointer rests in the gap between cards.
+            if sqrt(distance) + hysteresis < sqrt(nearestDistance) {
+                nearestItem = item
+                nearestDistance = distance
+            }
+        }
+        return nearestItem
+    }
+
+    private static func distanceSquared(from point: CGPoint, to frame: CGRect) -> CGFloat {
+        let dx = max(max(frame.minX - point.x, 0), point.x - frame.maxX)
+        let dy = max(max(frame.minY - point.y, 0), point.y - frame.maxY)
+        return dx * dx + dy * dy
+    }
+
     private func frame(in band: Band, slot: Int, row: Int) -> CGRect {
         let start = bandColumns[band.firstColumn + slot]
         return CGRect(x: CGFloat(start.column) * (columnWidth + spacing),

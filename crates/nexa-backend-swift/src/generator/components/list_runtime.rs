@@ -2095,6 +2095,8 @@ private final class NexaFastGridCollectionView: UICollectionView {
 private final class NexaFastMasonryLayout: UICollectionViewLayout {
     private var geometry: NexaMasonryGeometry
     private var cachedWidth: CGFloat = -1
+    private var interactiveSourceIndex: Int?
+    private var interactiveCurrentIndex: Int?
 
     init(columns: Int, spacing: CGFloat) {
         geometry = NexaMasonryGeometry(columns: columns, spacing: spacing)
@@ -2103,9 +2105,99 @@ private final class NexaFastMasonryLayout: UICollectionViewLayout {
 
     required init?(coder: NSCoder) { nil }
 
-    func moveItem(from source: Int, to destination: Int) {
-        geometry.moveItem(from: source, to: destination)
-        invalidateLayout()
+    func beginInteractiveMove(at index: Int) {
+        interactiveSourceIndex = index
+        interactiveCurrentIndex = index
+    }
+
+    @discardableResult
+    private func updateInteractiveMove(to index: Int) -> Bool {
+        guard let collectionView,
+              (0..<collectionView.numberOfItems(inSection: 0)).contains(index),
+              let current = interactiveCurrentIndex,
+              current != index
+        else { return false }
+        geometry.moveItem(from: current, to: index)
+        interactiveCurrentIndex = index
+        return true
+    }
+
+    @discardableResult
+    fileprivate func endInteractiveMove(at finalIndex: Int?, cancelled: Bool) -> Bool {
+        var geometryChanged = false
+        if let source = interactiveSourceIndex,
+           let current = interactiveCurrentIndex {
+            let destination = cancelled ? source : finalIndex
+            if let destination,
+               let collectionView,
+               (0..<collectionView.numberOfItems(inSection: 0)).contains(destination),
+               current != destination {
+                geometry.moveItem(from: current, to: destination)
+                geometryChanged = true
+            }
+        }
+        interactiveSourceIndex = nil
+        interactiveCurrentIndex = nil
+        return geometryChanged
+    }
+
+    override func targetIndexPath(
+        forInteractivelyMovingItem indexPath: IndexPath,
+        withPosition position: CGPoint
+    ) -> IndexPath {
+        guard let current = interactiveCurrentIndex else { return indexPath }
+        let searchRect = CGRect(x: position.x - 112, y: position.y - 120, width: 224, height: 240)
+        let target = geometry.nearestItem(to: position, in: searchRect, preferring: current) ?? current
+        return IndexPath(item: target, section: indexPath.section)
+    }
+
+    override func invalidationContext(
+        forInteractivelyMovingItems targetIndexPaths: [IndexPath],
+        withTargetPosition targetPosition: CGPoint,
+        previousIndexPaths: [IndexPath],
+        previousPosition: CGPoint
+    ) -> UICollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContext(
+            forInteractivelyMovingItems: targetIndexPaths,
+            withTargetPosition: targetPosition,
+            previousIndexPaths: previousIndexPaths,
+            previousPosition: previousPosition
+        )
+        if let target = targetIndexPaths.first?.item,
+           updateInteractiveMove(to: target),
+           let collectionView {
+            let movingItems = Set(targetIndexPaths).union(previousIndexPaths)
+            let reflowedItems = collectionView.indexPathsForVisibleItems.filter {
+                !movingItems.contains($0)
+            }
+            if !reflowedItems.isEmpty {
+                context.invalidateItems(at: reflowedItems)
+            }
+        }
+        return context
+    }
+
+    override func invalidationContextForEndingInteractiveMovementOfItems(
+        toFinalIndexPaths finalIndexPaths: [IndexPath],
+        previousIndexPaths: [IndexPath],
+        movementCancelled: Bool
+    ) -> UICollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContextForEndingInteractiveMovementOfItems(
+            toFinalIndexPaths: finalIndexPaths,
+            previousIndexPaths: previousIndexPaths,
+            movementCancelled: movementCancelled
+        )
+        if endInteractiveMove(at: finalIndexPaths.first?.item, cancelled: movementCancelled),
+           let collectionView {
+            let movingItems = Set(finalIndexPaths).union(previousIndexPaths)
+            let reflowedItems = collectionView.indexPathsForVisibleItems.filter {
+                !movingItems.contains($0)
+            }
+            if !reflowedItems.isEmpty {
+                context.invalidateItems(at: reflowedItems)
+            }
+        }
+        return context
     }
 
     override func prepare() {
@@ -2170,21 +2262,81 @@ private final class NexaFastMasonryLayout: UICollectionViewLayout {
 }
 
 @available(iOS 16.0, *)
-private final class NexaFastMasonryPlaceholderView: UIView {
-    init() {
-        super.init(frame: .zero)
-        isUserInteractionEnabled = false
-        isAccessibilityElement = false
-        accessibilityElementsHidden = true
-        clipsToBounds = true
-        layer.cornerRadius = 12
-        layer.cornerCurve = .continuous
-        backgroundColor = .systemBackground
-        layer.borderColor = UIColor.separator.withAlphaComponent(0.45).cgColor
-        layer.borderWidth = 1
+private final class NexaFastMasonryReorderGestureHandler: NSObject, UIGestureRecognizerDelegate {
+    private weak var collectionView: UICollectionView?
+    private var gesture: UILongPressGestureRecognizer?
+    private var movementIsActive = false
+
+    init(collectionView: UICollectionView) {
+        self.collectionView = collectionView
+        super.init()
+        let gesture = UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(handle(_:))
+        )
+        gesture.minimumPressDuration = 0.4
+        gesture.allowableMovement = 10
+        gesture.cancelsTouchesInView = true
+        gesture.delegate = self
+        collectionView.addGestureRecognizer(gesture)
+        self.gesture = gesture
     }
 
-    required init?(coder: NSCoder) { nil }
+    func setEnabled(_ enabled: Bool) {
+        if !enabled { cancel() }
+        gesture?.isEnabled = enabled
+    }
+
+    func cancel() {
+        guard movementIsActive, let collectionView else { return }
+        collectionView.cancelInteractiveMovement()
+        movementIsActive = false
+    }
+
+    func remove() {
+        cancel()
+        if let gesture { collectionView?.removeGestureRecognizer(gesture) }
+        gesture = nil
+        collectionView = nil
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === gesture,
+              let collectionView,
+              collectionView.collectionViewLayout is NexaFastMasonryLayout
+        else { return false }
+        return collectionView.indexPathForItem(at: gestureRecognizer.location(in: collectionView)) != nil
+    }
+
+    @objc private func handle(_ gesture: UILongPressGestureRecognizer) {
+        guard let collectionView,
+              let layout = collectionView.collectionViewLayout as? NexaFastMasonryLayout
+        else { return }
+        let location = gesture.location(in: collectionView)
+        switch gesture.state {
+        case .began:
+            guard !movementIsActive,
+                  let indexPath = collectionView.indexPathForItem(at: location)
+            else { return }
+            layout.beginInteractiveMove(at: indexPath.item)
+            guard collectionView.beginInteractiveMovementForItem(at: indexPath) else {
+                layout.endInteractiveMove(at: indexPath.item, cancelled: true)
+                return
+            }
+            movementIsActive = true
+        case .changed:
+            guard movementIsActive else { return }
+            collectionView.updateInteractiveMovementTargetPosition(location)
+        case .ended:
+            guard movementIsActive else { return }
+            collectionView.endInteractiveMovement()
+            movementIsActive = false
+        case .cancelled, .failed:
+            cancel()
+        default:
+            break
+        }
+    }
 }
 
 @available(iOS 16.0, *)
@@ -2317,9 +2469,11 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         nexaConfigureEdgeToEdgeScrollView(collectionView, environment: context.environment)
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
-        collectionView.dragDelegate = context.coordinator
-        collectionView.dropDelegate = context.coordinator
-        collectionView.dragInteractionEnabled = masonry && moveEnabled && onMove != nil
+        // <nexa:list-runtime-masonry-reorder:begin>
+        if masonry {
+            context.coordinator.installMasonryReorderGesture(on: collectionView)
+        }
+        // <nexa:list-runtime-masonry-reorder:end>
         nexaUpdateRefreshControl(
             collectionView,
             controller: &context.coordinator.refreshController,
@@ -2372,7 +2526,14 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         coordinator.rowKey = rowKey
         coordinator.onMove = onMove
         coordinator.moveEnabled = moveEnabled
-        collectionView.dragInteractionEnabled = masonry && moveEnabled && onMove != nil
+        // <nexa:list-runtime-masonry-reorder:begin>
+        if masonry {
+            coordinator.installMasonryReorderGesture(on: collectionView)
+        }
+        coordinator.setMasonryReorderEnabled(
+            masonry && moveEnabled && onMove != nil
+        )
+        // <nexa:list-runtime-masonry-reorder:end>
         coordinator.scrollPosition = scrollPosition
         bindRef(to: collectionView, coordinator: coordinator)
         coordinator.onScrollPositionChanged = onScrollPositionChanged
@@ -2382,6 +2543,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         // <nexa:scroll-events-update-assignment:end>
         coordinator.rowContent = rowContent
         if layoutChanged {
+            // <nexa:list-runtime-masonry-reorder:begin>
+            coordinator.cancelMasonryMovement()
+            // <nexa:list-runtime-masonry-reorder:end>
             collectionView.setCollectionViewLayout(
                 nexaListGridLayout(columns: columns, minCellWidth: minCellWidth, itemHeight: itemHeight, masonry: masonry, spacing: spacing),
                 animated: false
@@ -2394,6 +2558,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             action: onRefresh
         )
         if previousRowCount != rowCount {
+            // <nexa:list-runtime-masonry-reorder:begin>
+            coordinator.cancelMasonryMovement()
+            // <nexa:list-runtime-masonry-reorder:end>
             coordinator.resetEndReachedTracking()
             if !isScrollPositionEcho { coordinator.applyScrollPosition(to: collectionView) }
             collectionView.reloadData()
@@ -2402,20 +2569,10 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         } else if previousScrollPosition != scrollPosition, !isScrollPositionEcho {
             coordinator.applyScrollPosition(to: collectionView)
         }
-        let isMasonryReordering = masonry && coordinator.pendingMasonryMoveFrames != nil
         coordinator.reconfigureVisibleItems(
             in: collectionView,
-            allowDuringInteraction: isMasonryReordering
+            allowDuringInteraction: false
         )
-        // <nexa:list-runtime-masonry-placeholders:begin>
-        coordinator.updateMasonryPlaceholders(
-            in: collectionView,
-            animated: masonry && coordinator.pendingMasonryMoveFrames != nil
-        )
-        // <nexa:list-runtime-masonry-placeholders:end>
-        if isMasonryReordering {
-            coordinator.animatePendingMasonryMove(in: collectionView)
-        }
     }
 
     private func bindRef(to collectionView: UICollectionView, coordinator: Coordinator) {
@@ -2438,11 +2595,12 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         collectionView.dataSource = nil
         coordinator.scrollCallbackGeneration += 1
         coordinator.onEndReached = nil
-        collectionView.dragDelegate = nil
-        collectionView.dropDelegate = nil
+        // <nexa:list-runtime-masonry-reorder:begin>
+        coordinator.removeMasonryReorderGesture()
+        // <nexa:list-runtime-masonry-reorder:end>
     }
 
-    final class Coordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDragDelegate, UICollectionViewDropDelegate {
+    final class Coordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {
         weak var attachedRef: NexaFastListRef?
         var rowCount: Int
         var columns: Int
@@ -2525,279 +2683,52 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             reportEndReachedIfVisible(in: collectionView)
         }
 
-        // __NEXA_RECONFIGURE_GRID__
+        // <nexa:list-runtime-masonry-reorder:begin>
+        private var masonryReorderGestureHandler: NexaFastMasonryReorderGestureHandler?
 
-        var pendingMasonryMoveFrames: [AnyHashable: CGRect]?
-        private var activeMasonryDrag: LocalDrag?
-        // <nexa:list-runtime-masonry-placeholders:begin>
-        private var destinationMasonryPlaceholder: NexaFastMasonryPlaceholderView?
-        // <nexa:list-runtime-masonry-placeholders:end>
+        func installMasonryReorderGesture(on collectionView: UICollectionView) {
+            guard masonryReorderGestureHandler == nil else { return }
+            let handler = NexaFastMasonryReorderGestureHandler(collectionView: collectionView)
+            handler.setEnabled(masonry && moveEnabled && onMove != nil)
+            masonryReorderGestureHandler = handler
+        }
 
-        private final class LocalDrag {
-            private let minimumMoveDistance: CGFloat = 12
+        func setMasonryReorderEnabled(_ enabled: Bool) {
+            masonryReorderGestureHandler?.setEnabled(enabled)
+        }
 
-            let initialIndex: Int
-            var index: Int
-            let count: Int
-            let initialLocation: CGPoint
-            private(set) var lastMoveLocation: CGPoint
+        func cancelMasonryMovement() {
+            masonryReorderGestureHandler?.cancel()
+        }
 
-            init(index: Int, count: Int, initialLocation: CGPoint) {
-                self.initialIndex = index
-                self.index = index
-                self.count = count
-                self.initialLocation = initialLocation
-                self.lastMoveLocation = initialLocation
-            }
+        func removeMasonryReorderGesture() {
+            masonryReorderGestureHandler?.remove()
+            masonryReorderGestureHandler = nil
+        }
 
-            var hasReordered: Bool {
-                index != initialIndex
-            }
-
-            func canMove(at location: CGPoint) -> Bool {
-                let minimumDistanceSquared = minimumMoveDistance * minimumMoveDistance
-                return distanceSquared(initialLocation, location) >= minimumDistanceSquared
-                    && distanceSquared(lastMoveLocation, location) >= minimumDistanceSquared
-            }
-
-            func recordMove(at location: CGPoint) {
-                lastMoveLocation = location
-            }
-
-            private func distanceSquared(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
-                let dx = lhs.x - rhs.x
-                let dy = lhs.y - rhs.y
-                return dx * dx + dy * dy
-            }
+        func collectionView(_ collectionView: UICollectionView, canMoveItemAt indexPath: IndexPath) -> Bool {
+            masonry && moveEnabled && onMove != nil && indexPath.section == 0
         }
 
         func collectionView(
             _ collectionView: UICollectionView,
-            itemsForBeginning session: any UIDragSession,
-            at indexPath: IndexPath
-        ) -> [UIDragItem] {
-            guard masonry,
+            moveItemAt sourceIndexPath: IndexPath,
+            to destinationIndexPath: IndexPath
+        ) {
+            guard sourceIndexPath.section == 0,
+                  destinationIndexPath.section == 0,
+                  (0..<rowCount).contains(sourceIndexPath.item),
+                  (0..<rowCount).contains(destinationIndexPath.item),
+                  sourceIndexPath.item != destinationIndexPath.item,
+                  masonry,
                   moveEnabled,
-                  onMove != nil
-            else { return [] }
-            let item = UIDragItem(itemProvider: NSItemProvider())
-            let drag = LocalDrag(
-                index: indexPath.item,
-                count: rowCount,
-                initialLocation: session.location(in: collectionView)
-            )
-            activeMasonryDrag = drag
-            item.localObject = drag
-            session.localContext = ObjectIdentifier(self)
-            return [item]
-        }
-
-        func collectionView(_ collectionView: UICollectionView, canHandle session: any UIDropSession) -> Bool {
-            masonry && moveEnabled && onMove != nil
-                && (session.localDragSession?.localContext as? ObjectIdentifier) == ObjectIdentifier(self)
-        }
-
-        private func dropTarget(in collectionView: UICollectionView, session: any UIDropSession) -> IndexPath? {
-            let point = session.location(in: collectionView)
-            guard collectionView.bounds.contains(point) else { return nil }
-            let hitArea = CGRect(origin: point, size: CGSize(width: 1, height: 1))
-            return collectionView.collectionViewLayout.layoutAttributesForElements(in: hitArea)?
-                .first { $0.representedElementCategory == .cell && $0.frame.contains(point) }?.indexPath
-        }
-
-        private func identity(for item: Int) -> AnyHashable {
-            rowKey?(item) ?? AnyHashable(item)
-        }
-
-        private func captureVisibleMasonryFrames(in collectionView: UICollectionView) -> [AnyHashable: CGRect] {
-            var frames: [AnyHashable: CGRect] = [:]
-            frames.reserveCapacity(collectionView.visibleCells.count)
-            for cell in collectionView.visibleCells {
-                guard let path = collectionView.indexPath(for: cell) else { continue }
-                let key = identity(for: path.item)
-                let frame = cell.contentView.layer.presentation()?.convert(
-                    cell.contentView.bounds,
-                    to: collectionView.layer
-                ) ?? cell.contentView.convert(cell.contentView.bounds, to: collectionView)
-                frames[key] = frame
-            }
-            return frames
-        }
-
-        @discardableResult
-        private func moveMasonryItem(
-            from source: LocalDrag,
-            to target: Int,
-            at location: CGPoint,
-            in collectionView: UICollectionView
-        ) -> Bool {
-            guard source.canMove(at: location),
-                  source.index != target,
-                  (0..<rowCount).contains(source.index),
-                  (0..<rowCount).contains(target),
                   let onMove
-            else { return false }
-            pendingMasonryMoveFrames = captureVisibleMasonryFrames(in: collectionView)
-            // __NEXA_MASONRY_MOVE__
-            let from = source.index
-            source.index = target
-            source.recordMove(at: location)
-            onMove(from, target)
-            return true
-        }
-
-        // <nexa:list-runtime-masonry-placeholders:begin>
-        func updateMasonryPlaceholders(in collectionView: UICollectionView, animated: Bool) {
-            guard masonry,
-                  let drag = activeMasonryDrag,
-                  drag.hasReordered,
-                  let targetFrame = collectionView.collectionViewLayout.layoutAttributesForItem(
-                    at: IndexPath(item: drag.index, section: 0)
-                  )?.frame
-            else {
-                destinationMasonryPlaceholder?.isHidden = true
-                return
-            }
-
-            let destinationPlaceholder = destinationMasonryPlaceholder ?? {
-                let view = NexaFastMasonryPlaceholderView()
-                collectionView.addSubview(view)
-                destinationMasonryPlaceholder = view
-                return view
-            }()
-
-            destinationPlaceholder.isHidden = false
-            let updateDestination = {
-                destinationPlaceholder.frame = targetFrame
-                collectionView.bringSubviewToFront(destinationPlaceholder)
-            }
-            if animated && !UIAccessibility.isReduceMotionEnabled {
-                UIView.animate(
-                    withDuration: 0.18,
-                    delay: 0,
-                    options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut],
-                    animations: updateDestination
-                )
-            } else {
-                updateDestination()
-            }
-        }
-
-        private func endMasonryDrag(_ drag: LocalDrag, in collectionView: UICollectionView) {
-            guard activeMasonryDrag === drag else { return }
-            activeMasonryDrag = nil
-            updateMasonryPlaceholders(in: collectionView, animated: false)
-        }
-        // <nexa:list-runtime-masonry-placeholders:end>
-
-        func animatePendingMasonryMove(in collectionView: UICollectionView) {
-            guard let previousFrames = pendingMasonryMoveFrames else { return }
-            pendingMasonryMoveFrames = nil
-
-            var cellsToAnimate: [UICollectionViewCell] = []
-            cellsToAnimate.reserveCapacity(collectionView.visibleCells.count)
-            for cell in collectionView.visibleCells {
-                guard let path = collectionView.indexPath(for: cell),
-                      let previous = previousFrames[identity(for: path.item)],
-                      let current = collectionView.collectionViewLayout.layoutAttributesForItem(at: path)?.frame
-                else { continue }
-                let deltaX = previous.minX - current.minX
-                let deltaY = previous.minY - current.minY
-                guard abs(deltaX) > 0.5 || abs(deltaY) > 0.5 else { continue }
-                cell.contentView.transform = CGAffineTransform(translationX: deltaX, y: deltaY)
-                cellsToAnimate.append(cell)
-            }
-
-            guard !cellsToAnimate.isEmpty else { return }
-            if UIAccessibility.isReduceMotionEnabled {
-                UIView.performWithoutAnimation {
-                    cellsToAnimate.forEach { $0.contentView.transform = .identity }
-                }
-            } else {
-                UIView.animate(
-                    withDuration: 0.18,
-                    delay: 0,
-                    options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]
-                ) {
-                    cellsToAnimate.forEach { $0.contentView.transform = .identity }
-                }
-            }
-        }
-
-        func collectionView(
-            _ collectionView: UICollectionView,
-            dragPreviewParametersForItemAt indexPath: IndexPath
-        ) -> UIDragPreviewParameters? {
-            guard let cell = collectionView.cellForItem(at: indexPath) else { return nil }
-            let parameters = UIDragPreviewParameters()
-            parameters.backgroundColor = .clear
-            parameters.visiblePath = UIBezierPath(rect: cell.contentView.bounds)
-            parameters.shadowPath = UIBezierPath()
-            return parameters
-        }
-
-        func collectionView(
-            _ collectionView: UICollectionView,
-            willDisplay cell: UICollectionViewCell,
-            forItemAt indexPath: IndexPath
-        ) {
-            cell.contentView.transform = .identity
-        }
-
-        func collectionView(
-            _ collectionView: UICollectionView,
-            didEndDisplaying cell: UICollectionViewCell,
-            forItemAt indexPath: IndexPath
-        ) {
-            cell.contentView.transform = .identity
-        }
-
-        func collectionView(
-            _ collectionView: UICollectionView,
-            dropSessionDidUpdate session: any UIDropSession,
-            withDestinationIndexPath destinationIndexPath: IndexPath?
-        ) -> UICollectionViewDropProposal {
-            guard self.collectionView(collectionView, canHandle: session),
-                  let source = session.items.first?.localObject as? LocalDrag,
-                  source.count == rowCount,
-                  (0..<rowCount).contains(source.index)
-            else {
-                return UICollectionViewDropProposal(operation: .cancel)
-            }
-            let location = session.location(in: collectionView)
-            guard collectionView.bounds.contains(location) else {
-                return UICollectionViewDropProposal(operation: .cancel)
-            }
-            if source.canMove(at: location),
-               let target = dropTarget(in: collectionView, session: session) {
-                moveMasonryItem(from: source, to: target.item, at: location, in: collectionView)
-            }
-            return source.hasReordered
-                ? UICollectionViewDropProposal(operation: .move, intent: .insertIntoDestinationIndexPath)
-                : UICollectionViewDropProposal(operation: .cancel)
-        }
-
-        // <nexa:list-runtime-masonry-placeholders:begin>
-        func collectionView(_ collectionView: UICollectionView, dropSessionDidEnd session: any UIDropSession) {
-            guard let drag = session.items.first?.localObject as? LocalDrag else { return }
-            endMasonryDrag(drag, in: collectionView)
-        }
-        // <nexa:list-runtime-masonry-placeholders:end>
-
-        func collectionView(
-            _ collectionView: UICollectionView,
-            performDropWith coordinator: any UICollectionViewDropCoordinator
-        ) {
-            guard self.collectionView(collectionView, canHandle: coordinator.session),
-                  let item = coordinator.items.first,
-                  let source = item.dragItem.localObject as? LocalDrag,
-                  source.count == rowCount,
-                  (0..<rowCount).contains(source.index)
             else { return }
-            guard source.hasReordered else { return }
-            let committedPath = IndexPath(item: source.index, section: 0)
-            coordinator.drop(item.dragItem, toItemAt: committedPath)
+            onMove(sourceIndexPath.item, destinationIndexPath.item)
         }
+        // <nexa:list-runtime-masonry-reorder:end>
+
+        // __NEXA_RECONFIGURE_GRID__
 
         private var tracksScrollPosition: Bool {
             // <nexa:scroll-events-condition-active:begin>
@@ -3029,7 +2960,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         (uses_horizontal_list, "horizontal"),
         (uses_grid_list, "grid"),
         (grid == GridSupport::Masonry, "masonry"),
-        (grid == GridSupport::Masonry, "masonry-placeholders"),
+        (grid == GridSupport::Masonry, "masonry-reorder"),
     ] {
         if !uses_list {
             runtime = remove_marked_section(&mut runtime, "list-runtime", section);
@@ -3080,7 +3011,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         "horizontal",
         "grid",
         "masonry",
-        "masonry-placeholders",
+        "masonry-reorder",
         "vertical-constants",
     ] {
         runtime = strip_markers(&mut runtime, "list-runtime", section);
@@ -3115,15 +3046,10 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
                 "__NEXA_GRID_CELL_TYPE__",
                 "masonry ? NexaFastMasonryCell.self : UICollectionViewCell.self",
             );
-        runtime = runtime.replace(
-            "// __NEXA_MASONRY_MOVE__",
-            "(collectionView.collectionViewLayout as? NexaFastMasonryLayout)?.moveItem(from: source.index, to: target)",
-        );
     } else {
         runtime = runtime
             .replace("    // __NEXA_MASONRY_CASE__\n", "")
             .replace("__NEXA_GRID_CELL_TYPE__", "UICollectionViewCell.self");
-        runtime = runtime.replace("// __NEXA_MASONRY_MOVE__", "");
     }
     out.push_str(&runtime);
     if uses_vertical_list || uses_horizontal_list || uses_grid_list || uses_sectioned_list {
@@ -4009,10 +3935,25 @@ mod tests {
         );
         let source = generated.as_str();
         assert!(source.contains("struct NexaMasonryGeometry"));
-        assert!(source.contains("NexaFastMasonryPlaceholderView"));
-        assert!(source.contains("backgroundColor = .systemBackground"));
-        assert!(source.contains("destinationPlaceholder.frame = targetFrame"));
-        assert!(!source.contains("sourceMasonryPlaceholder"));
+        assert!(source.contains("NexaFastMasonryReorderGestureHandler"));
+        assert!(source.contains("beginInteractiveMovementForItem(at:"));
+        assert!(source.contains("updateInteractiveMovementTargetPosition(location)"));
+        assert!(source.contains("endInteractiveMovement()"));
+        assert!(source.contains("forInteractivelyMovingItems targetIndexPaths"));
+        assert!(
+            source.contains(
+                "geometry.nearestItem(to: position, in: searchRect, preferring: current)"
+            )
+        );
+        assert!(source.contains("let hysteresis: CGFloat = 8"));
+        assert!(source.contains("context.invalidateItems(at: reflowedItems)"));
+        assert!(source.contains("moveItemAt sourceIndexPath"));
+        assert!(source.contains("geometry.moveItem(from: current, to: index)"));
+        assert!(!source.contains("pendingMasonryMoveFrames"));
+        assert!(!source.contains("NexaFastMasonryPlaceholderView"));
+        assert!(!source.contains("UICollectionViewDropDelegate"));
+        assert!(!source.contains("dragPreviewParametersForItemAt"));
+        assert!(!source.contains("performDropWith"));
         assert!(source.contains("geometry.recordHeight(preferredAttributes.size.height"));
         assert!(source.contains("context.invalidateItems(at: visible)"));
         assert!(source.contains("func nexaAttachFastListRef("));
@@ -4032,7 +3973,7 @@ mod tests {
         assert!(
             !grid_only
                 .as_str()
-                .contains("NexaFastMasonryPlaceholderView")
+                .contains("NexaFastMasonryReorderGestureHandler")
         );
         assert!(!grid_only.as_str().contains("NexaFastMasonryCell"));
         assert!(!grid_only.as_str().contains("NexaFastMasonryLayout"));

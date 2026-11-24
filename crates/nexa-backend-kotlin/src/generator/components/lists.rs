@@ -370,6 +370,7 @@ struct FlatRowContent<'a> {
     native_row_divider: bool,
     on_move: Option<&'a FastListMove>,
     index: Option<&'a str>,
+    layout_index: Option<&'a str>,
     list_state: Option<&'a str>,
 }
 
@@ -759,6 +760,7 @@ pub(crate) fn render_virtualized_list(
             native_row_divider: pieces.show_dividers && pieces.axis == ListAxis::Vertical,
             on_move: pieces.on_move,
             index: pieces.on_move.map(|_| pieces.index),
+            layout_index: None,
             list_state: list_state.as_deref(),
         },
         module,
@@ -1086,6 +1088,7 @@ fn render_sectioned_list(
             native_row_divider: false,
             on_move: None,
             index: None,
+            layout_index: None,
             list_state: None,
         },
         scope.module,
@@ -1191,6 +1194,10 @@ fn render_grid_list(
         ListAxis::Vertical | ListAxis::Horizontal => "GridCells.Fixed(1)".to_owned(),
     };
     let is_masonry = matches!(axis, ListAxis::Masonry { .. });
+    let preview_state = reorder_state.as_deref().filter(|_| is_masonry);
+    let preview_position =
+        preview_state.map(|state| format!("{state}.dataIndexForPosition(itemPosition)"));
+    let key_position = preview_position.as_deref().unwrap_or("itemPosition");
     let list_name = if is_masonry {
         "LazyVerticalStaggeredGrid"
     } else {
@@ -1233,13 +1240,28 @@ fn render_grid_list(
             indent(out, list_depth + 2);
             let key = pieces
                 .key
-                .map(|key| render_key(key, pieces.index, pieces.item, None, "itemPosition"))
-                .unwrap_or_else(|| "itemPosition".to_owned());
+                .map(|key| render_key(key, pieces.index, pieces.item, None, key_position))
+                .unwrap_or_else(|| key_position.to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            out.line_at(
-                list_depth + 1,
-                format_args!(") {{ {} ->", state_name(pieces.index)),
-            );
+            if let Some(reorder_state) = preview_state {
+                out.line_at(list_depth + 1, format_args!(") {{ itemPosition ->"));
+                out.line_at(
+                    list_depth + 2,
+                    format_args!("val {}: Int = itemPosition", state_name("layoutIndex")),
+                );
+                out.line_at(
+                    list_depth + 2,
+                    format_args!(
+                        "val {}: Int = {reorder_state}.dataIndexForPosition(itemPosition)",
+                        state_name(pieces.index)
+                    ),
+                );
+            } else {
+                out.line_at(
+                    list_depth + 1,
+                    format_args!(") {{ {} ->", state_name(pieces.index)),
+                );
+            }
         }
         FlatCount::Items {
             collection,
@@ -1261,15 +1283,30 @@ fn render_grid_list(
                         pieces.index,
                         Some(item),
                         Some(collection),
-                        "itemPosition",
+                        key_position,
                     )
                 })
-                .unwrap_or_else(|| "itemPosition".to_owned());
+                .unwrap_or_else(|| key_position.to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            out.line_at(
-                list_depth + 1,
-                format_args!(") {{ {} ->", state_name(pieces.index)),
-            );
+            if let Some(reorder_state) = preview_state {
+                out.line_at(list_depth + 1, format_args!(") {{ itemPosition ->"));
+                out.line_at(
+                    list_depth + 2,
+                    format_args!("val {}: Int = itemPosition", state_name("layoutIndex")),
+                );
+                out.line_at(
+                    list_depth + 2,
+                    format_args!(
+                        "val {}: Int = {reorder_state}.dataIndexForPosition(itemPosition)",
+                        state_name(pieces.index)
+                    ),
+                );
+            } else {
+                out.line_at(
+                    list_depth + 1,
+                    format_args!(") {{ {} ->", state_name(pieces.index)),
+                );
+            }
             out.line_at(
                 list_depth + 2,
                 format_args!(
@@ -1292,7 +1329,7 @@ fn render_grid_list(
             FlatRowContent {
                 sizing: row_sizing,
                 axis,
-                animate_item: pieces.key.is_some(),
+                animate_item: true,
                 list_index_offset: 0,
                 reorder_state: Some(reorder_state),
                 children: pieces.children,
@@ -1302,6 +1339,7 @@ fn render_grid_list(
                 native_row_divider: false,
                 on_move: Some(on_move),
                 index: Some(pieces.index),
+                layout_index: Some("layoutIndex"),
                 list_state: Some(&list_state),
             },
             module,
@@ -1941,8 +1979,9 @@ fn render_reorderable_row_enabled(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let helper_index = row.layout_index.or(row.index);
     let (Some(callback), Some(index), Some(list_state), Some(reorder_state)) =
-        (row.on_move, row.index, row.list_state, row.reorder_state)
+        (row.on_move, helper_index, row.list_state, row.reorder_state)
     else {
         render_swipe_row(row, module, features, depth, out);
         return;
@@ -2122,7 +2161,7 @@ fn render_row_content_with_actions(
 ) {
     if row.animate_item {
         if let Some(reorder_state) = row.reorder_state {
-            let placement_condition = row.index.map_or_else(
+            let placement_condition = row.layout_index.or(row.index).map_or_else(
                 || format!("{reorder_state}.activeIndex.intValue < 0"),
                 |index| {
                     format!(
@@ -2254,8 +2293,9 @@ mod tests {
 
     use super::{
         FlatCount, FlatPieces, FlatRowContent, ListAxis, ListRowSizing, flat_list_requires_count,
-        render_list_observers, render_reorderable_row_enabled, render_row_content_with_actions,
-        row_horizontal_alignment, row_modifier, scroll_enabled_expression, sectioned_list_modifier,
+        render_grid_list, render_list_observers, render_reorderable_row_enabled,
+        render_row_content_with_actions, row_horizontal_alignment, row_modifier,
+        scroll_enabled_expression, sectioned_list_modifier,
     };
 
     #[test]
@@ -2503,6 +2543,7 @@ mod tests {
             native_row_divider: false,
             on_move: Some(&callback),
             index: Some("index"),
+            layout_index: None,
             list_state: Some("listState"),
         };
         let mut generated = SourceWriter::new();
@@ -2555,6 +2596,98 @@ mod tests {
             keyed_generated
                 .as_str()
                 .contains("NexaFastListReorderableItem(")
+        );
+    }
+
+    #[test]
+    fn masonry_reorder_preview_maps_data_positions_but_keeps_layout_positions() {
+        let module = Module {
+            app_name: String::new(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let callback = FastListMove {
+            from: "from".to_owned(),
+            to: "to".to_owned(),
+            enabled: Expr::Bool(true),
+            actions: Vec::new(),
+        };
+        let pieces = FlatPieces {
+            axis: ListAxis::Masonry { columns: 2 },
+            uses_platform_list: false,
+            show_dividers: false,
+            count: FlatCount::Items {
+                collection: "masonryItems".to_owned(),
+                element_type: &nexa_ir::Type::String,
+                item: "item",
+            },
+            index: "index",
+            item: Some("item"),
+            item_extent: None,
+            spacing: 0.0,
+            scroll_enabled: None,
+            key: None,
+            children: &[],
+            swipe_actions: None,
+            on_end_reached: None,
+            on_scroll: None,
+            on_scroll_begin_drag: None,
+            on_move: Some(&callback),
+            scroll_position: None,
+            reverse_layout: false,
+            page_snap: false,
+            sticky_header: None,
+            refresh: None,
+            component_ref: None,
+        };
+        let mut generated = SourceWriter::new();
+
+        render_grid_list(
+            pieces.axis,
+            &pieces,
+            &module,
+            &crate::generator::features::Features::default(),
+            0,
+            0,
+            &mut generated,
+        );
+
+        let source = generated.as_str();
+        assert!(
+            source.contains(
+                "key = { itemPosition -> nexaFastListReorderState0.dataIndexForPosition(itemPosition) }"
+            ),
+            "{source}"
+        );
+        assert!(
+            source.contains(
+                "val nexa_index: Int = nexaFastListReorderState0.dataIndexForPosition(itemPosition)"
+            ),
+            "{source}"
+        );
+        assert!(source.contains("val nexa_item: String = masonryItems[nexa_index]"));
+        assert!(source.contains("index = nexa_layoutIndex,"), "{source}");
+        assert!(
+            source.contains("onMove = { source, destination ->"),
+            "{source}"
         );
     }
 }

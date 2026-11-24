@@ -3451,8 +3451,10 @@ private fun NexaDevRenderFastListNode(
                 Modifier,
                 androidx.compose.foundation.lazy.LazyListState?,
                 LazyStaggeredGridState?,
-            ) -> Unit = { itemIndex, itemAxis, itemParentModifier, itemListState, itemStaggeredGridState ->
-                val rowLocals = listRowLocals(itemIndex)
+                Int,
+            ) -> Unit = { itemIndex, itemAxis, itemParentModifier, itemListState, itemStaggeredGridState, itemDataIndex ->
+                val dataIndex = itemDataIndex
+                val rowLocals = listRowLocals(dataIndex)
                 val itemModifier = if (pageSnap && itemAxis == "Vertical") {
                     Modifier
                 } else when (itemAxis) {
@@ -3595,7 +3597,7 @@ private fun NexaDevRenderFastListNode(
                         flingBehavior = PagerDefaults.flingBehavior(state = pager, pagerSnapDistance = PagerSnapDistance.atMost(1)),
                         key = if (keyExpression != null) ({ index: Int -> stableRowKey(index) }) else null,
                     ) { index ->
-                        renderItem(index, "Vertical", Modifier.fillMaxSize(), null, null)
+                        renderItem(index, "Vertical", Modifier.fillMaxSize(), null, null, index)
                     }
                 } else if (axis == "Grid" || axis == "AdaptiveGrid" || axis == "Masonry") {
                     if (axis == "Masonry") {
@@ -3654,7 +3656,13 @@ private fun NexaDevRenderFastListNode(
                                 (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
                             modifier = modifier.then(scrollViewportModifier).fillMaxWidth(),
                         ) {
-                            items(count = count, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
+                            items(
+                                count = count,
+                                key = { itemIndex ->
+                                    stableRowKey(reorderState?.dataIndexForPosition(itemIndex) ?: itemIndex)
+                                },
+                            ) { itemIndex ->
+                                val dataIndex = reorderState?.dataIndexForPosition(itemIndex) ?: itemIndex
                                 val rowParentModifier = if (animateStableRows) {
                                     Modifier.fillMaxWidth().animateItem(
                                         placementSpec = if (reorderState?.activeIndex?.intValue != itemIndex) {
@@ -3666,7 +3674,7 @@ private fun NexaDevRenderFastListNode(
                                 } else {
                                     Modifier
                                 }
-                                renderItem(itemIndex, axis, rowParentModifier, null, listState)
+                                renderItem(itemIndex, axis, rowParentModifier, null, listState, dataIndex)
                             }
                         }
                     } else {
@@ -3729,7 +3737,7 @@ private fun NexaDevRenderFastListNode(
                             .fillMaxWidth(),
                     ) {
                         items(count = count, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
-                            renderItem(itemIndex, axis, Modifier, null, null)
+                            renderItem(itemIndex, axis, Modifier, null, null, itemIndex)
                         }
                     }
                     }
@@ -3841,7 +3849,7 @@ private fun NexaDevRenderFastListNode(
                             modifier = modifier.then(scrollViewportModifier).fillMaxWidth(),
                         ) {
                             items(count = count, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
-                                renderItem(itemIndex, axis, Modifier, null, null)
+                                renderItem(itemIndex, axis, Modifier, null, null, itemIndex)
                             }
                         }
                     } else {
@@ -3951,16 +3959,16 @@ private fun NexaDevRenderFastListNode(
                                         Modifier
                                     }
                                     if (onMove != null && axis == "Vertical") {
-                                        renderItem(itemPosition, axis, rowParentModifier, listState, null)
+                                        renderItem(itemPosition, axis, rowParentModifier, listState, null, itemPosition)
                                     } else if (usesPlatformList && axis == "Vertical") {
                                         NexaNativeListRowPrimitive(position = itemPosition, count = count) {
-                                            renderItem(itemPosition, axis, rowParentModifier, listState, null)
+                                            renderItem(itemPosition, axis, rowParentModifier, listState, null, itemPosition)
                                             if (showDividers && itemPosition + 1 < count) {
                                                 NexaNativeListDividerPrimitive()
                                             }
                                         }
                                     } else {
-                                        renderItem(itemPosition, axis, rowParentModifier, listState, null)
+                                        renderItem(itemPosition, axis, rowParentModifier, listState, null, itemPosition)
                                         if (showDividers && itemPosition + 1 < count) {
                                             NexaFastListDividerPrimitive()
                                         }

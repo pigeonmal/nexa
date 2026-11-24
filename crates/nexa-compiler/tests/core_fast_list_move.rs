@@ -441,24 +441,15 @@ app MasonryReorderExample {
             Target::Swift => {
                 let swift = nexa_backend_swift::SwiftBackend.generate(&module);
                 assert!(swift.contains("onMove: nexaMasonryMove"));
-                assert!(swift.contains("performDropWith coordinator"));
-                assert!(swift.contains(
-                    "moveMasonryItem(from: source, to: target.item, at: location, in: collectionView)"
-                ));
-                assert!(swift.contains("onMove(from, target)"));
-                assert!(swift.contains("animatePendingMasonryMove(in: collectionView)"));
-                assert!(swift.contains("NexaFastMasonryPlaceholderView()"));
-                assert!(swift.contains("destinationPlaceholder.frame = targetFrame"));
-                assert!(swift.contains("backgroundColor = .systemBackground"));
-                assert!(!swift.contains("sourceMasonryPlaceholder"));
-                assert!(swift.contains("dragPreviewParametersForItemAt"));
-                assert!(swift.contains("parameters.shadowPath = UIBezierPath()"));
-                assert!(swift.contains("minimumMoveDistance: CGFloat = 12"));
-                assert!(swift.contains("source.canMove(at: location)"));
-                assert!(swift.contains("source.recordMove(at: location)"));
-                assert!(swift.contains("guard source.hasReordered else { return }"));
-                assert!(!swift.contains("previewTransform(for:"));
-                assert!(!swift.contains("updatePreview(in:"));
+                assert!(swift.contains("beginInteractiveMovementForItem(at:"));
+                assert!(swift.contains("updateInteractiveMovementTargetPosition(location)"));
+                assert!(swift.contains("endInteractiveMovement()"));
+                assert!(swift.contains("moveItemAt sourceIndexPath"));
+                assert!(swift.contains("geometry.moveItem(from: current, to: index)"));
+                assert!(!swift.contains("performDropWith coordinator"));
+                assert!(!swift.contains("NexaFastMasonryPlaceholderView"));
+                assert!(!swift.contains("pendingMasonryMoveFrames"));
+                assert!(!swift.contains("UICollectionViewDropDelegate"));
             }
             Target::Kotlin => {
                 let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);

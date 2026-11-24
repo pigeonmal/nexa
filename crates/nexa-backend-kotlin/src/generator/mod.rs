@@ -5065,6 +5065,7 @@ mod tests {
 
         assert!(helper.contains("internal class NexaFastListReorderState"));
         assert!(helper.contains("mutableIntStateOf(-1)"));
+        assert!(helper.contains("fun dataIndexForPosition(position: Int): Int"));
         assert!(helper.contains("mutableFloatStateOf(0f)"));
         assert!(helper.contains("detectDragGesturesAfterLongPress("));
         assert!(helper.contains("listState.layoutInfo.visibleItemsInfo"));
@@ -5072,13 +5073,24 @@ mod tests {
         assert!(helper.contains("dragged.index != source"));
         assert!(helper.contains("it.key == sourceKey && it.index == source"));
         assert!(helper.contains("val key = reorderState.activeKey()"));
-        assert!(helper.contains("currentOnMove.value(from, target)"));
+        assert!(helper.contains("currentOnMove.value(source, targetIndex)"));
         assert!(helper.contains("onDragCancel = {"));
         assert!(helper.contains("settlingOffset.animateTo("));
         assert!(!helper.contains("shadowElevation"));
         assert!(!helper.contains("masonryPreview"));
         assert!(!helper.contains("awaitEachGesture"));
         assert!(!helper.contains("awaitFirstDown"));
+
+        let masonry = helper
+            .split_once("// nexa-codegen: NexaFastStaggeredGridReorderableItem\n")
+            .map(|(_, source)| source)
+            .expect("masonry reorder helper marker exists");
+        assert!(!masonry.contains("currentOnMove.value(from, target)"));
+        assert!(masonry.contains("currentOnMove.value(initialSource, source)"));
+        assert!(masonry.contains("layout.viewportStartOffset"));
+        assert!(masonry.contains("layout.viewportEndOffset"));
+        assert!(masonry.contains("listState.scrollBy(scrollDelta)"));
+        assert!(masonry.contains("autoScrollJob?.cancel()"));
     }
 
     fn braced_block(source: &str, start: usize) -> &str {

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
@@ -18,10 +19,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -33,6 +37,7 @@ import kotlin.math.roundToInt
 @Stable
 internal class NexaFastListReorderState(private val scope: CoroutineScope) {
     val activeIndex = mutableIntStateOf(-1)
+    private val sourceIndex = mutableIntStateOf(-1)
     val settlingIndex = mutableIntStateOf(-1)
     val dragOffsetX = mutableFloatStateOf(0f)
     val dragOffset = mutableFloatStateOf(0f)
@@ -45,6 +50,8 @@ internal class NexaFastListReorderState(private val scope: CoroutineScope) {
     private var settlingGeneration = 0
     private var draggedKey: Any? = null
 
+    fun launchTask(block: suspend CoroutineScope.() -> Unit): Job = scope.launch(block = block)
+
     fun start(index: Int, key: Any?) {
         settlingGeneration++
         settlingJob?.cancel()
@@ -56,11 +63,25 @@ internal class NexaFastListReorderState(private val scope: CoroutineScope) {
         dragPointerY.floatValue = 0f
         dragTouchX.floatValue = 0f
         dragTouchY.floatValue = 0f
+        sourceIndex.intValue = index
         activeIndex.intValue = index
+    }
+
+    fun dataIndexForPosition(position: Int): Int {
+        val from = sourceIndex.intValue
+        val to = activeIndex.intValue
+        if (from < 0 || to < 0 || from == to) return position
+        return when {
+            from < to && position in from until to -> position + 1
+            to < from && position > to && position <= from -> position - 1
+            position == to -> from
+            else -> position
+        }
     }
 
     fun finishDrag() {
         val index = activeIndex.intValue
+        sourceIndex.intValue = -1
         if (index < 0) return
 
         val offset = Offset(dragOffsetX.floatValue, dragOffset.floatValue)
@@ -101,6 +122,7 @@ internal class NexaFastListReorderState(private val scope: CoroutineScope) {
         settlingJob?.cancel()
         settlingJob = null
         settlingIndex.intValue = -1
+        sourceIndex.intValue = -1
         draggedKey = null
         dragOffsetX.floatValue = 0f
         dragOffset.floatValue = 0f
@@ -127,15 +149,20 @@ internal fun NexaFastStaggeredGridReorderableItem(
     val currentIndex = rememberUpdatedState(index)
     val currentItemCount = rememberUpdatedState(itemCount)
     val currentOnMove = rememberUpdatedState(onMove)
+    val density = LocalDensity.current
+    val autoScrollEdgePx = with(density) { 72.dp.toPx() }
+    val maxAutoScrollSpeedPx = with(density) { 720.dp.toPx() }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .pointerInput(reorderState, enabled, listState) {
+            .pointerInput(reorderState, enabled, listState, autoScrollEdgePx, maxAutoScrollSpeedPx) {
                 if (!enabled) return@pointerInput
 
                 var source = -1
+                var initialSource = -1
                 var sourceKey: Any? = null
+                var autoScrollJob: Job? = null
                 var touchX = 0f
                 var touchY = 0f
                 var pointerX = 0f
@@ -172,6 +199,71 @@ internal fun NexaFastStaggeredGridReorderableItem(
                     return target
                 }
 
+                fun updateDraggedItemPosition() {
+                    if (source < 0) return
+                    val visible = listState.layoutInfo.visibleItemsInfo
+                    val dragged = visible.firstOrNull { it.key == sourceKey } ?: return
+                    reorderState.dragOffsetX.floatValue = pointerX - dragged.offset.x - touchX
+                    reorderState.dragOffset.floatValue = pointerY - dragged.offset.y - touchY
+
+                    val target = targetUnderDraggedItem(visible, dragged)
+                    if (target >= 0 && target != source) {
+                        source = target
+                        reorderState.activeIndex.intValue = target
+                    }
+                }
+
+                fun stopAutoScroll() {
+                    autoScrollJob?.cancel()
+                    autoScrollJob = null
+                }
+
+                fun updateAutoScroll() {
+                    if (source < 0) return
+                    val layout = listState.layoutInfo
+                    val viewportHeight = (layout.viewportEndOffset - layout.viewportStartOffset).toFloat()
+                    val edgeSize = minOf(autoScrollEdgePx, viewportHeight / 3f)
+                    if (edgeSize <= 0f) return
+                    val nearEdge = pointerY < layout.viewportStartOffset + edgeSize ||
+                        pointerY > layout.viewportEndOffset - edgeSize
+                    if (!nearEdge) {
+                        stopAutoScroll()
+                        return
+                    }
+                    if (autoScrollJob?.isActive == true) return
+
+                    autoScrollJob = reorderState.launchTask {
+                        var previousFrame = withFrameNanos { it }
+                        while (source >= 0) {
+                            val frameTime = withFrameNanos { it }
+                            val deltaSeconds =
+                                ((frameTime - previousFrame) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                            previousFrame = frameTime
+
+                            val currentLayout = listState.layoutInfo
+                            val currentViewportHeight =
+                                (currentLayout.viewportEndOffset - currentLayout.viewportStartOffset).toFloat()
+                            val currentEdgeSize = minOf(autoScrollEdgePx, currentViewportHeight / 3f)
+                            if (currentEdgeSize <= 0f) return@launchTask
+
+                            val scrollFraction = when {
+                                pointerY < currentLayout.viewportStartOffset + currentEdgeSize ->
+                                    -((currentLayout.viewportStartOffset + currentEdgeSize - pointerY) /
+                                        currentEdgeSize).coerceIn(0f, 1f)
+                                pointerY > currentLayout.viewportEndOffset - currentEdgeSize ->
+                                    ((pointerY - (currentLayout.viewportEndOffset - currentEdgeSize)) /
+                                        currentEdgeSize).coerceIn(0f, 1f)
+                                else -> return@launchTask
+                            }
+                            val scrollDelta = maxAutoScrollSpeedPx * scrollFraction * deltaSeconds
+                            if (abs(scrollDelta) < 0.5f) continue
+                            if (abs(listState.scrollBy(scrollDelta)) < 0.5f) return@launchTask
+
+                            updateDraggedItemPosition()
+                        }
+                    }
+                }
+
                 try {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { touch ->
@@ -181,6 +273,7 @@ internal fun NexaFastStaggeredGridReorderableItem(
                                 reorderState.activeIndex.intValue < 0
                             ) {
                                 source = index
+                                initialSource = index
                                 sourceKey = item.key
                                 touchX = touch.x
                                 touchY = touch.y
@@ -191,6 +284,7 @@ internal fun NexaFastStaggeredGridReorderableItem(
                                 reorderState.dragTouchY.floatValue = touchY
                                 reorderState.dragPointerX.floatValue = pointerX
                                 reorderState.dragPointerY.floatValue = pointerY
+                                updateAutoScroll()
                             }
                         },
                         onDrag = { change, amount ->
@@ -200,51 +294,49 @@ internal fun NexaFastStaggeredGridReorderableItem(
                                 pointerY += amount.y
                                 reorderState.dragPointerX.floatValue = pointerX
                                 reorderState.dragPointerY.floatValue = pointerY
-
-                                val visible = listState.layoutInfo.visibleItemsInfo
-                                val dragged = visible.firstOrNull { it.key == sourceKey }
-                                if (dragged != null) {
-                                    reorderState.dragOffsetX.floatValue = pointerX - dragged.offset.x - touchX
-                                    reorderState.dragOffset.floatValue = pointerY - dragged.offset.y - touchY
-
-                                    val target = targetUnderDraggedItem(visible, dragged)
-                                    if (target >= 0 && target != source) {
-                                        val from = source
-                                        source = target
-                                        reorderState.activeIndex.intValue = target
-                                        currentOnMove.value(from, target)
-                                    }
-                                }
+                                updateDraggedItemPosition()
+                                updateAutoScroll()
                             }
                         },
                         onDragEnd = {
                             if (source >= 0) {
+                                stopAutoScroll()
                                 listState.layoutInfo.visibleItemsInfo.firstOrNull {
                                     it.key == sourceKey && it.index == source
                                 }?.let { dragged ->
                                     reorderState.dragOffsetX.floatValue = pointerX - dragged.offset.x - touchX
                                     reorderState.dragOffset.floatValue = pointerY - dragged.offset.y - touchY
                                 }
+                                if (initialSource >= 0 && source != initialSource) {
+                                    currentOnMove.value(initialSource, source)
+                                }
                                 source = -1
+                                initialSource = -1
                                 sourceKey = null
                                 reorderState.finishDrag()
                             }
                         },
                         onDragCancel = {
                             if (source >= 0) {
+                                stopAutoScroll()
                                 listState.layoutInfo.visibleItemsInfo.firstOrNull {
                                     it.key == sourceKey && it.index == source
                                 }?.let { dragged ->
                                     reorderState.dragOffsetX.floatValue = pointerX - dragged.offset.x - touchX
                                     reorderState.dragOffset.floatValue = pointerY - dragged.offset.y - touchY
                                 }
+                                if (initialSource >= 0 && source != initialSource) {
+                                    currentOnMove.value(initialSource, source)
+                                }
                                 source = -1
+                                initialSource = -1
                                 sourceKey = null
                                 reorderState.finishDrag()
                             }
                         },
                     )
                 } finally {
+                    stopAutoScroll()
                     if (source >= 0) reorderState.reset()
                 }
             }
