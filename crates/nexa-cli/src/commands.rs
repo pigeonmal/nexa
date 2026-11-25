@@ -710,6 +710,9 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
         let resolved = crate::dependencies::resolve(&root, &dependencies)?;
         crate::dependencies::sync_lock(&root, !dependencies.is_empty(), &resolved.lock_file, true)?;
     }
+    if matches!(command, "test" | "release") {
+        project_args.push("--subset-icon-fonts".to_owned());
+    }
     if command == "test" {
         project_args.push("--execute-tests".to_owned());
         super::project::run(&project_args)?;

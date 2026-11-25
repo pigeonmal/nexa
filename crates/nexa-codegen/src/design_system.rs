@@ -27,14 +27,19 @@ pub const DEFAULT_BODY_FONT_SIZE: u8 = 17;
 pub const TEXT_INPUT_TITLE3_FONT_SIZE: u8 = 20;
 /// Default Compose system icon canvas matched to the shared 24dp control size.
 pub const DEFAULT_MATERIAL_ICON_SIZE: u8 = 24;
+pub const PICKER_ICON_SIZE: u8 = 16;
+pub const PICKER_ICON_TRIGGER_MIN_SIZE: u8 = 48;
 /// Material paths need a modest size adjustment to match SF Symbol metrics.
 pub const MATERIAL_ICON_SIZE_SCALE: f32 = 1.2;
+/// Search fills less of its Material viewport than the baseline symbols.
+pub const MATERIAL_SEARCH_SIZE_SCALE: f32 = 1.32;
 pub const DEFAULT_LINE_HEIGHT_MULTIPLIER: f32 = 1.2;
 pub const BUTTON_MIN_TAP_TARGET: u8 = 48;
 pub const BUTTON_MIN_WIDTH: u8 = 64;
 pub const BUTTON_LOADING_INDICATOR_SIZE: u8 = 20;
 pub const DEFAULT_BUTTON_SHAPE: ButtonShape = ButtonShape::Capsule;
 pub const BUTTON_DEFAULT_HORIZONTAL_PADDING: u8 = 0;
+pub const BUTTON_LABELED_ICON_HORIZONTAL_PADDING: u8 = 8;
 pub const BUTTON_DEFAULT_VERTICAL_PADDING: u8 = 0;
 pub const BUTTON_LARGE_MIN_HEIGHT: u8 = 50;
 pub const BUTTON_SMALL_HORIZONTAL_PADDING: u8 = 12;

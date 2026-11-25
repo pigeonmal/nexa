@@ -180,12 +180,18 @@ or runtime alias lookup is involved.
 An edit regenerates SVG fonts when needed and sends the icon font bytes with the
 typed module update. iOS registers these fonts with CoreText; Android loads them
 from the app cache into Compose. Icon asset edits do not rebuild the DevRuntime
-host, and ordinary module updates keep compatible app state. AOT builds package
-the same font files as static native resources.
+host, and ordinary module updates keep compatible app state.
+
+`nexa release` and native `nexa test` stage subsets of icon fonts based on the
+glyphs used by each target. They omit unused icon fonts and keep full faces
+used by text, fonts that disallow subsetting, and fonts whose glyph data cannot
+be preserved in a smaller file. DevRuntime keeps the full sets for hot reload.
 
 Release output stays ahead-of-time: SwiftUI renders symbols and font glyphs
 with native `Image` and `Text`; Compose renders them with Material `Icon` and
-`Text`. Project glyphs are tracked separately from system icons, so a
+`Text`. A single-layer SVG resolves to one glyph and one color at compile
+time. It renders in one native text view, while multi-layer art keeps a
+stack of glyphs. Project glyphs are tracked separately from system icons, so a
 custom-only Android app does not acquire Nexa's Material system-icon imports.
 Explicit system icon usage still enables the required native icon dependency.
 

@@ -3692,7 +3692,7 @@ pub(super) fn lower_icon_spec(
         ));
     };
     let icon_name = require_string_literal(source, "Icon name")?;
-    let icon_source = match selector {
+    let mut icon_source = match selector {
         "system" => nexa_ir::SystemIcon::shared(&icon_name)
             .map(nexa_ir::IconSource::System)
             .ok_or_else(|| CompileError::new(source.span(), format!("unknown system icon `{icon_name}`; custom names never resolve through `system:`")))?,
@@ -3754,10 +3754,29 @@ pub(super) fn lower_icon_spec(
             )),
         })
         .transpose()?;
-    let color = arguments
+    let mut color = arguments
         .get("color")
         .map(|value| lower_color_expression(value.clone(), "Icon color", cx))
         .transpose()?;
+    // A one-layer SVG needs only its outline codepoint and resolved color.
+    // Carry neither an unused base glyph nor a layer array into native code.
+    if let nexa_ir::IconSource::FontGlyph { glyph, layers, .. } = &mut icon_source
+        && let [layer] = layers.as_slice()
+    {
+        *glyph = layer.glyph;
+        if color.is_none() {
+            let [red, green, blue, alpha] = layer.rgba;
+            color = Some(nexa_ir::ColorExpression::Static(
+                nexa_ir::ColorValue::Static(nexa_ir::Color {
+                    red,
+                    green,
+                    blue,
+                    alpha,
+                }),
+            ));
+        }
+        layers.clear();
+    }
     for (key, value) in arguments {
         if key != selector && !matches!(key.as_str(), "description" | "size" | "color") {
             return Err(CompileError::new(

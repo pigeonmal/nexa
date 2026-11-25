@@ -457,6 +457,8 @@ On iOS, physical tap activation checks the delivered location against the button
 
 A passive touch observer is shared by buttons in each window. It never recognizes or consumes gestures; SwiftUI retains native pressing, release feedback, and activation. Each button provides a non-interactive bounds probe, and pointer movement does not update SwiftUI state.
 
+Regular bordered and prominent buttons with an icon and label use 8 points or dp of horizontal content padding. The gap between the icon and label is 8 points or dp across button sizes.
+
 | Parameter | Type | Default | Behavior |
 |---|---|---|---|
 | `label` | `String` expression | Required positional value | Visible button text. |
@@ -467,7 +469,7 @@ A passive touch observer is shared by buttons in each window. It never recognize
 | `style` | `BorderedProminent`, `Bordered`, `Borderless`, or `Plain` | `BorderedProminent` | Selects the shared button treatment. |
 | `size` | `Small`, `Regular`, or `Large` | Native default | Selects the native control size. |
 | `shape` | `Capsule`, `Circle`, or `Rounded(radius)` | Shared capsule | Selects the outline shape. |
-| `tint` | Color expression (`String`) | Platform accent | Overrides the button tint. |
+| `tint` | Color expression (`String`) | Depends on style | Overrides the button tint. Prominent buttons use the shared Nexa accent by default. |
 | `glass` | `Bool` | `false` | Enables the native glass treatment where available. |
 | `accessibilityLabel` | `String` expression | Native label | Overrides the accessible name, including while the button is loading. |
 | action block | Actions | Required | Runs when the enabled button is activated. |
@@ -1691,6 +1693,7 @@ the user chooses an item.
 `icon` for an icon-only picker and pass `tint` when its selected icon should
 reflect the current value, such as a task priority. Android presents an
 anchored Material 3 Expressive menu; iOS uses a native menu.
+The icon-only trigger centers its icon in a minimum 48-point or 48dp target.
 When a text label is present, it stays visible while the menu is open and uses
 the platform's primary text color. `tint` colors the selected value and picker
 control independently.

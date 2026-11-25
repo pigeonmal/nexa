@@ -2388,13 +2388,15 @@ app ComponentParity {
                 Text("Mazicon uses a named TTF sidecar; Brand is generated from SVG.", fontSize: 14)
             }
             ParityCard(title: "System and custom icon component slots") {
-                Row(gap: 8, alignment: Center) {
-                    Button("Search", icon: Icon(system: "search")) {
+                Column(gap: 8) {
+                    Row(gap: 8, alignment: Center) {
+                        Button("Search", icon: Icon(system: "search")) {
+                        }
+                        Button("Play audio", icon: Icon(mazicon: "play")) {
+                        }
                     }
-                    Button("Play audio", icon: Icon(mazicon: "play")) {
+                    Button("Save favorite", icon: Icon(Brand: "heart", color: "#E11D48")) {
                     }
-                }
-                Button("Save favorite", icon: Icon(Brand: "heart", color: "#E11D48")) {
                 }
                 Picker(
                     items: ["Newest", "Popular", "Saved"],
@@ -2402,11 +2404,13 @@ app ComponentParity {
                     icon: Icon(system: "search"),
                     itemIcons: ["search", Icon(mazicon: "play"), Icon(Brand: "heart")]
                 )
-                ContentUnavailable(
-                    title: "No saved favorites",
-                    icon: Icon(Brand: "heart"),
-                    description: "Save one to see it here."
-                )
+                Column(height: 216) {
+                    ContentUnavailable(
+                        title: "No saved favorites",
+                        icon: Icon(Brand: "heart"),
+                        description: "Save one to see it here."
+                    )
+                }
             }
         }
     }

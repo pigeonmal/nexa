@@ -185,8 +185,9 @@ pub(super) fn copy_ios_project_fonts(
     source_root: &Path,
     output_root: &Path,
     app_name: &str,
+    icon_usage: Option<&IconFontUsage>,
 ) -> Result<Vec<String>, String> {
-    let fonts = project_fonts(source_root)?;
+    let fonts = packaged_project_fonts(source_root, icon_usage)?;
     let directory = output_root.join("ios").join(app_name).join("Fonts");
     let marker = output_root
         .join("ios")
@@ -221,7 +222,7 @@ pub(super) fn copy_ios_project_fonts(
         let destination = directory.join(filename);
         let relative = format!("Fonts/{}", filename.to_string_lossy());
         ensure_owned_destination(&destination, &marker, &relative)?;
-        copy_if_changed(&font.source, &destination)?;
+        stage_project_font(font, &destination, icon_usage)?;
     }
     write_marker(&marker, &generated)?;
     Ok(generated.into_iter().collect())
@@ -230,8 +231,9 @@ pub(super) fn copy_ios_project_fonts(
 pub(super) fn copy_android_project_fonts(
     source_root: &Path,
     output_root: &Path,
+    icon_usage: Option<&IconFontUsage>,
 ) -> Result<(), String> {
-    let fonts = project_fonts(source_root)?;
+    let fonts = packaged_project_fonts(source_root, icon_usage)?;
     let resources = output_root.join("android/app/src/main/res/font");
     let marker = output_root.join("android/app/src/main/res/.nexa-project-fonts");
     let mut generated = BTreeSet::new();
@@ -247,7 +249,7 @@ pub(super) fn copy_android_project_fonts(
         let filename = format!("{}.{}", font.resource_name, font.extension);
         let destination = resources.join(&filename);
         ensure_owned_destination(&destination, &marker, &filename)?;
-        copy_if_changed(&font.source, &destination)?;
+        stage_project_font(font, &destination, icon_usage)?;
     }
     write_marker(&marker, &generated)?;
 
@@ -264,6 +266,79 @@ pub(super) fn copy_android_project_fonts(
     )?;
     write_marker(&legacy_dev_marker, &BTreeSet::new())?;
     Ok(())
+}
+
+pub(super) struct IconFontUsage {
+    codepoints: std::collections::BTreeMap<String, Option<BTreeSet<u32>>>,
+    text_resources: BTreeSet<String>,
+}
+
+impl IconFontUsage {
+    pub(super) fn analyze(module: &nexa_ir::Module, catalog: &nexa_codegen::FontCatalog) -> Self {
+        let ui = nexa_ir::facts::ModuleFacts::analyze(module).ui;
+        let families = ui
+            .text_font_families
+            .iter()
+            .filter_map(|family| {
+                catalog
+                    .resolve(family, nexa_ir::FontWeight::Normal)
+                    .map(|face| face.family.to_ascii_lowercase())
+            })
+            .collect::<BTreeSet<_>>();
+        let text_resources = catalog
+            .faces()
+            .filter(|face| families.contains(&face.family.to_ascii_lowercase()))
+            .map(|face| face.android_resource_name.clone())
+            .collect();
+        let codepoints = ui
+            .icon_font_codepoints
+            .into_iter()
+            .map(|(name, codepoints)| (nexa_codegen::names::font_resource_name(&name), codepoints))
+            .collect();
+        Self {
+            codepoints,
+            text_resources,
+        }
+    }
+
+    fn is_managed(&self, font: &ProjectFont) -> bool {
+        !self.text_resources.contains(&font.resource_name)
+            && font.source.with_extension("icons.json").is_file()
+    }
+}
+
+fn packaged_project_fonts(
+    source_root: &Path,
+    icon_usage: Option<&IconFontUsage>,
+) -> Result<Vec<ProjectFont>, String> {
+    let mut fonts = project_fonts(source_root)?;
+    if let Some(usage) = icon_usage {
+        fonts.retain(|font| {
+            !usage.is_managed(font) || usage.codepoints.contains_key(&font.resource_name)
+        });
+    }
+    Ok(fonts)
+}
+
+fn stage_project_font(
+    font: &ProjectFont,
+    destination: &Path,
+    icon_usage: Option<&IconFontUsage>,
+) -> Result<(), String> {
+    if let Some(codepoints) = icon_usage
+        .filter(|usage| usage.is_managed(font))
+        .and_then(|usage| usage.codepoints.get(&font.resource_name))
+        .and_then(Option::as_ref)
+    {
+        let original = fs::read(&font.source)
+            .map_err(|error| format!("{}: {error}", font.source.display()))?;
+        let subset = nexa_icon_font::subset_icon_font(&original, codepoints);
+        return super::file_ops::write_bytes_if_changed(
+            destination,
+            subset.as_deref().unwrap_or(&original),
+        );
+    }
+    copy_if_changed(&font.source, destination)
 }
 
 pub(super) fn load_font_catalog(
@@ -1069,9 +1144,59 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        copy_android_project_fonts, copy_ios_project_fonts, generate_android_icon_named,
-        generate_android_icon_set_named, load_font_catalog,
+        IconFontUsage, copy_android_project_fonts, copy_ios_project_fonts,
+        generate_android_icon_named, generate_android_icon_set_named, load_font_catalog,
     };
+
+    #[test]
+    fn release_font_staging_subsets_icon_only_faces_and_preserves_a_face_used_by_text() {
+        let project = nexa_testkit::TestProject::new("nexa-release-icon-fonts");
+        let font = include_bytes!("../../../../examples/component-parity/assets/fonts/mazicon.ttf");
+        std::fs::create_dir_all(project.join("assets/fonts")).expect("create fonts directory");
+        std::fs::write(project.join("assets/fonts/mazicon.ttf"), font).expect("write font");
+        std::fs::write(
+            project.join("assets/fonts/mazicon.icons.json"),
+            r#"{"play": 61696}"#,
+        )
+        .expect("write sidecar");
+        let catalog = load_font_catalog(project.path(), &[]).expect("discover native font faces");
+        let out = project.join("out");
+        let android = out.join("android/app/src/main/res/font/mazicon.ttf");
+        let ios = out.join("ios/IconProbe/Fonts/mazicon.ttf");
+
+        for (contents, expect_subset) in [
+            (
+                r#"app IconProbe { body { Button("Play", icon: Icon(mazicon: "play")) {} } }"#,
+                true,
+            ),
+            (
+                r#"app IconProbe { body { Text("Play", fontFamily: "Mazicon") } }"#,
+                false,
+            ),
+        ] {
+            let entry = project.write_app(contents);
+            let module = nexa_compiler::compile_file(&entry).expect("compile font usage");
+            let usage = IconFontUsage::analyze(&module, &catalog);
+            copy_android_project_fonts(project.path(), &out, Some(&usage)).expect("stage Android");
+            copy_ios_project_fonts(project.path(), &out, "IconProbe", Some(&usage))
+                .expect("stage iOS");
+            let bytes = std::fs::read(&android).expect("read Android font");
+            assert_eq!(bytes, std::fs::read(&ios).expect("read iOS font"));
+            if expect_subset {
+                assert!(bytes.len() < font.len() / 4);
+            } else {
+                assert_eq!(bytes, font);
+            }
+        }
+
+        let entry = project.write_app(r#"app IconProbe { body { Text("Ready") } }"#);
+        let module = nexa_compiler::compile_file(&entry).expect("compile without custom fonts");
+        let usage = IconFontUsage::analyze(&module, &catalog);
+        copy_android_project_fonts(project.path(), &out, Some(&usage)).expect("stage Android");
+        copy_ios_project_fonts(project.path(), &out, "IconProbe", Some(&usage)).expect("stage iOS");
+        assert!(!android.exists());
+        assert!(!ios.exists());
+    }
 
     #[test]
     fn project_font_catalog_discovers_family_weight_and_postscript_metadata() {
@@ -1139,9 +1264,9 @@ mod tests {
         )
         .expect("write previous DevRuntime font marker");
 
-        let ios_fonts =
-            copy_ios_project_fonts(&source, &output, "Demo").expect("copy iOS font resources");
-        copy_android_project_fonts(&source, &output).expect("copy Android font resources");
+        let ios_fonts = copy_ios_project_fonts(&source, &output, "Demo", None)
+            .expect("copy iOS font resources");
+        copy_android_project_fonts(&source, &output, None).expect("copy Android font resources");
 
         assert_eq!(
             ios_fonts,

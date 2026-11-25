@@ -96,23 +96,33 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
                 nexa_ir::Node::FontIcon {
                     font_family,
                     font_resource,
+                    glyph: nexa_ir::Expr::Number { raw, .. },
                     layers,
+                    tint,
                     ..
                 } if font_family.starts_with("Brand_") => {
-                    Some((font_family.clone(), font_resource.clone(), layers.clone()))
+                    assert!(layers.is_empty(), "a single layer renders directly");
+                    assert_eq!(
+                        tint,
+                        &Some(nexa_ir::ColorExpression::Static(
+                            nexa_ir::ColorValue::Static(nexa_ir::Color {
+                                red: 225,
+                                green: 29,
+                                blue: 72,
+                                alpha: 255
+                            },)
+                        ))
+                    );
+                    Some((font_family.clone(), font_resource.clone(), raw.clone()))
                 }
                 _ => None,
             })
             .expect("SVG icon should resolve to a content-versioned generated font");
-        assert!(
-            !brand_icon.2.is_empty(),
-            "the SVG conversion should retain its source-color glyph layers"
-        );
         let is_brand_icon = |icon: &nexa_ir::IconSpec| {
             matches!(
                 &icon.source,
                 nexa_ir::IconSource::FontGlyph { font_family, layers, .. }
-                    if font_family.starts_with("Brand_") && !layers.is_empty()
+                    if font_family.starts_with("Brand_") && layers.is_empty()
             )
         };
         let is_mazicon = |icon: &nexa_ir::IconSpec| icon == &expected;
@@ -196,7 +206,7 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
                 }));
                 assert!(generated.units.iter().any(|unit| {
                     unit.contents
-                        .contains(&format!("glyph: Int32({})", brand_icon.2[0].glyph))
+                        .contains(&format!("glyph: Int32({})", brand_icon.2))
                 }));
             }
             Target::Kotlin => {
@@ -210,9 +220,7 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
                     "fontResource = R.font.{}",
                     nexa_codegen::names::font_resource_name(&brand_icon.1)
                 )));
-                assert!(
-                    generated.contains(&format!("NexaIconLayer(glyph = {}", brand_icon.2[0].glyph))
-                );
+                assert!(generated.contains(&format!("glyph = {}", brand_icon.2)));
             }
             Target::All => unreachable!("test compiles one target at a time"),
         }

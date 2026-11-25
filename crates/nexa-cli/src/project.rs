@@ -197,6 +197,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
     let mut deny_warnings = false;
     let mut locked = false;
     let mut execute_tests = false;
+    let mut subset_icon_fonts = false;
     let mut flavor = None;
     let mut arch = None;
     let mut dev_server_url = None;
@@ -207,6 +208,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
             "--deny-warnings" => deny_warnings = true,
             "--locked" => locked = true,
             "--execute-tests" => execute_tests = true,
+            "--subset-icon-fonts" => subset_icon_fonts = true,
             "--dev-server-url" => {
                 cursor += 1;
                 dev_server_url = Some(
@@ -326,6 +328,11 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
     };
     let project_target = if dev_session.is_some() {
         format!("{project_target}-dev-runtime")
+    } else {
+        project_target
+    };
+    let project_target = if subset_icon_fonts {
+        format!("{project_target}-subset-icon-fonts")
     } else {
         project_target
     };
@@ -497,6 +504,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
     let generation_context = ProjectGenerationContext {
         config: &project_config,
         font_catalog: &font_catalog,
+        subset_icon_fonts: subset_icon_fonts && dev_session.is_none(),
     };
 
     for (compile_target, module, packages) in &compiled {
@@ -844,6 +852,7 @@ fn collect_source_units(
 struct ProjectGenerationContext<'a> {
     config: &'a ProjectConfig,
     font_catalog: &'a nexa_codegen::FontCatalog,
+    subset_icon_fonts: bool,
 }
 
 /// Generates the iOS host project.
@@ -1277,8 +1286,8 @@ fn dev_runtime_source_with_fonts(
                 design::DEFAULT_MATERIAL_ICON_SIZE.to_string(),
             ),
             (
-                "__NEXA_MATERIAL_ICON_SIZE_SCALE__",
-                design::MATERIAL_ICON_SIZE_SCALE.to_string(),
+                "__NEXA_MATERIAL_SEARCH_SIZE_SCALE__",
+                design::MATERIAL_SEARCH_SIZE_SCALE.to_string(),
             ),
             (
                 "__NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__",
@@ -1518,7 +1527,11 @@ fn prepare_ios(
         .as_ref()
         .or(generation.config.icon_source.as_ref());
     let has_project_images = assets::copy_ios_project_images(source_root, root, app_name)?;
-    let font_files = assets::copy_ios_project_fonts(source_root, root, app_name)?;
+    let icon_usage = generation
+        .subset_icon_fonts
+        .then(|| assets::IconFontUsage::analyze(module, generation.font_catalog));
+    let font_files =
+        assets::copy_ios_project_fonts(source_root, root, app_name, icon_usage.as_ref())?;
     let has_assets = plugins::copy_plugin_assets(root, app_name, module)?
         || has_project_images
         || ios_icon
@@ -1937,7 +1950,10 @@ fn generate_android(
     plugins::copy_plugin_assets(root, app_name, module)?;
     assets::copy_android_project_images(&project_images, root)?;
     assets::write_android_image_keep_rules(root, &package, module, &known_drawables)?;
-    assets::copy_android_project_fonts(source_root, root)?;
+    let icon_usage = generation
+        .subset_icon_fonts
+        .then(|| assets::IconFontUsage::analyze(module, generation.font_catalog));
+    assets::copy_android_project_fonts(source_root, root, icon_usage.as_ref())?;
     assets::copy_android_localizations(source_root, root, module)?;
     // Every generated file needs the package declaration, and plugin bindings
     // add an import between the package line and the generator's own imports.
@@ -3494,7 +3510,7 @@ mod tests {
         assert!(!kotlin.contains("nexaDevFormMultilineRowMinHeight"));
         assert!(kotlin.contains("private const val nexaDevDefaultMaterialIconSize = 24"));
         assert!(kotlin.contains("NexaIconContent("));
-        assert!(kotlin.contains("private const val nexaDevMaterialIconSizeScale = 1.2"));
+        assert!(kotlin.contains("symbolScale = 1.32f"));
         assert!(kotlin.contains("fields.has(\"size\") && !fields.isNull(\"size\")"));
         assert!(kotlin.contains("private const val nexaDevDefaultLineHeightMultiplier = 1.2f"));
         assert!(kotlin.contains("NexaButtonPrimitive("));

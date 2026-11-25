@@ -177,6 +177,11 @@ pub struct UiFacts {
     pub system_icons: BTreeSet<SystemIcon>,
     /// Registered font glyphs are rendered by shared native text primitives.
     pub font_icons: bool,
+    /// Codepoints needed by each native icon font resource. None means a
+    /// computed glyph index requires the complete font.
+    pub icon_font_codepoints: BTreeMap<String, Option<BTreeSet<u32>>>,
+    /// Families that can also render arbitrary text and must stay complete.
+    pub text_font_families: BTreeSet<String>,
     /// Native linear gradient nodes used anywhere in generated UI.
     pub linear_gradient: bool,
     pub lists: ListFacts,
@@ -873,14 +878,18 @@ impl ModuleFacts {
                     );
                 });
             }
-            walk_ir(&widget.body, &mut |_| {}, &mut |expression| {
-                observe_expr(
-                    expression,
-                    &mut facts.capabilities,
-                    &mut facts.permissions,
-                    &mut false,
-                );
-            });
+            walk_ir(
+                &widget.body,
+                &mut |node| record_text_font(node, &mut facts.ui),
+                &mut |expression| {
+                    observe_expr(
+                        expression,
+                        &mut facts.capabilities,
+                        &mut facts.permissions,
+                        &mut false,
+                    );
+                },
+            );
         }
 
         facts.ui.status_bar = module.status_bar.is_some()
@@ -949,6 +958,7 @@ fn observe_node(
     remote_hit: &mut bool,
     style_geometry_hit: &mut bool,
 ) {
+    record_text_font(node, ui);
     fn scope_of<'a>(ui: &'a mut UiFacts, scope: Scope<'_>) -> &'a mut ScopeUi {
         match scope {
             Scope::App => &mut ui.app,
@@ -1284,9 +1294,16 @@ fn observe_node(
             ui.system_icons.insert(icon.clone());
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
         }
-        Node::FontIcon { glyph, tint, .. } => {
-            let _ = glyph;
+        Node::FontIcon {
+            font_resource,
+            glyph,
+            layers,
+            tint,
+            ..
+        } => {
             ui.font_icons = true;
+            record_icon_font(ui, font_resource, icon_codepoint(glyph), layers);
+            ui.style.color |= tint.is_some();
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
         }
         Node::LinearGradient { .. } => ui.linear_gradient = true,
@@ -1505,12 +1522,60 @@ fn observe_icon_spec(icon: &crate::IconSpec, ui: &mut UiFacts) {
         crate::IconSource::System(system) => {
             ui.system_icons.insert(system.clone());
         }
-        crate::IconSource::FontGlyph { .. } => ui.font_icons = true,
+        crate::IconSource::FontGlyph {
+            font_resource,
+            glyph,
+            layers,
+            ..
+        } => {
+            ui.font_icons = true;
+            record_icon_font(ui, font_resource, Some(*glyph), layers);
+        }
     }
+    ui.style.color |= icon.color.is_some();
     ui.style.dynamic_color |= icon
         .color
         .as_ref()
         .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_)));
+}
+
+fn record_text_font(node: &Node, ui: &mut UiFacts) {
+    let family = match node {
+        Node::Text { style, .. } => style.font_family.as_deref(),
+        Node::TextInput { font_family, .. } => font_family.as_deref(),
+        _ => None,
+    };
+    if let Some(family) = family {
+        ui.text_font_families.insert(family.to_ascii_lowercase());
+    }
+}
+
+fn icon_codepoint(expression: &Expr) -> Option<u32> {
+    match expression {
+        Expr::Number { raw, .. } => raw.parse().ok(),
+        Expr::Located { expression, .. } => icon_codepoint(expression),
+        _ => None,
+    }
+}
+
+fn record_icon_font(
+    ui: &mut UiFacts,
+    resource: &str,
+    glyph: Option<u32>,
+    layers: &[crate::IconGlyphLayer],
+) {
+    let entry = ui
+        .icon_font_codepoints
+        .entry(resource.to_owned())
+        .or_insert_with(|| Some(BTreeSet::new()));
+    if let Some(glyph) = glyph {
+        if let Some(codepoints) = entry.as_mut() {
+            codepoints.insert(glyph);
+            codepoints.extend(layers.iter().map(|layer| layer.glyph));
+        }
+    } else {
+        *entry = None;
+    }
 }
 
 fn actions_use_navigation(actions: &[crate::Action]) -> bool {

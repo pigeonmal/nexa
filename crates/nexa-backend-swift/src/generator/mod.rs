@@ -1014,9 +1014,15 @@ private extension View {
     }
 }
 
+// nexa-codegen: nexaControlAccent
+private func nexaControlAccent(_ colorScheme: ColorScheme) -> Color {
+    colorScheme == .dark ? __NEXA_CONTROL_DARK_ACCENT__ : __NEXA_CONTROL_LIGHT_ACCENT__
+}
+
 // nexa-codegen: NexaPickerPrimitive
 struct NexaPickerPrimitive<LabelContent: View>: View {
     @Binding var selection: String
+    @Environment(\.colorScheme) private var colorScheme
     let items: [String]
     let itemIcons: [NexaIconSpec]
     let icon: NexaIconSpec?
@@ -1025,7 +1031,7 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
     @ViewBuilder let label: () -> LabelContent
 
     private var resolvedTint: Color {
-        tint ?? Color.accentColor
+        tint ?? nexaControlAccent(colorScheme)
     }
 
     private var selectionMenuLabel: some View {
@@ -1049,6 +1055,44 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
     }
 
     @ViewBuilder
+    private func optionIcon(_ icon: NexaIconSpec) -> some View {
+        if let image = menuGlyphImage(icon) {
+            Image(uiImage: image).renderingMode(.original)
+        } else {
+            NexaIconView(icon: icon, description: "", size: __NEXA_PICKER_ICON_SIZE__, tint: .secondary)
+        }
+    }
+
+    // SwiftUI menus extract images from their labels. Text from an icon font
+    // isn't carried into the native menu action, so rasterize only that case.
+    private func menuGlyphImage(_ icon: NexaIconSpec) -> UIImage? {
+        guard let glyph = icon.glyph, let family = icon.fontFamily,
+              let font = UIFont(name: family, size: icon.size ?? __NEXA_PICKER_ICON_SIZE__)
+        else { return nil }
+        let side = ceil(max(font.pointSize, font.lineHeight))
+        let canvas = CGSize(width: side, height: side)
+        let tint = icon.tint.map { UIColor($0) }
+        let image = UIGraphicsImageRenderer(size: canvas).image { _ in
+            func draw(_ glyph: Int32, color: UIColor) {
+                guard let scalar = UnicodeScalar(Int(glyph)) else { return }
+                let text = String(scalar) as NSString
+                let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+                let measured = text.size(withAttributes: attributes)
+                text.draw(at: CGPoint(x: (side - measured.width) / 2, y: (side - measured.height) / 2),
+                          withAttributes: attributes)
+            }
+            if icon.layers.isEmpty {
+                draw(glyph, color: tint ?? .secondaryLabel)
+            } else {
+                for layer in icon.layers {
+                    draw(layer.glyph, color: tint ?? UIColor(layer.color))
+                }
+            }
+        }
+        return image.withRenderingMode(.alwaysOriginal)
+    }
+
+    @ViewBuilder
     private func pickerOptions(selection: Binding<String>) -> some View {
         Picker("", selection: selection) {
             ForEach(items.indices, id: \.self) { index in
@@ -1057,7 +1101,7 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
                     Label {
                         Text(item)
                     } icon: {
-                        NexaIconView(icon: itemIcons[index], description: "", size: 16, tint: .secondary)
+                        optionIcon(itemIcons[index])
                     }
                         .tag(item)
                 } else {
@@ -1074,7 +1118,7 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
         if hasLabel {
             HStack(spacing: 8) {
                 if let icon {
-                    NexaIconView(icon: icon, description: "", size: 16)
+                    NexaIconView(icon: icon, description: "", size: __NEXA_PICKER_ICON_SIZE__)
                 }
                 label()
                     .foregroundStyle(.primary)
@@ -1089,17 +1133,20 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
                 NexaIconView(
                     icon: icon,
                     description: "",
-                    size: 16,
-                    tint: tint ?? Color.accentColor,
+                    size: __NEXA_PICKER_ICON_SIZE__,
+                    tint: resolvedTint,
                 )
+                .frame(minWidth: __NEXA_PICKER_ICON_TRIGGER_MIN_SIZE__, minHeight: __NEXA_PICKER_ICON_TRIGGER_MIN_SIZE__)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("Choose an option")
             .accessibilityValue(selection)
         } else {
             pickerOptions(selection: $selection)
                 .pickerStyle(.menu)
                 .labelsHidden()
-                .nexaPickerTint(tint)
+                .nexaPickerTint(resolvedTint)
         }
     }
 }
@@ -1368,8 +1415,22 @@ private struct NexaBoundedButtonActivation: ViewModifier {
     }
 }
 
+// nexa-codegen: NexaButtonLabelStyle
+private struct NexaButtonLabelStyle: LabelStyle {
+    let horizontalPadding: CGFloat
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: __NEXA_ICON_LABEL_SPACING__) {
+            configuration.icon.frame(minWidth: __NEXA_DEFAULT_BODY_FONT_SIZE__)
+            configuration.title
+        }
+        .padding(.horizontal, horizontalPadding)
+    }
+}
+
 // nexa-codegen: NexaButtonPrimitive
 struct NexaButtonPrimitive<Label: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     let style: NexaSharedButtonStyleKind
     let size: NexaSharedButtonSizeKind?
     let shape: NexaSharedButtonShapeKind
@@ -1435,7 +1496,11 @@ struct NexaButtonPrimitive<Label: View>: View {
     }
 
     private func singleLineButtonLabel<Content: View>(_ content: Content) -> some View {
-        content.lineLimit(1)
+        let isRegular = size == nil || size == .regular
+        let hasBorder = style == .bordered || style == .borderedProminent
+        return content.labelStyle(NexaButtonLabelStyle(
+            horizontalPadding: isRegular && hasBorder ? __NEXA_BUTTON_LABELED_ICON_HORIZONTAL_PADDING__ : 0
+        )).lineLimit(1)
     }
 
     @ViewBuilder
@@ -1496,7 +1561,7 @@ struct NexaButtonPrimitive<Label: View>: View {
             accessible(Button(action: activate) { labelContent }
                 .disabled(disabled || loading)
                 .buttonStyle(NexaSharedProminentButtonStyle(
-                    tint: tint ?? Color(uiColor: .systemBlue),
+                    tint: tint ?? nexaControlAccent(colorScheme),
                     shape: NexaSharedButtonOutline(kind: shape),
                     size: size,
                     iconOnlyCircle: iconOnlyCircle
@@ -2157,10 +2222,11 @@ struct NexaFontIconPrimitive: View {
     var layers: [NexaIconLayer] = []
 
     @ViewBuilder var body: some View {
-        if layers.isEmpty {
-            let glyphText = UnicodeScalar(Int(glyph)).map { String($0) } ?? "�"
+        if layers.count <= 1 {
+            let layer = layers.first
+            let glyphText = UnicodeScalar(Int(layer?.glyph ?? glyph)).map { String($0) } ?? "�"
             let text = Text(glyphText).font(.custom(fontFamily, size: size ?? 17))
-            if let tint {
+            if let tint = tint ?? layer?.color {
                 accessible(text.foregroundStyle(tint))
             } else {
                 accessible(text)
@@ -4384,6 +4450,10 @@ fn shared_component_primitives_with_animation(
             nexa_codegen::design_system::BUTTON_DEFAULT_HORIZONTAL_PADDING.to_string(),
         ),
         (
+            "__NEXA_BUTTON_LABELED_ICON_HORIZONTAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_LABELED_ICON_HORIZONTAL_PADDING.to_string(),
+        ),
+        (
             "__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__",
             nexa_codegen::design_system::BUTTON_DEFAULT_VERTICAL_PADDING.to_string(),
         ),
@@ -4402,6 +4472,30 @@ fn shared_component_primitives_with_animation(
         (
             "__NEXA_DEFAULT_BODY_FONT_SIZE__",
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_ICON_LABEL_SPACING__",
+            nexa_codegen::design_system::ICON_LABEL_SPACING.to_string(),
+        ),
+        (
+            "__NEXA_PICKER_ICON_SIZE__",
+            nexa_codegen::design_system::PICKER_ICON_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_PICKER_ICON_TRIGGER_MIN_SIZE__",
+            nexa_codegen::design_system::PICKER_ICON_TRIGGER_MIN_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_CONTROL_DARK_ACCENT__",
+            crate::generator::engine::colors::expression_from_argb(
+                nexa_codegen::design_system::DARK_ACCENT_ARGB,
+            ),
+        ),
+        (
+            "__NEXA_CONTROL_LIGHT_ACCENT__",
+            crate::generator::engine::colors::expression_from_argb(
+                nexa_codegen::design_system::DEFAULT_ACCENT_ARGB,
+            ),
         ),
         (
             "__NEXA_TITLE_BAR_HEIGHT__",
@@ -5771,7 +5865,8 @@ mod tests {
         assert!(primitives.contains(".layoutPriority(1)"));
         assert!(primitives.contains("case .regular, nil: (CGFloat(0), CGFloat(0))"));
         assert!(primitives.contains("private var plainLabelContent: some View"));
-        assert!(primitives.contains("content.lineLimit(1)"));
+        assert!(primitives.contains("horizontalPadding: isRegular && hasBorder ? 8 : 0"));
+        assert!(primitives.contains(")).lineLimit(1)"));
         assert!(primitives.contains("private func singleLineButtonLabel<Content: View>"));
         assert!(
             primitives
@@ -6154,7 +6249,8 @@ mod tests {
         assert!(primitives.contains(r"ForEach(items.indices, id: \.self)"));
         assert!(!primitives.contains("Array(items.enumerated())"));
         assert!(primitives.contains("func nexaPickerTint(_ tint: Color?)"));
-        assert!(primitives.contains(".nexaPickerTint(tint)"));
+        assert!(primitives.contains(".nexaPickerTint(resolvedTint)"));
+        assert!(primitives.contains(".frame(minWidth: 48, minHeight: 48)"));
         assert!(primitives.contains("if hasLabel {"));
         assert!(primitives.contains("} else if let icon {"));
         let labeled_picker = primitives
@@ -6168,9 +6264,8 @@ mod tests {
         assert!(labeled_picker.contains(".labelsHidden()"));
         assert!(!labeled_picker.contains("labelsVisibility"));
         assert!(!labeled_picker.contains("labeledMenuOptions"));
-        assert!(labeled_picker.contains(
-            "NexaIconView(icon: itemIcons[index], description: \"\", size: 16, tint: .secondary)"
-        ));
+        assert!(labeled_picker.contains("optionIcon(itemIcons[index])"));
+        assert!(labeled_picker.contains("Image(uiImage: image).renderingMode(.original)"));
         assert!(labeled_picker.contains(".foregroundStyle(.primary)"));
         assert!(labeled_picker.contains(".foregroundStyle(resolvedTint)"));
         assert!(labeled_picker.contains(".contentShape(Rectangle())"));

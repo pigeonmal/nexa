@@ -66,6 +66,8 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
 
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
+    imports.add(true, "androidx.compose.ui.graphics.graphicsLayer");
+    imports.add(true, "androidx.compose.foundation.layout.wrapContentSize");
     // DevRuntime can introduce navigation after a hot reload, so keep these
     // imports there. AOT imports stay feature-gated to avoid requiring the
     // optional Material icons artifact in apps that do not use navigation.

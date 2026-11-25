@@ -3,6 +3,9 @@
 //! SVG files are compiled to a static TrueType font at project compile time.
 //! Native apps only render Unicode glyphs through their platform text stack.
 
+mod subset;
+pub use subset::subset_icon_font;
+
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs,
@@ -1493,5 +1496,38 @@ mod tests {
                 .expect("color layer cmap");
             assert_eq!(face.glyph_hor_advance(alias), Some(base_advance));
         }
+    }
+
+    #[test]
+    fn subsets_a_generated_font_with_color_layers_and_non_bmp_aliases() {
+        let project = TempDir::new("nexa-icon-font-color-subset");
+        let output = TempDir::new("nexa-icon-font-color-subset-output");
+        let files =
+            include_str!("../../../tests/fixtures/icon-fastlist/assets/icons/Brand/badge.svg");
+        let unused =
+            include_str!("../../../tests/fixtures/icon-fastlist/assets/icons/Brand/unused.svg");
+        svg(&project.path().join("assets/icons/Brand/badge.svg"), files);
+        svg(
+            &project.path().join("assets/icons/Brand/unused.svg"),
+            unused,
+        );
+        let registry = IconRegistry::load(project.path(), output.path()).expect("generate font");
+        let set = &registry.sets["Brand"];
+        let input = fs::read(&set.font_path).expect("open generated font");
+        let used = std::iter::once(set.icons["badge"])
+            .chain(set.layers["badge"].iter().map(|layer| layer.glyph))
+            .collect();
+        let bytes = super::subset_icon_font(&input, &used).expect("subset generated font");
+        let face = ttf_parser::Face::parse(&bytes, 0).expect("parse subset");
+        for glyph in used {
+            assert!(
+                face.glyph_index(char::from_u32(glyph).expect("codepoint"))
+                    .is_some()
+            );
+        }
+        assert!(
+            face.glyph_index(char::from_u32(set.icons["unused"]).expect("codepoint"))
+                .is_none()
+        );
     }
 }

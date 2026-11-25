@@ -2911,7 +2911,8 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(swift_runtime.contains("nexaDevUsesIconOnlyButtonLabel"));
     assert!(swift_runtime.contains("NexaIconView(icon: icon, description:"));
     assert!(swift.contains("itemIcons: [NexaIconSpec(symbol: \"calendar\", preservesColor: false), NexaIconSpec(symbol: \"flag.fill\", preservesColor: false), NexaIconSpec(symbol: \"pencil\", preservesColor: false)]"));
-    assert!(swift.contains("NexaIconView(icon: itemIcons[index]"));
+    assert!(swift.contains("optionIcon(itemIcons[index])"));
+    assert!(swift.contains("Image(uiImage: image).renderingMode(.original)"));
     assert!(swift_runtime.contains("compactMap { nexaDevIconSpec("));
     for primitive in ["NexaAssetImagePrimitive(", "NexaRemoteImagePrimitive("] {
         assert!(swift.contains(primitive), "iOS AOT omitted {primitive}");

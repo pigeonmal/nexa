@@ -46,7 +46,15 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 pub(crate) fn spec(icon: &IconSpec) -> String {
     let (source, preserves_color, icon_layers) = match &icon.source {
         IconSource::System(icon) => (
-            format!("vector = {}", icon.material_reference()),
+            if matches!(icon, SystemIcon::Shared(name) if name == "search") {
+                format!(
+                    "vector = {}, symbolScale = {}f",
+                    icon.material_reference(),
+                    nexa_codegen::design_system::MATERIAL_SEARCH_SIZE_SCALE
+                )
+            } else {
+                format!("vector = {}", icon.material_reference())
+            },
             false,
             &[][..],
         ),
@@ -119,17 +127,15 @@ pub(crate) fn render(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let render_size = size.map(|size| size * nexa_codegen::design_system::MATERIAL_ICON_SIZE_SCALE);
+    let mut spec_icon = IconSpec::system(icon.clone());
+    spec_icon.size = size;
     out.line_at(
         depth,
         format_args!(
-            "NexaIconContent(icon = {}, description = {}, size = {}, tint = {})",
-            spec(&IconSpec::system(icon.clone())),
+            "NexaIconContent(icon = {}, description = {}, size = null, tint = {})",
+            spec(&spec_icon),
             description
                 .map(kotlin_string)
-                .unwrap_or_else(|| "null".to_owned()),
-            render_size
-                .map(|value| format!("{}.dp", crate::generator::engine::utils::number(value)))
                 .unwrap_or_else(|| "null".to_owned()),
             tint.map(colors::expression_for_color).unwrap_or_else(|| {
                 "androidx.compose.material3.MaterialTheme.colorScheme.onSurface".to_owned()
@@ -165,12 +171,12 @@ pub(crate) fn render_font(icon: FontIconRenderArgs<'_>, depth: usize, out: &mut 
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Color, ColorExpression, ColorValue, SystemIcon};
+    use nexa_ir::{Color, ColorExpression, ColorValue, IconSpec, SystemIcon};
 
     use super::render;
 
     #[test]
-    fn system_icon_size_scales_to_match_swiftui_symbol_metrics() {
+    fn system_icon_size_is_passed_to_the_shared_primitive_in_logical_units() {
         let icon = SystemIcon::Shared("palette".to_owned());
         let tint = ColorExpression::Static(ColorValue::Static(Color {
             red: 255,
@@ -182,6 +188,12 @@ mod tests {
 
         render(&icon, Some(""), Some(20.0), Some(&tint), 0, &mut output);
 
-        assert!(output.finish().contains("size = 24.dp"));
+        assert!(output.finish().contains("size = 20.dp"));
+    }
+
+    #[test]
+    fn shared_search_uses_its_measured_symbol_scale() {
+        let icon = IconSpec::system(SystemIcon::Shared("search".to_owned()));
+        assert!(super::spec(&icon).contains("symbolScale = 1.32f"));
     }
 }

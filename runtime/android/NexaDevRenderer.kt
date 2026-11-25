@@ -278,7 +278,6 @@ __NEXA_ANDROID_FONT_FAMILY_CASES__
 
 private const val nexaDevDefaultBodyFontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__
 private const val nexaDevDefaultMaterialIconSize = __NEXA_DEFAULT_MATERIAL_ICON_SIZE__
-private const val nexaDevMaterialIconSizeScale = __NEXA_MATERIAL_ICON_SIZE_SCALE__
 private const val nexaDevDefaultLineHeightMultiplier = __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f
 private const val nexaDevFormRowHorizontalInset = __NEXA_FORM_ROW_HORIZONTAL_INSET__
 private const val nexaDevFormRowMinHeight = __NEXA_ANDROID_FORM_ROW_MIN_HEIGHT__
@@ -369,12 +368,13 @@ private fun nexaDevIconSpec(
     store: NexaDevStateStore,
     locals: Map<String, Any>,
     scope: String,
+    defaultSize: androidx.compose.ui.unit.Dp? = null,
 ): NexaIconSpec? {
     val description = selection.optString("description").takeIf { selection.has("description") && it != "null" }
     val size = if (selection.has("size") && !selection.isNull("size")) {
         selection.optDouble("size").dp
     } else {
-        null
+        defaultSize
     }
     val source = selection.optJSONObject("source") ?: selection
     val colorValue = selection.optJSONObject("color")
@@ -408,7 +408,11 @@ private fun nexaDevIconSpec(
         system.has("material_symbol") -> nexaDevSpecificMaterialIcon(system.optString("material_symbol"))
         else -> null
     } ?: return null
-    return NexaIconSpec(vector = vector, description = description, size = size, tint = tint)
+    return if (system.optString("shared") == "search") {
+        NexaIconSpec(vector = vector, description = description, size = size, tint = tint, symbolScale = __NEXA_MATERIAL_SEARCH_SIZE_SCALE__f)
+    } else {
+        NexaIconSpec(vector = vector, description = description, size = size, tint = tint)
+    }
 }
 
 private fun nexaDevIconLayers(values: JSONArray?): List<NexaIconLayer> {
@@ -1867,8 +1871,9 @@ private fun NexaDevRenderTextNode(
         }
         "SystemIcon" -> {
             val selection = fields.optJSONObject("icon") ?: JSONObject()
-            val icon = nexaDevIconSpec(selection, store, locals, scope)
-                ?: NexaIconSpec(vector = nexaDevSharedMaterialIcon("help"))
+            val size = if (fields.has("size") && !fields.isNull("size")) fields.optDouble("size").dp else null
+            val icon = nexaDevIconSpec(selection, store, locals, scope, defaultSize = size)
+                ?: NexaIconSpec(vector = nexaDevSharedMaterialIcon("help"), size = size)
             val tintValue = fields.optJSONObject("tint") ?: JSONObject()
             val dynamicTint = tintValue.opt("Dynamic")
             val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
@@ -1879,9 +1884,7 @@ private fun NexaDevRenderTextNode(
             NexaIconContent(
                 icon = icon,
                 description = fields.optString("description"),
-                size = if (fields.has("size") && !fields.isNull("size")) {
-                    (fields.optDouble("size") * nexaDevMaterialIconSizeScale).dp
-                } else null,
+                size = null,
                 tint = tint,
                 modifier = modifier,
             )

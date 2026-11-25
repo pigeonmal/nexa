@@ -1069,6 +1069,7 @@ internal fun NexaButtonPrimitive(
         iconOnlyCircle || resolvedStyle == "Plain" || resolvedStyle == "Borderless" -> androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
         size == "Small" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_VERTICAL_PADDING__.toFloat()))
         size == "Large" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_VERTICAL_PADDING__.toFloat()))
+        icon != null && label.isNotEmpty() -> androidx.compose.foundation.layout.PaddingValues(horizontal = __NEXA_BUTTON_LABELED_ICON_HORIZONTAL_PADDING__.dp, vertical = __NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__.dp)
         else -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_DEFAULT_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__.toFloat()))
     }
     val enabled = !loading && !disabled
@@ -1100,7 +1101,7 @@ internal fun NexaButtonPrimitive(
             )
         } else {
             if (icon != null) {
-                NexaIconContent(icon = icon, description = "", size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()))
+                NexaIconContent(icon = icon, description = "", size = __NEXA_DEFAULT_BODY_FONT_SIZE__.dp, fitSymbolToSlot = true)
             }
             if (icon != null && label.isNotEmpty()) {
                 androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(__NEXA_ICON_LABEL_SPACING__.toFloat())))
@@ -2882,27 +2883,30 @@ internal fun NexaFontIconPrimitive(
     } else {
         modifier.size(size)
     }
-    androidx.compose.foundation.layout.Box(
-        modifier = iconModifier.then(accessibilityModifier),
-        contentAlignment = androidx.compose.ui.Alignment.Center,
-    ) {
-        if (layers.isEmpty()) {
-            val glyphText = androidx.compose.runtime.remember(glyph) {
-                if (java.lang.Character.isValidCodePoint(glyph)) {
-                    String(java.lang.Character.toChars(glyph))
-                } else {
-                    "�"
-                }
+    if (layers.size <= 1) {
+        val layer = layers.firstOrNull()
+        val codepoint = layer?.glyph ?: glyph
+        val glyphText = androidx.compose.runtime.remember(codepoint) {
+            if (java.lang.Character.isValidCodePoint(codepoint)) {
+                String(java.lang.Character.toChars(codepoint))
+            } else {
+                "�"
             }
-            androidx.compose.material3.Text(
-                text = glyphText,
-                color = tint ?: androidx.compose.material3.LocalContentColor.current,
-                fontSize = fontSize,
-                fontFamily = resolvedFontFamily,
-                maxLines = 1,
-                softWrap = false,
-            )
-        } else {
+        }
+        androidx.compose.material3.Text(
+            text = glyphText,
+            modifier = iconModifier.then(accessibilityModifier).wrapContentSize(),
+            color = tint ?: layer?.color ?: androidx.compose.material3.LocalContentColor.current,
+            fontSize = fontSize,
+            fontFamily = resolvedFontFamily,
+            maxLines = 1,
+            softWrap = false,
+        )
+    } else {
+        androidx.compose.foundation.layout.Box(
+            modifier = iconModifier.then(accessibilityModifier),
+            contentAlignment = androidx.compose.ui.Alignment.Center,
+        ) {
             layers.forEach { layer ->
                 val layerText = androidx.compose.runtime.remember(layer.glyph) {
                     if (java.lang.Character.isValidCodePoint(layer.glyph)) {
@@ -2941,6 +2945,7 @@ internal data class NexaIconSpec(
     val tint: androidx.compose.ui.graphics.Color? = null,
     val preservesColor: Boolean = false,
     val layers: List<NexaIconLayer> = emptyList(),
+    val symbolScale: Float = __NEXA_MATERIAL_ICON_SIZE_SCALE__f,
 )
 
 // nexa-codegen: NexaIconContent
@@ -2951,6 +2956,7 @@ internal fun NexaIconContent(
     size: androidx.compose.ui.unit.Dp?,
     tint: androidx.compose.ui.graphics.Color? = null,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    fitSymbolToSlot: Boolean = false,
 ) {
     val resolvedDescription = icon.description ?: description
     val resolvedSize = icon.size ?: size
@@ -2974,9 +2980,9 @@ internal fun NexaIconContent(
             NexaSystemIconPrimitive(
                 image = vector,
                 description = resolvedDescription,
-                size = resolvedSize,
+                size = if (fitSymbolToSlot) resolvedSize else icon.size?.times(icon.symbolScale) ?: size,
                 tint = resolvedTint ?: androidx.compose.material3.LocalContentColor.current,
-                modifier = modifier,
+                modifier = if (fitSymbolToSlot) modifier.graphicsLayer(scaleX = icon.symbolScale, scaleY = icon.symbolScale) else modifier,
             )
         }
     }
@@ -3342,6 +3348,7 @@ internal fun NexaPickerPrimitive(
     val expanded = androidx.compose.runtime.remember(identity) { androidx.compose.runtime.mutableStateOf(false) }
     val showPressFeedback = LocalNexaPickerPressFeedback.current
     val resolvedTint = tint ?: androidx.compose.material3.MaterialTheme.colorScheme.primary
+    val iconOnly = icon != null && label == null
     val rowWidthModifier = if (fillMaxWidth && label != null) {
         androidx.compose.ui.Modifier.fillMaxWidth()
     } else {
@@ -3364,8 +3371,9 @@ internal fun NexaPickerPrimitive(
             NexaIconContent(
                 icon = icon,
                 description = "",
-                size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()),
+                size = __NEXA_PICKER_ICON_SIZE__.dp,
                 tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                fitSymbolToSlot = true,
             )
             androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(__NEXA_ICON_LABEL_SPACING__.toFloat())))
         }
@@ -3383,19 +3391,21 @@ internal fun NexaPickerPrimitive(
         }
         androidx.compose.foundation.layout.Box {
             androidx.compose.foundation.layout.Row(
-                modifier = androidx.compose.ui.Modifier.padding(vertical = androidx.compose.ui.unit.Dp(8f)),
+                modifier = if (iconOnly) {
+                    androidx.compose.ui.Modifier.defaultMinSize(minWidth = __NEXA_PICKER_ICON_TRIGGER_MIN_SIZE__.dp, minHeight = __NEXA_PICKER_ICON_TRIGGER_MIN_SIZE__.dp)
+                } else {
+                    androidx.compose.ui.Modifier.padding(vertical = 8.dp)
+                },
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             ) {
                 if (icon != null && label == null) {
                     NexaIconContent(
                         icon = icon,
                         description = selected,
-                        size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()),
-                        tint = tint ?: if (androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black) {
-                            androidx.compose.ui.graphics.Color(__NEXA_DARK_ACCENT_ARGB__)
-                        } else {
-                            androidx.compose.ui.graphics.Color(__NEXA_DEFAULT_ACCENT_ARGB__)
-                        },
+                        size = __NEXA_PICKER_ICON_SIZE__.dp,
+                        tint = resolvedTint,
+                        fitSymbolToSlot = true,
                     )
                 } else {
                     NexaTextPrimitive(
@@ -3454,8 +3464,9 @@ internal fun NexaPickerPrimitive(
                                         NexaIconContent(
                                             icon = optionIcon,
                                             description = "",
-                                            size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()),
+                                            size = __NEXA_PICKER_ICON_SIZE__.dp,
                                             tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fitSymbolToSlot = true,
                                         )
                                     }
                                 },
@@ -4161,12 +4172,24 @@ fn shared_component_primitives_with_wave(
             nexa_codegen::design_system::BUTTON_DEFAULT_HORIZONTAL_PADDING.to_string(),
         ),
         (
+            "__NEXA_BUTTON_LABELED_ICON_HORIZONTAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_LABELED_ICON_HORIZONTAL_PADDING.to_string(),
+        ),
+        (
             "__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__",
             nexa_codegen::design_system::BUTTON_DEFAULT_VERTICAL_PADDING.to_string(),
         ),
         (
-            "__NEXA_DEFAULT_MATERIAL_ICON_SIZE__",
-            nexa_codegen::design_system::DEFAULT_MATERIAL_ICON_SIZE.to_string(),
+            "__NEXA_MATERIAL_ICON_SIZE_SCALE__",
+            nexa_codegen::design_system::MATERIAL_ICON_SIZE_SCALE.to_string(),
+        ),
+        (
+            "__NEXA_PICKER_ICON_SIZE__",
+            nexa_codegen::design_system::PICKER_ICON_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_PICKER_ICON_TRIGGER_MIN_SIZE__",
+            nexa_codegen::design_system::PICKER_ICON_TRIGGER_MIN_SIZE.to_string(),
         ),
         (
             "__NEXA_ICON_LABEL_SPACING__",
@@ -5720,7 +5743,10 @@ mod tests {
             .unwrap_or_default();
 
         assert!(font_icon.contains("modifier.size(size)"));
-        assert!(font_icon.contains("tint ?: androidx.compose.material3.LocalContentColor.current"));
+        assert!(font_icon.contains(
+            "tint ?: layer?.color ?: androidx.compose.material3.LocalContentColor.current"
+        ));
+        assert!(font_icon.contains("if (layers.size <= 1)"));
     }
 
     #[test]
@@ -5773,7 +5799,7 @@ mod tests {
         assert!(primitives.contains("Dp(64.toFloat())"));
         assert!(primitives.contains("startInset = androidx.compose.ui.unit.Dp(16.toFloat())"));
         assert!(primitives.contains("Dp(50.toFloat())"));
-        assert!(primitives.contains("Dp(24.toFloat())"));
+        assert!(primitives.contains("size = 17.dp, fitSymbolToSlot = true"));
         assert!(primitives.contains(
             "LocalNexaTextAlignment provides androidx.compose.ui.text.style.TextAlign.Start"
         ));
@@ -6792,7 +6818,7 @@ mod tests {
         assert!(kotlin.contains("iconDescription = \"Inbox\""));
         assert!(kotlin.contains("iconDescription = \"Search\""));
         assert!(kotlin.contains("internal fun NexaIconContent("));
-        assert!(kotlin.contains("androidx.compose.runtime.remember(glyph)"));
+        assert!(kotlin.contains("androidx.compose.runtime.remember(codepoint)"));
         assert!(kotlin.contains("LocalDensity.current.fontScale).sp"));
         assert!(kotlin.contains("contentDescription = description?.takeIf(String::isNotEmpty)"));
         let empty_state_primitive = kotlin
