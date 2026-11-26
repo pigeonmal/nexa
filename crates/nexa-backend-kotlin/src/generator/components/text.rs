@@ -252,18 +252,17 @@ fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
         return;
     }
     out.push_str(", modifier = Modifier");
-    if let Some(opacity) = style.opacity {
+    if let Some(opacity) = style.opacity
+        && opacity < 1.0
+    {
         out.push_str(&format!(".alpha({}f)", number(opacity)));
     }
-    if effects.scale.is_some()
-        || effects.scale_expression.is_some()
-        || effects.scale_y.is_some()
-        || effects.scale_y_expression.is_some()
-        || effects.rotation.is_some()
-    {
+    if super::graphics_layer::has_active_transform(effects) {
         super::graphics_layer::append_inline(effects, out);
     }
-    if let Some(blur) = effects.blur {
+    if let Some(blur) = effects.blur
+        && blur > 0.0
+    {
         out.push_str(&format!(
             ".blur({}.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)",
             number(blur)

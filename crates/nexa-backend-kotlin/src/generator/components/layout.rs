@@ -778,14 +778,7 @@ pub(crate) fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut Source
             number(opacity)
         ));
     }
-    if effects.scale.is_some()
-        || effects.scale_expression.is_some()
-        || effects.scale_y.is_some()
-        || effects.scale_y_expression.is_some()
-        || effects.opacity_expression.is_some()
-        || effects.offset_y_expression.is_some()
-        || effects.rotation.is_some()
-    {
+    if super::graphics_layer::has_active_transform(effects) {
         super::graphics_layer::append_multiline(effects, depth, out);
     }
     if let Some(blur) = effects.blur

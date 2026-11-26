@@ -1222,10 +1222,15 @@ internal fun NexaDevNode(
             } else {
                 RoundedCornerShape(cornerRadius)
             }
-            if (!style.isNull("opacity")) scrollModifier = scrollModifier.graphicsLayer(
-                alpha = style.optDouble("opacity").toFloat(),
-                compositingStrategy = CompositingStrategy.Offscreen,
-            )
+            if (!style.isNull("opacity")) {
+                val opacityValue = style.optDouble("opacity").toFloat()
+                if (opacityValue < 1f) {
+                    scrollModifier = scrollModifier.graphicsLayer(
+                        alpha = opacityValue,
+                        compositingStrategy = CompositingStrategy.Offscreen,
+                    )
+                }
+            }
             if (!effects.isNull("scale") || !effects.isNull("scale_expression") || !effects.isNull("scale_y") || !effects.isNull("scale_y_expression") || !effects.isNull("opacity_expression") || !effects.isNull("offset_y_expression") || !effects.isNull("rotation")) {
                 val scaleX = if (!effects.isNull("scale_expression")) {
                     (store.evaluatePresented(effects.opt("scale_expression"), locals, scope) as? Number)
@@ -1251,18 +1256,25 @@ internal fun NexaDevNode(
                         ?.toFloat() ?: 0f
                     with(LocalDensity.current) { offsetY.dp.toPx() }
                 } else 0f
-                scrollModifier = scrollModifier.graphicsLayer(
-                    scaleX = scaleX,
-                    scaleY = scaleY,
-                    alpha = alpha,
-                    translationY = translationY,
-                    rotationZ = rotation,
-                )
+                if (scaleX != 1f || scaleY != 1f || alpha != 1f || translationY != 0f || rotation != 0f) {
+                    scrollModifier = scrollModifier.graphicsLayer(
+                        scaleX = scaleX,
+                        scaleY = scaleY,
+                        alpha = alpha,
+                        translationY = translationY,
+                        rotationZ = rotation,
+                    )
+                }
             }
-            if (!effects.isNull("blur")) scrollModifier = scrollModifier.blur(
-                effects.optDouble("blur").dp,
-                edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded,
-            )
+            if (!effects.isNull("blur")) {
+                val blurRadius = effects.optDouble("blur").dp
+                if (blurRadius > 0.dp) {
+                    scrollModifier = scrollModifier.blur(
+                        blurRadius,
+                        edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded,
+                    )
+                }
+            }
             effects.optJSONObject("shadow")?.let { shadow ->
                 val shadowShape = if (!effects.isNull("clip_rounded")) {
                     RoundedCornerShape(effects.optDouble("clip_rounded").dp)
@@ -1513,7 +1525,10 @@ private fun NexaDevRenderTextNode(
                 var textModifier: Modifier = modifier
                 val effects = style.optJSONObject("effects") ?: JSONObject()
                 if (!style.isNull("padding")) textModifier = textModifier.padding(style.optDouble("padding").dp)
-                if (!style.isNull("opacity")) textModifier = textModifier.alpha(style.optDouble("opacity").toFloat())
+                if (!style.isNull("opacity")) {
+                    val opacityValue = style.optDouble("opacity").toFloat()
+                    if (opacityValue < 1f) textModifier = textModifier.alpha(opacityValue)
+                }
                 if (!effects.isNull("scale") || !effects.isNull("scale_expression") || !effects.isNull("scale_y") || !effects.isNull("scale_y_expression") || !effects.isNull("opacity_expression") || !effects.isNull("offset_y_expression") || !effects.isNull("rotation")) {
                     val scaleX = if (!effects.isNull("scale_expression")) {
                         (store.evaluatePresented(effects.opt("scale_expression"), locals, scope) as? Number)
@@ -1539,15 +1554,22 @@ private fun NexaDevRenderTextNode(
                             ?.toFloat() ?: 0f
                         with(LocalDensity.current) { offsetY.dp.toPx() }
                     } else 0f
-                    textModifier = textModifier.graphicsLayer(
-                        scaleX = scaleX,
-                        scaleY = scaleY,
-                        alpha = alpha,
-                        translationY = translationY,
-                        rotationZ = rotation,
-                    )
+                    if (scaleX != 1f || scaleY != 1f || alpha != 1f || translationY != 0f || rotation != 0f) {
+                        textModifier = textModifier.graphicsLayer(
+                            scaleX = scaleX,
+                            scaleY = scaleY,
+                            alpha = alpha,
+                            translationY = translationY,
+                            rotationZ = rotation,
+                        )
+                    }
                 }
-                if (!effects.isNull("blur")) textModifier = textModifier.blur(effects.optDouble("blur").dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)
+                if (!effects.isNull("blur")) {
+                    val blurRadius = effects.optDouble("blur").dp
+                    if (blurRadius > 0.dp) {
+                        textModifier = textModifier.blur(blurRadius, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)
+                    }
+                }
                 val textShadow = effects.optJSONObject("shadow")?.let { shadow ->
                     val color = nexaDevColor(shadow.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Black
                     NexaGlyphShadow(
@@ -2456,6 +2478,8 @@ private fun NexaDevRenderListNode(
                         resourceId = nexaDrawableId(stem),
                         contentDescription = description,
                         contentScale = scale,
+                        decodeWidthDp = decodeWidthDp,
+                        decodeHeightDp = decodeHeightDp,
                         modifier = renderedModifier,
                     )
                 }

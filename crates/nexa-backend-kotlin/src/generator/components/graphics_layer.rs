@@ -130,6 +130,16 @@ impl CompositionValues {
 const SCREEN_WIDTH_EXPRESSION: &str = "LocalNexaWindowMetrics.current.viewportWidthDp.toDouble()";
 const SCREEN_HEIGHT_EXPRESSION: &str = "LocalNexaWindowMetrics.current.viewportHeightDp.toDouble()";
 
+pub(crate) fn has_active_transform(effects: &ViewEffects) -> bool {
+    effects.scale_expression.is_some()
+        || effects.scale_y_expression.is_some()
+        || effects.opacity_expression.is_some()
+        || effects.offset_y_expression.is_some()
+        || effects.scale.is_some_and(|v| v != 1.0)
+        || effects.scale_y.is_some_and(|v| v != 1.0)
+        || effects.rotation.is_some_and(|v| v != 0.0)
+}
+
 pub(crate) fn append_multiline(effects: &ViewEffects, depth: usize, out: &mut SourceWriter) {
     let values = CompositionValues::from_effects(effects);
     let indent = spaces(depth);

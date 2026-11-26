@@ -123,28 +123,6 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    var fps by remember { mutableIntStateOf(0) }
-    var frameTimeMs by remember { mutableDoubleStateOf(0.0) }
-    LaunchedEffect(store.performanceOverlayEnabled) {
-        if (!store.performanceOverlayEnabled) return@LaunchedEffect
-        var frameCount = 0
-        var sampleStart = 0L
-        var previousFrame = 0L
-        while (isActive) {
-            val frame = withFrameNanos { it }
-            if (previousFrame != 0L) frameCount++
-            if (sampleStart == 0L) sampleStart = frame
-            if (previousFrame != 0L) frameTimeMs = (frame - previousFrame) / 1_000_000.0
-            val elapsed = frame - sampleStart
-            if (elapsed >= 1_000_000_000L) {
-                fps = (frameCount * 1_000_000_000.0 / elapsed).toInt()
-                frameTimeMs = if (frameCount > 0) elapsed / 1_000_000.0 / frameCount else 0.0
-                frameCount = 0
-                sampleStart = frame
-            }
-            previousFrame = frame
-        }
-    }
     // Wait until Compose submits the new module frame before notifying
     // accessibility clients or acknowledging it to the render-fence harness.
     LaunchedEffect(store, runtimeView) {
@@ -235,9 +213,34 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
                 )
             }
             if (store.performanceOverlayEnabled) {
-                NexaDevPerformanceOverlay(fps, frameTimeMs, Modifier.align(Alignment.TopEnd).padding(8.dp))
+                NexaDevPerformanceOverlayHost(Modifier.align(Alignment.TopEnd).padding(8.dp))
             }
             }
         }
     }
+}
+
+@Composable
+private fun NexaDevPerformanceOverlayHost(modifier: Modifier = Modifier) {
+    var fps by remember { mutableIntStateOf(0) }
+    var frameTimeMs by remember { mutableDoubleStateOf(0.0) }
+    LaunchedEffect(Unit) {
+        var frameCount = 0
+        var sampleStart = 0L
+        var previousFrame = 0L
+        while (isActive) {
+            val frame = withFrameNanos { it }
+            if (previousFrame != 0L) frameCount++
+            if (sampleStart == 0L) sampleStart = frame
+            val elapsed = frame - sampleStart
+            if (elapsed >= 1_000_000_000L) {
+                fps = (frameCount * 1_000_000_000.0 / elapsed).toInt()
+                frameTimeMs = if (frameCount > 0) elapsed / 1_000_000.0 / frameCount else 0.0
+                frameCount = 0
+                sampleStart = frame
+            }
+            previousFrame = frame
+        }
+    }
+    NexaDevPerformanceOverlay(fps, frameTimeMs, modifier)
 }

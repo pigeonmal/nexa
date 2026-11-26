@@ -13,6 +13,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let uses_images =
         features.uses_asset || features.uses_placeholder || features.uses_remote_image;
     imports.add(uses_images, "androidx.compose.ui.Modifier");
+    imports.add(uses_images, "androidx.compose.ui.graphics.asImageBitmap");
     imports.add(uses_images, "androidx.compose.ui.unit.dp");
     imports.add(
         uses_images,
@@ -105,7 +106,7 @@ pub(crate) fn render_image(
             super::assets::raw_id(asset),
         )),
         ImageSource::Asset(asset) => out.push_str(&format!(
-            "NexaAssetImagePrimitive(\n{indent_str}    resourceId = {},\n{indent_str}    contentDescription = {content_description},\n{indent_str}    contentScale = {content_scale},\n{indent_str}    modifier = {modifier},\n{indent_str})",
+            "NexaAssetImagePrimitive(\n{indent_str}    resourceId = {},\n{indent_str}    contentDescription = {content_description},\n{indent_str}    contentScale = {content_scale},\n{indent_str}    decodeWidthDp = {decode_w_arg},\n{indent_str}    decodeHeightDp = {decode_h_arg},\n{indent_str}    modifier = {modifier},\n{indent_str})",
             super::assets::drawable_id(asset, known_drawables),
         )),
         ImageSource::RemoteUrl(url) | ImageSource::LocalFile(url) => {
@@ -136,10 +137,44 @@ internal fun NexaAssetImagePrimitive(
     resourceId: Int,
     contentDescription: String?,
     contentScale: androidx.compose.ui.layout.ContentScale,
+    decodeWidthDp: Float? = null,
+    decodeHeightDp: Float? = null,
     modifier: androidx.compose.ui.Modifier,
 ) {
+    val sampledPainter: androidx.compose.ui.graphics.painter.Painter? =
+        if (resourceId != 0 && decodeWidthDp != null && decodeHeightDp != null) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val targetWidthPx = with(density) { decodeWidthDp.dp.roundToPx() }.coerceAtLeast(1)
+            val targetHeightPx = with(density) { decodeHeightDp.dp.roundToPx() }.coerceAtLeast(1)
+            remember(context, resourceId, targetWidthPx, targetHeightPx) {
+                val resources = context.resources
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeResource(resources, resourceId, bounds)
+                var sampleSize = 1
+                if (bounds.outWidth > targetWidthPx && bounds.outHeight > targetHeightPx) {
+                    val halfW = bounds.outWidth / 2
+                    val halfH = bounds.outHeight / 2
+                    while ((halfW / sampleSize) >= targetWidthPx && (halfH / sampleSize) >= targetHeightPx) {
+                        sampleSize *= 2
+                    }
+                }
+                if (sampleSize > 1) {
+                    val decodeOpts = android.graphics.BitmapFactory.Options().apply {
+                        inSampleSize = sampleSize
+                    }
+                    android.graphics.BitmapFactory.decodeResource(resources, resourceId, decodeOpts)?.let { bitmap ->
+                        androidx.compose.ui.graphics.painter.BitmapPainter(bitmap.asImageBitmap())
+                    }
+                } else {
+                    null
+                }
+            }
+        } else {
+            null
+        }
     androidx.compose.foundation.Image(
-        painter = nexaDrawablePainter(resourceId),
+        painter = sampledPainter ?: nexaDrawablePainter(resourceId),
         contentDescription = contentDescription,
         contentScale = contentScale,
         modifier = modifier,
@@ -286,7 +321,7 @@ mod tests {
         render_primitives(true, false, false, &mut output);
 
         assert!(output.contains("internal fun NexaAssetImagePrimitive("));
-        assert!(output.contains("painter = nexaDrawablePainter(resourceId)"));
+        assert!(output.contains("painter = sampledPainter ?: nexaDrawablePainter(resourceId)"));
         assert!(output.contains("contentDescription = contentDescription"));
         assert!(!output.contains("NexaRemoteImagePrimitive("));
     }
