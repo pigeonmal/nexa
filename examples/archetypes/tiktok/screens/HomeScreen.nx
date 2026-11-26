@@ -204,7 +204,7 @@ component HomeScreen() {
                     }
                     Spacer()
                     Pressable(accessibilityLabel: "Search videos", accessibilityRole: Button) {
-                        Icon(system: "search", description: "Search", size: 23, color: "#FFFFFF")
+                        Icon(Icons.system.search, description: "Search", size: 23, color: "#FFFFFF")
                     }.onTap { searchSheetRef.present() }
                 }
                 Spacer()
@@ -219,7 +219,7 @@ component HomeScreen() {
                         }
                         Text(clips[page].caption, color: "#FFFFFF", fontSize: 13, lineLimit: 2)
                         Row(gap: 6, alignment: Center) {
-                            Icon(system: "music", description: "Sound", size: 13, color: "#FFFFFF")
+                            Icon(Icons.system.music, description: "Sound", size: 13, color: "#FFFFFF")
                             Text(clips[page].sound, color: "#EEEEF0", fontSize: 11, lineLimit: 1)
                         }
                     }
@@ -230,13 +230,13 @@ component HomeScreen() {
                             Column {
                                 Spacer()
                                 Stack(alignment: Center, width: 19, height: 19, background: "#FE2C55", cornerRadius: 10) {
-                                    Icon(system: "add", description: "Follow", size: 12, color: "#FFFFFF")
+                                    Icon(Icons.system.add, description: "Follow", size: 12, color: "#FFFFFF")
                                 }
                             }
                         }
                         Pressable(accessibilityLabel: "Like video", accessibilityRole: Button) {
                             Column(gap: 2, alignment: Center) {
-                                if clips[page].id in likedIds { Icon(system: "favorite_filled", description: "Liked", size: 30, color: "#FE2C55") } else { Icon(system: "favorite", description: "Like", size: 30, color: "#FFFFFF") }
+                                if clips[page].id in likedIds { Icon(Icons.system.favorite_filled, description: "Liked", size: 30, color: "#FE2C55") } else { Icon(Icons.system.favorite, description: "Like", size: 30, color: "#FFFFFF") }
                                 Text(clips[page].likeCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
                         }.onTap {
@@ -244,13 +244,13 @@ component HomeScreen() {
                         }
                         Pressable(accessibilityLabel: "Read comments", accessibilityRole: Button) {
                             Column(gap: 2, alignment: Center) {
-                                Icon(system: "comment_filled", description: "Comments", size: 27, color: "#FFFFFF")
+                                Icon(Icons.system.comment_filled, description: "Comments", size: 27, color: "#FFFFFF")
                                 Text(clips[page].commentCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
                         }.onTap { commentsSheetRef.present() }
                         Pressable(accessibilityLabel: "Save video", accessibilityRole: Button) {
                             Column(gap: 2, alignment: Center) {
-                                if clips[page].id in savedIds { Icon(system: "bookmark_filled", description: "Saved", size: 25, color: "#F4D548") } else { Icon(system: "bookmark", description: "Save", size: 25, color: "#FFFFFF") }
+                                if clips[page].id in savedIds { Icon(Icons.system.bookmark_filled, description: "Saved", size: 25, color: "#F4D548") } else { Icon(Icons.system.bookmark, description: "Save", size: 25, color: "#FFFFFF") }
                                 Text("Save", color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
                         }.onTap {
@@ -258,7 +258,7 @@ component HomeScreen() {
                         }
                         Pressable(accessibilityLabel: "Share video", accessibilityRole: Button) {
                             Column(gap: 2, alignment: Center) {
-                                Icon(system: "share", description: "Share", size: 25, color: "#FFFFFF")
+                                Icon(Icons.system.share, description: "Share", size: 25, color: "#FFFFFF")
                                 Text(clips[page].viewCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
                         }.onTap { notice = "Share link copied" }

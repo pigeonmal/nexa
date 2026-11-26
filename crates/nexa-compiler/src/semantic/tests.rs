@@ -461,6 +461,7 @@ fn lower_test_component(
             type_arguments,
             arguments,
             span,
+            ..
         } => {
             if !type_arguments.is_empty() {
                 return Err(CompileError::new(

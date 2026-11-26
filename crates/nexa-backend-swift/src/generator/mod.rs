@@ -2121,13 +2121,13 @@ struct NexaSystemIconPrimitive: View {
 }
 
 // nexa-codegen: NexaIconLayer
-struct NexaIconLayer {
+struct NexaIconLayer: Equatable, Hashable {
     let glyph: Int32
     let color: Color
 }
 
 // nexa-codegen: NexaIconSpec
-struct NexaIconSpec {
+struct NexaIconSpec: Equatable, Hashable {
     let symbol: String?
     let glyph: Int32?
     let fontFamily: String?
@@ -2157,6 +2157,27 @@ struct NexaIconSpec {
         self.tint = tint
         self.preservesColor = preservesColor
         self.layers = layers
+    }
+
+    func withOverrides(description: String? = nil, size: CGFloat? = nil, tint: Color? = nil) -> NexaIconSpec {
+        if let glyph, let fontFamily {
+            return NexaIconSpec(
+                glyph: glyph,
+                fontFamily: fontFamily,
+                description: description ?? self.description,
+                size: size ?? self.size,
+                tint: tint ?? self.tint,
+                layers: layers,
+                preservesColor: preservesColor
+            )
+        }
+        return NexaIconSpec(
+            symbol: symbol ?? "questionmark",
+            description: description ?? self.description,
+            size: size ?? self.size,
+            tint: tint ?? self.tint,
+            preservesColor: preservesColor
+        )
     }
 }
 
@@ -6651,7 +6672,7 @@ mod tests {
                         value: Box::new(Expr::String("Edit".to_owned())),
                         comment: Some("Context menu action".to_owned()),
                     },
-                    icon: Some(IconSpec::system(SystemIcon::Shared("edit".to_owned()))),
+                    icon: Some(Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("edit".to_owned()))))),
                     loading: None,
                     disabled: None,
                     style: None,

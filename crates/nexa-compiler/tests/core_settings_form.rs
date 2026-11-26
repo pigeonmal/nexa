@@ -20,7 +20,7 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
     body {
         Form(showDividers: false, background: "#FAFAFA") {
             Section(title: "General", footer: "Version 1.0", showDividers: true, background: "#FFFFFF") {
-                Picker(items: pages, selected: startPage, label: "Start Page", icon: "star")
+                Picker(items: pages, selected: startPage, label: "Start Page", icon: Icons.system.star)
                 Switch(value: openLinksInApp, label: switchLabel)
             }
             Section(title: "Quiet", showDividers: false) {

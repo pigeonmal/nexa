@@ -712,6 +712,16 @@
         "android": "covered"
       },
       {
+        "name": "Icon",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "IconWith",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Index",
         "ios": "covered",
         "android": "covered"
@@ -1354,6 +1364,11 @@
       },
       {
         "name": "FontIcon",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Icon",
         "ios": "covered",
         "android": "covered"
       },
@@ -2042,6 +2057,11 @@
       },
       {
         "name": "NetworkResponse",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Icon",
         "ios": "covered",
         "android": "covered"
       },

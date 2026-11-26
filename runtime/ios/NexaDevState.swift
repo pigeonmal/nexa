@@ -1050,6 +1050,14 @@ final class NexaDevStateStore: ObservableObject {
             return NSNull()
         }
         switch kind {
+        case "Icon":
+            return tagged
+        case "IconWith":
+            var updated = payload as? [String: Any] ?? [:]
+            if let base = updated["base"] {
+                updated["base"] = evaluate(base, locals: locals, scope: scope)
+            }
+            return ["IconWith": updated]
         case "SystemInset":
             switch payload as? String {
             case "Top": return locals["__nexa_system_inset_top"] ?? 0.0

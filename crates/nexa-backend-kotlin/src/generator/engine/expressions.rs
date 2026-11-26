@@ -457,6 +457,35 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             format!("dev.nexa.core.NexaResult.Failure({})", render(error))
         }
         Expr::Try { expr, .. } => format!("{}.getOrThrow()", render(expr)),
+        Expr::Icon(spec) => crate::generator::components::system_icons::spec(spec),
+        Expr::IconWith {
+            base,
+            description,
+            size,
+            color,
+        } => {
+            let mut args = Vec::new();
+            if let Some(description) = description {
+                args.push(format!("description = {}", kotlin_string(description)));
+            }
+            if let Some(size) = size {
+                args.push(format!(
+                    "size = {}.dp",
+                    crate::generator::engine::utils::number(*size)
+                ));
+            }
+            if let Some(color) = color {
+                args.push(format!(
+                    "tint = {}",
+                    crate::generator::colors::expression_for_color(color)
+                ));
+            }
+            if args.is_empty() {
+                render(base)
+            } else {
+                format!("({}).copy({})", render(base), args.join(", "))
+            }
+        }
     }
 }
 

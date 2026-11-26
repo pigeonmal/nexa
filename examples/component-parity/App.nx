@@ -927,14 +927,14 @@ app ComponentParity {
                     titleActions = titleActions + 1
                 }
                 Pressable() {
-                    Icon(system: "more", description: "More actions", size: 20, color: "#111111")
+                    Icon(Icons.system.more, description: "More actions", size: 20, color: "#111111")
                 }.onTap {
                     titleActions = titleActions + 1
                 }.contextMenu {
-                    Button("Archive", icon: "folder") {
+                    Button("Archive", icon: Icons.system.folder) {
                         titleActions = titleActions + 10
                     }
-                    Button("Delete", icon: "delete") {
+                    Button("Delete", icon: Icons.system.delete) {
                         titleActions = titleActions + 100
                     }
                 }
@@ -1295,7 +1295,7 @@ app ComponentParity {
                         }
                     }
                     Row(gap: 0, alignment: Center) {
-                        Button("", icon: "add", shape: Circle, accessibilityLabel: "Add") {
+                        Button("", icon: Icons.system.add, shape: Circle, accessibilityLabel: "Add") {
                             taps = taps + 1
                         }
                         Button("Capsule", shape: Capsule) {
@@ -1306,7 +1306,7 @@ app ComponentParity {
                         }
                     }
                     Row(gap: 0, alignment: Center) {
-                        Button("Glass icon", comment: "Icon and glass style parity", icon: "star", glass: true, style: Bordered) {
+                        Button("Glass icon", comment: "Icon and glass style parity", icon: Icons.system.star, glass: true, style: Bordered) {
                             taps = taps + 1
                         }
                         Button("Tinted plain", style: Plain, tint: "#7C3AED") {
@@ -1669,11 +1669,11 @@ app ComponentParity {
         Column(gap: 12, padding: 16) {
             Text("Picker", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Selected value and custom label") {
-                Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Choose the task sort order")
+                Picker(items: sortOptions, selected: sort, icon: Icons.system.sort, label: "Sort tasks", tint: "#E11D48", comment: "Choose the task sort order")
                 Text("Selected: $sort")
             }
             ParityCard(title: "Icon for each option") {
-                Picker(items: sortOptions, selected: rowIconSort, itemIcons: ["calendar", "flag_filled", "edit"], label: "Sort by", comment: "Choose an option with its own icon")
+                Picker(items: sortOptions, selected: rowIconSort, itemIcons: [Icons.system.calendar, Icons.system.flag_filled, Icons.system.edit], label: "Sort by", comment: "Choose an option with its own icon")
                 Text("Selected row icon: $rowIconSort")
             }
             ParityCard(title: "Label and comment without an icon or tint") {
@@ -1681,7 +1681,7 @@ app ComponentParity {
                 Text("Selected label-only: $labelOnlySort")
             }
             ParityCard(title: "Tinted icon and comment without a label") {
-                Picker(items: sortOptions, selected: iconOnlySort, icon: "sort", tint: "#2563EB", comment: "Choose an icon-only sort")
+                Picker(items: sortOptions, selected: iconOnlySort, icon: Icons.system.sort, tint: "#2563EB", comment: "Choose an icon-only sort")
                 Text("Selected icon-only: $iconOnlySort")
             }
             ParityCard(title: "Defaults with all optional parameters omitted") {
@@ -1765,8 +1765,8 @@ app ComponentParity {
         state inboxDescription: String = "Saved tasks will appear here."
         Column(gap: 12, padding: 16) {
             Text("ContentUnavailable", fontSize: 28, fontWeight: Bold)
-            ContentUnavailable(title: "No saved tasks", icon: "inbox", description: inboxDescription, titleColor: "#111111", descriptionColor: "#666666", iconTint: "#007AFF", background: "#F2F2F7", comment: "Custom empty-state colors")
-            ContentUnavailable(title: searchTitle, icon: "search")
+            ContentUnavailable(title: "No saved tasks", icon: Icons.system.inbox, description: inboxDescription, titleColor: "#111111", descriptionColor: "#666666", iconTint: "#007AFF", background: "#F2F2F7", comment: "Custom empty-state colors")
+            ContentUnavailable(title: searchTitle, icon: Icons.system.search)
             Pressable(accessibilityLabel: "Toggle empty-state copy", accessibilityRole: Button) {
                 Stack(alignment: Center, width: 224, height: 48, background: "#F2F2F7", cornerRadius: 12) {
                     Text("Toggle empty-state copy", fontSize: 14, color: "#111111")
@@ -1962,7 +1962,7 @@ app ComponentParity {
                     FastList(count: 12, rowHeight: 56, gap: 8, showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, ref: listRef, accessibilityLabel: "Component parity rows") {
                         index in
                         Row(gap: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
-                            Icon(system: "check_circle", size: 20, color: "#E11D48", description: "Task")
+                            Icon(Icons.system.check_circle, size: 20, color: "#E11D48", description: "Task")
                             Text("Parity row \(index)")
                         }
                     }
@@ -2142,7 +2142,7 @@ app ComponentParity {
                         listMovableItems.move(from, to)
                     }.swipeActions(edge: Trailing, allowsFullSwipe: false) {
                         item, index in
-                        Button("Delete", icon: "delete", style: Borderless) {
+                        Button("Delete", icon: Icons.system.delete, style: Borderless) {
                             listDeleteCount += 1
                             listMovableItems.remove(index)
                         }
@@ -2269,7 +2269,7 @@ app ComponentParity {
             Text("Horizontal media title")
             Row(width: Fill, height: 40, gap: 12, background: "#E8F0FF", animation: Marquee(speed: 32, gap: 24, delay: 1, edgeFade: 16, playing: marqueePlaying)) {
                 Text(headline, lineLimit: 1)
-                Icon(system: "music", description: "Music", size: 20, color: "#047DF6")
+                Icon(Icons.system.music, description: "Music", size: 20, color: "#047DF6")
             }
             Text("Vertical announcements")
             Column(width: Fill, height: 64, gap: 12, background: "#E8F0FF", animation: Marquee(speed: 24, edgeFade: 12, playing: marqueePlaying)) {
@@ -2371,43 +2371,43 @@ app ComponentParity {
             Text("Icon", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "System and native platform symbols") {
                 Row(gap: 24, alignment: Center) {
-                    Icon(system: "search", size: 20, color: "#8E8E93", description: "Small search")
-                    Icon(system: "search", size: 32, color: "#007AFF", description: "Medium search")
-                    Icon(system: "search", size: 48, color: "#E11D48", description: "Large search")
+                    Icon(Icons.system.search, size: 20, color: "#8E8E93", description: "Small search")
+                    Icon(Icons.system.search, size: 32, color: "#007AFF", description: "Medium search")
+                    Icon(Icons.system.search, size: 48, color: "#E11D48", description: "Large search")
                 }
                 Row(gap: 24, alignment: Center) {
-                    Icon(sfsymbol: "star.fill", size: 24, color: "#E11D48", description: "Native iOS symbol")
-                    Icon(materialsymbol: "star", size: 24, color: "#E11D48", description: "Native Android symbol")
+                    Icon(Icons.system.star, size: 24, color: "#E11D48", description: "Star")
+                    Icon(Icons.system.star_filled, size: 24, color: "#E11D48", description: "Filled star")
                 }
             }
             ParityCard(title: "Prebuilt font and SVG-converted font") {
                 Row(gap: 16, alignment: Center) {
-                    Icon(mazicon: "play", size: 28, description: "Mazicon prebuilt font glyph")
-                    Icon(Brand: "heart", size: 28, description: "Brand icon generated from SVG")
+                    Icon(Icons.mazicon.play, size: 28, description: "Mazicon prebuilt font glyph")
+                    Icon(Icons.Brand.heart, size: 28, description: "Brand icon generated from SVG")
                 }
                 Text("Mazicon uses a named TTF sidecar; Brand is generated from SVG.", fontSize: 14)
             }
             ParityCard(title: "System and custom icon component slots") {
                 Column(gap: 8) {
                     Row(gap: 8, alignment: Center) {
-                        Button("Search", icon: Icon(system: "search")) {
+                        Button("Search", icon: Icons.system.search) {
                         }
-                        Button("Play audio", icon: Icon(mazicon: "play")) {
+                        Button("Play audio", icon: Icons.mazicon.play) {
                         }
                     }
-                    Button("Save favorite", icon: Icon(Brand: "heart", color: "#E11D48")) {
+                    Button("Save favorite", icon: Icon(Icons.Brand.heart, color: "#E11D48")) {
                     }
                 }
                 Picker(
                     items: ["Newest", "Popular", "Saved"],
                     selected: iconSortOrder,
-                    icon: Icon(system: "search"),
-                    itemIcons: ["search", Icon(mazicon: "play"), Icon(Brand: "heart")]
+                    icon: Icons.system.search,
+                    itemIcons: [Icons.system.search, Icons.mazicon.play, Icons.Brand.heart]
                 )
                 Column(height: 216) {
                     ContentUnavailable(
                         title: "No saved favorites",
-                        icon: Icon(Brand: "heart"),
+                        icon: Icon(Icons.Brand.heart),
                         description: "Save one to see it here."
                     )
                 }
@@ -2515,17 +2515,17 @@ app ComponentParity {
     screen BottomBarCases {
         state selectedTab: Int32 = 0
         AppBottomBar(selected: selectedTab, tint: "#E11D48") {
-            Tab(index: 0, label: "Inbox", icon: "inbox", title: "Inbox") {
+            Tab(index: 0, label: "Inbox", icon: Icons.system.inbox, title: "Inbox") {
                 Column(gap: 12, padding: 16) {
                     Text("Inbox tab content")
                 }
             }
-            Tab(index: 1, label: "Today", icon: "sun", title: "Today") {
+            Tab(index: 1, label: "Today", icon: Icons.system.sun, title: "Today") {
                 Column(gap: 12, padding: 16) {
                     Text("Today tab content")
                 }
             }
-            Tab(index: 2, label: "Search", icon: "search", title: "Search") {
+            Tab(index: 2, label: "Search", icon: Icons.system.search, title: "Search") {
                 Column(gap: 12, padding: 16) {
                     Text("Search tab content")
                 }
@@ -2662,10 +2662,10 @@ app ComponentParity {
                     Row(gap: 12) {
                         Text("Edit task", fontSize: 20, fontWeight: Semibold)
                         Spacer()
-                        Button("Save", icon: "save", style: Borderless) {
+                        Button("Save", icon: Icons.system.save, style: Borderless) {
                             headerSheetSaved = true
                         }
-                        Button("Close", icon: "close", style: Plain) {
+                        Button("Close", icon: Icons.system.close, style: Plain) {
                             headerSheetRef.dismiss()
                         }
                     }
@@ -2874,7 +2874,7 @@ app ComponentParity {
                             FastList(count: 12, rowHeight: 56, gap: 8, showDividers: false, accessibilityLabel: "Component parity rows") {
                                 index in
                                 Row(gap: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
-                                    Icon(system: "check_circle", size: 20, color: "#E11D48", description: "Task")
+                                    Icon(Icons.system.check_circle, size: 20, color: "#E11D48", description: "Task")
                                     Text("Parity row \(index)")
                                 }
                             }
@@ -2986,7 +2986,7 @@ app ComponentParity {
                                 sheetMoveCount += 1
                                 sheetMovableItems.move(from, to)
                             }.swipeActions(edge: Trailing, allowsFullSwipe: false) {
-                                Button("Delete", icon: "delete", style: Borderless) {
+                                Button("Delete", icon: Icons.system.delete, style: Borderless) {
                                     sheetListDeleteCount += 1
                                 }
                             }
@@ -3137,7 +3137,7 @@ app ComponentParity {
                 Button("Toggle selection", accessibilityLabel: "Selection", accessibilityValue: "Selected: $selected") {
                     selected =!selected
                 }
-                Icon(system: "check_circle", size: 24, color: "#E11D48", description: "Selected state", accessibilityLabel: "Selected state", accessibilityRole: Image)
+                Icon(Icons.system.check_circle, size: 24, color: "#E11D48", description: "Selected state", accessibilityLabel: "Selected state", accessibilityRole: Image)
             }
         }
     }

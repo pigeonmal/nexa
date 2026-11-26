@@ -60,7 +60,7 @@ pub(super) fn lower_app_bottom_bar_component(
         let icon = tab
             .icon
             .as_ref()
-            .map(|icon| lower_icon_spec(icon, "Tab icon", cx))
+            .map(|icon| lower_expr(icon, Some(&Type::Icon), &cx.exprs(false)))
             .transpose()?;
         let badge = tab
             .badge

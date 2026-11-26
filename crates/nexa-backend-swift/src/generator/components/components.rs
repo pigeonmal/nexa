@@ -565,7 +565,7 @@ pub(crate) fn render_node(
             state,
             controls::PickerOptions {
                 icon: icon.as_ref(),
-                item_icons,
+                item_icons: item_icons.as_ref(),
                 label: label.as_ref(),
                 tint: tint.as_ref(),
                 comment: None,
@@ -628,6 +628,7 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
+        Node::Icon { icon } => system_icons::render_expr(icon, depth, out),
         Node::LinearGradient {
             start_color,
             end_color,

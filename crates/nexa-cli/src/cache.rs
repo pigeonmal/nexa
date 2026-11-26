@@ -487,7 +487,7 @@ mod tests {
             .expect("custom icon asset directory should be created");
         fs::write(
             &entry,
-            "app Demo { body { Icon(set: \"Brand\", name: \"heart\") } }\n",
+            "app Demo { body { Icon(Icons.Brand.heart) } }\n",
         )
         .expect("entry source should be written");
         let icon = icons.join("Brand/heart.svg");

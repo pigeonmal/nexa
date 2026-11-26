@@ -559,6 +559,32 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::ResultOk { value, .. } => format!(".success({})", render(value)),
         Expr::ResultErr { error, .. } => format!(".failure({})", render(error)),
         Expr::Try { expr, .. } => format!("try {}.get()", render(expr)),
+        Expr::Icon(spec) => crate::generator::components::system_icons::spec(spec),
+        Expr::IconWith {
+            base,
+            description,
+            size,
+            color,
+        } => {
+            let mut args = Vec::new();
+            if let Some(description) = description {
+                args.push(format!("description: {}", swift_string(description)));
+            }
+            if let Some(size) = size {
+                args.push(format!("size: {size}"));
+            }
+            if let Some(color) = color {
+                args.push(format!(
+                    "tint: {}",
+                    crate::generator::colors::expression_for_color(color)
+                ));
+            }
+            if args.is_empty() {
+                render(base)
+            } else {
+                format!("({}).withOverrides({})", render(base), args.join(", "))
+            }
+        }
     }
 }
 

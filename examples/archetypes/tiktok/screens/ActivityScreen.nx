@@ -21,7 +21,7 @@ component ActivityScreen() {
                 Text("Inbox", color: "#FFFFFF", fontSize: 25, fontWeight: Bold)
                 Spacer()
                 Pressable(accessibilityLabel: "Open inbox settings", accessibilityRole: Button) {
-                    Icon(system: "more", description: "More", size: 22, color: "#FFFFFF")
+                    Icon(Icons.system.more, description: "More", size: 22, color: "#FFFFFF")
                 }.onTap { viewMode = "Activity" }
             }
             Row(gap: 24, height: 40) {
@@ -67,7 +67,7 @@ component ActivityScreen() {
                             Text(if index == 0 { "12 min ago" } else { if index == 1 { "1 hour ago" } else { "Today" } }, color: "#8F8F94", fontSize: 10)
                         }
                         Spacer()
-                        if index == 0 { Icon(system: "favorite_filled", description: "Like", size: 18, color: "#FE2C55") } else { Icon(system: "person", description: "Follow", size: 18, color: "#A7A7AA") }
+                        if index == 0 { Icon(Icons.system.favorite_filled, description: "Like", size: 18, color: "#FE2C55") } else { Icon(Icons.system.person, description: "Follow", size: 18, color: "#A7A7AA") }
                     }
                 }
             }

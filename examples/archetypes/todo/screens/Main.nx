@@ -11,7 +11,7 @@ screen Main {
             Tab(index: 0) {
                 Column(gap: 32, padding: 16, alignment: Center) {
                     Spacer()
-                    Icon(system: "checklist", size: 80, color: themeTint(selectedTheme), description: "")
+                    Icon(Icons.system.checklist, size: 80, color: themeTint(selectedTheme), description: "")
                     Column(gap: 12, alignment: Center) {
                         Text("Welcome to ToDoList", alignment: Center, fontSize: 28, fontWeight: Bold)
                         Row(padding: 16) {
@@ -31,7 +31,7 @@ screen Main {
             Tab(index: 1) {
                 Column(gap: 32, padding: 16, alignment: Center) {
                     Spacer()
-                    Icon(system: "notifications_active", size: 80, color: themeTint(selectedTheme), description: "")
+                    Icon(Icons.system.notifications_active, size: 80, color: themeTint(selectedTheme), description: "")
                     Column(gap: 12, alignment: Center) {
                         Text("Stay on Track", alignment: Center, fontSize: 28, fontWeight: Bold)
                         Row(padding: 16) {
@@ -57,7 +57,7 @@ screen Main {
             Tab(index: 2) {
                 Column(gap: 32, padding: 16, alignment: Center) {
                     Spacer()
-                    Icon(system: "check_circle", size: 80, color: themeTint(selectedTheme), description: "")
+                    Icon(Icons.system.check_circle, size: 80, color: themeTint(selectedTheme), description: "")
                     Column(gap: 12, alignment: Center) {
                         Text("You're All Set!", alignment: Center, fontSize: 28, fontWeight: Bold)
                         Row(padding: 16) {
@@ -80,14 +80,14 @@ screen Main {
         Appearance(mode: appearanceMode) {
             Column {
                 AppBottomBar(selected: selectedTab, tint: themeTint(selectedTheme)) {
-                    Tab(index: 0, label: "Inbox", icon: "inbox", title: "Inbox", largeTitle: true) {
+                    Tab(index: 0, label: "Inbox", icon: Icons.system.inbox, title: "Inbox", largeTitle: true) {
                         Column(gap: 8) {
                             Toolbar(placement: Trailing) {
-                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
+                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: Icons.system.sort, accessibilityLabel: "Sort", accessibilityValue: sortSelection)
                                 NavigationLink(destination: Completed) {
-                                    Icon(system: "check_circle", size: 20, color: "#8E8E93", description: "Completed")
+                                    Icon(Icons.system.check_circle, size: 20, color: "#8E8E93", description: "Completed")
                                 }
-                                Button("", icon: "add", accessibilityLabel: "Add new task", shape: Circle, tint: themeTint(selectedTheme)) {
+                                Button("", icon: Icons.system.add, accessibilityLabel: "Add new task", shape: Circle, tint: themeTint(selectedTheme)) {
                                     editingID = - 1
                                     dateSuggestionDismissed = false
                                     detectedDate = null
@@ -102,7 +102,7 @@ screen Main {
                                 }
                             }
                             if todoFilter(tasks, 0, "").isEmpty {
-                                ContentUnavailable(title: "Inbox is empty", icon: "inbox", description: "Tasks you add will appear here.")
+                                ContentUnavailable(title: "Inbox is empty", icon: Icons.system.inbox, description: "Tasks you add will appear here.")
                             } else {
                                 FastList(todoSort(todoFilter(tasks, 0, ""), sortSelection), key:.id) {
                                     task, index in
@@ -111,7 +111,7 @@ screen Main {
                                             if task.isCompleted {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                                                        Icon(system: "check_circle", size: 28, color: themeTint(selectedTheme), description: "")
+                                                        Icon(Icons.system.check_circle, size: 28, color: themeTint(selectedTheme), description: "")
                                                     }.onTap {
                                                         tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
@@ -124,7 +124,7 @@ screen Main {
                                             } else {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                                                        Icon(system: "circle", size: 28, color: themeTint(selectedTheme), description: "")
+                                                        Icon(Icons.system.circle, size: 28, color: themeTint(selectedTheme), description: "")
                                                     }.onTap {
                                                         tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
@@ -152,7 +152,7 @@ screen Main {
                                                 showingDatePicker = false
                                                 taskEditorSheetRef.present()
                                             }.contextMenu {
-                                                Button("Edit", icon: "edit") {
+                                                Button("Edit", icon: Icons.system.edit) {
                                                     editingID = task.id
                                                     dateSuggestionDismissed = false
                                                     taskTitle = task.title
@@ -164,7 +164,7 @@ screen Main {
                                                     showingDatePicker = false
                                                     taskEditorSheetRef.present()
                                                 }
-                                                Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
+                                                Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: Icons.system.check) {
                                                     tasks = toggleTodo(tasks, task.id)
                                                     Haptics.notification(kind: Success)
                                                     cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
@@ -172,7 +172,7 @@ screen Main {
                                                         await persistTaskAndRefreshBadge(tasks, task.id, notifications)
                                                     }
                                                 }
-                                                Button("Delete", icon: "delete") {
+                                                Button("Delete", icon: Icons.system.delete) {
                                                     cancelTaskReminders(reminders, task.id, notifications)
                                                     reminders = deleteTaskReminders(reminders, task.id)
                                                     tasks = deleteTodo(tasks, task.id)
@@ -184,7 +184,7 @@ screen Main {
                                         }
                                     }
                                 }.swipeActions {
-                                    Button("Delete", icon: "delete", style: Borderless) {
+                                    Button("Delete", icon: Icons.system.delete, style: Borderless) {
                                         cancelTaskReminders(reminders, task.id, notifications)
                                         reminders = deleteTaskReminders(reminders, task.id)
                                         tasks = deleteTodo(tasks, task.id)
@@ -204,14 +204,14 @@ screen Main {
                             }
                         }
                     }
-                    Tab(index: 1, label: "Today", icon: "sun", title: "Today", largeTitle: true) {
+                    Tab(index: 1, label: "Today", icon: Icons.system.sun, title: "Today", largeTitle: true) {
                         Column(gap: 8) {
                             Toolbar(placement: Trailing) {
-                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
+                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: Icons.system.sort, accessibilityLabel: "Sort", accessibilityValue: sortSelection)
                                 NavigationLink(destination: Completed) {
-                                    Icon(system: "check_circle", size: 20, color: "#8E8E93", description: "Completed")
+                                    Icon(Icons.system.check_circle, size: 20, color: "#8E8E93", description: "Completed")
                                 }
-                                Button("", icon: "add", accessibilityLabel: "Add new task", shape: Circle, tint: themeTint(selectedTheme)) {
+                                Button("", icon: Icons.system.add, accessibilityLabel: "Add new task", shape: Circle, tint: themeTint(selectedTheme)) {
                                     editingID = - 1
                                     dateSuggestionDismissed = false
                                     detectedDate = null
@@ -226,7 +226,7 @@ screen Main {
                                 }
                             }
                             if todoFilter(tasks, 1, "").isEmpty {
-                                ContentUnavailable(title: "Nothing due today", icon: "sun_filled", description: "Enjoy your free day or plan something new.")
+                                ContentUnavailable(title: "Nothing due today", icon: Icons.system.sun_filled, description: "Enjoy your free day or plan something new.")
                             } else {
                                 FastList(todoSort(todoFilter(tasks, 1, ""), sortSelection), key:.id) {
                                     task, index in
@@ -235,7 +235,7 @@ screen Main {
                                             if task.isCompleted {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                                                        Icon(system: "check_circle", size: 28, color: themeTint(selectedTheme), description: "")
+                                                        Icon(Icons.system.check_circle, size: 28, color: themeTint(selectedTheme), description: "")
                                                     }.onTap {
                                                         tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
@@ -248,7 +248,7 @@ screen Main {
                                             } else {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                                                        Icon(system: "circle", size: 28, color: themeTint(selectedTheme), description: "")
+                                                        Icon(Icons.system.circle, size: 28, color: themeTint(selectedTheme), description: "")
                                                     }.onTap {
                                                         tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
@@ -276,7 +276,7 @@ screen Main {
                                                 showingDatePicker = false
                                                 taskEditorSheetRef.present()
                                             }.contextMenu {
-                                                Button("Edit", icon: "edit") {
+                                                Button("Edit", icon: Icons.system.edit) {
                                                     editingID = task.id
                                                     dateSuggestionDismissed = false
                                                     taskTitle = task.title
@@ -288,7 +288,7 @@ screen Main {
                                                     showingDatePicker = false
                                                     taskEditorSheetRef.present()
                                                 }
-                                                Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
+                                                Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: Icons.system.check) {
                                                     tasks = toggleTodo(tasks, task.id)
                                                     Haptics.notification(kind: Success)
                                                     cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
@@ -296,7 +296,7 @@ screen Main {
                                                         await persistTaskAndRefreshBadge(tasks, task.id, notifications)
                                                     }
                                                 }
-                                                Button("Delete", icon: "delete") {
+                                                Button("Delete", icon: Icons.system.delete) {
                                                     cancelTaskReminders(reminders, task.id, notifications)
                                                     reminders = deleteTaskReminders(reminders, task.id)
                                                     tasks = deleteTodo(tasks, task.id)
@@ -308,7 +308,7 @@ screen Main {
                                         }
                                     }
                                 }.swipeActions {
-                                    Button("Delete", icon: "delete", style: Borderless) {
+                                    Button("Delete", icon: Icons.system.delete, style: Borderless) {
                                         cancelTaskReminders(reminders, task.id, notifications)
                                         reminders = deleteTaskReminders(reminders, task.id)
                                         tasks = deleteTodo(tasks, task.id)
@@ -328,14 +328,14 @@ screen Main {
                             }
                         }
                     }
-                    Tab(index: 2, label: "Upcoming", icon: "calendar", title: "Upcoming", largeTitle: true) {
+                    Tab(index: 2, label: "Upcoming", icon: Icons.system.calendar, title: "Upcoming", largeTitle: true) {
                         Column(gap: 8) {
                             Toolbar(placement: Trailing) {
-                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
+                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: Icons.system.sort, accessibilityLabel: "Sort", accessibilityValue: sortSelection)
                                 NavigationLink(destination: Completed) {
-                                    Icon(system: "check_circle", size: 20, color: "#8E8E93", description: "Completed")
+                                    Icon(Icons.system.check_circle, size: 20, color: "#8E8E93", description: "Completed")
                                 }
-                                Button("", icon: "add", accessibilityLabel: "Add new task", shape: Circle, tint: themeTint(selectedTheme)) {
+                                Button("", icon: Icons.system.add, accessibilityLabel: "Add new task", shape: Circle, tint: themeTint(selectedTheme)) {
                                     editingID = - 1
                                     dateSuggestionDismissed = false
                                     detectedDate = null
@@ -350,7 +350,7 @@ screen Main {
                                 }
                             }
                             if todoFilter(tasks, 2, "").isEmpty {
-                                ContentUnavailable(title: "All clear ahead", icon: "event_done", description: "No upcoming tasks scheduled yet.")
+                                ContentUnavailable(title: "All clear ahead", icon: Icons.system.event_done, description: "No upcoming tasks scheduled yet.")
                             } else {
                                 FastList(sections: todoSort(todoFilter(tasks, 2, ""), sortSelection).groupedBy {
                                     task - > Time.startOfDay(task.dueTimestamp ?? 0)
@@ -361,7 +361,7 @@ screen Main {
                                             if task.isCompleted {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                                                        Icon(system: "check_circle", size: 28, color: themeTint(selectedTheme), description: "")
+                                                        Icon(Icons.system.check_circle, size: 28, color: themeTint(selectedTheme), description: "")
                                                     }.onTap {
                                                         tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
@@ -374,7 +374,7 @@ screen Main {
                                             } else {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                                                        Icon(system: "circle", size: 28, color: themeTint(selectedTheme), description: "")
+                                                        Icon(Icons.system.circle, size: 28, color: themeTint(selectedTheme), description: "")
                                                     }.onTap {
                                                         tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
@@ -402,7 +402,7 @@ screen Main {
                                                 showingDatePicker = false
                                                 taskEditorSheetRef.present()
                                             }.contextMenu {
-                                                Button("Edit", icon: "edit") {
+                                                Button("Edit", icon: Icons.system.edit) {
                                                     editingID = task.id
                                                     dateSuggestionDismissed = false
                                                     taskTitle = task.title
@@ -414,7 +414,7 @@ screen Main {
                                                     showingDatePicker = false
                                                     taskEditorSheetRef.present()
                                                 }
-                                                Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
+                                                Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: Icons.system.check) {
                                                     tasks = toggleTodo(tasks, task.id)
                                                     Haptics.notification(kind: Success)
                                                     cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
@@ -422,7 +422,7 @@ screen Main {
                                                         await persistTaskAndRefreshBadge(tasks, task.id, notifications)
                                                     }
                                                 }
-                                                Button("Delete", icon: "delete") {
+                                                Button("Delete", icon: Icons.system.delete) {
                                                     cancelTaskReminders(reminders, task.id, notifications)
                                                     reminders = deleteTaskReminders(reminders, task.id)
                                                     tasks = deleteTodo(tasks, task.id)
@@ -434,7 +434,7 @@ screen Main {
                                         }
                                     }
                                 }.swipeActions {
-                                    Button("Delete", icon: "delete", style: Borderless) {
+                                    Button("Delete", icon: Icons.system.delete, style: Borderless) {
                                         cancelTaskReminders(reminders, task.id, notifications)
                                         reminders = deleteTaskReminders(reminders, task.id)
                                         tasks = deleteTodo(tasks, task.id)
@@ -448,25 +448,25 @@ screen Main {
                             }
                         }
                     }
-                    Tab(index: 3, label: "Settings", icon: "settings", title: "Settings", largeTitle: true) {
+                    Tab(index: 3, label: "Settings", icon: Icons.system.settings, title: "Settings", largeTitle: true) {
                         Form {
                             Section {
-                                Picker(items: TodoOptions.startPageOptions, selected: startPageSelection, icon: "star", label: "Start Page")
+                                Picker(items: TodoOptions.startPageOptions, selected: startPageSelection, icon: Icons.system.star, label: "Start Page")
                                 NavigationLink(destination: Theme) {
                                     Row(gap: 8) {
-                                        Icon(system: "palette", size: 20, color: themeTint(selectedTheme), description: "")
+                                        Icon(Icons.system.palette, size: 20, color: themeTint(selectedTheme), description: "")
                                         Text("Theme")
                                         Spacer()
-                                        Icon(system: "circle_filled", size: 20, color: themeTint(selectedTheme), description: "")
+                                        Icon(Icons.system.circle_filled, size: 20, color: themeTint(selectedTheme), description: "")
                                     }
                                 }
                                 Switch(value: openLinksInApp, label: "Open Links In App")
                             }
                             Section {
-                                Picker(items: TodoOptions.autoReminderOptions, selected: autoReminderChoice, icon: "notifications", label: "Automatic\nReminders")
+                                Picker(items: TodoOptions.autoReminderOptions, selected: autoReminderChoice, icon: Icons.system.notifications, label: "Automatic\nReminders")
                             }
                             Section(footer: "ToDoList v1.0.0") {
-                                Button("Send Feedback", icon: "email", style: Plain) {
+                                Button("Send Feedback", icon: Icons.system.email, style: Plain) {
                                     Task.launch(handle: mailTask, executor: TaskExecutor.Main) {
                                         try {
                                             await mail.present(
@@ -484,11 +484,11 @@ screen Main {
                                         }
                                     }
                                 }
-                                Button("Show Onboarding", icon: "waving_hand", style: Plain) {
+                                Button("Show Onboarding", icon: Icons.system.waving_hand, style: Plain) {
                                     currentOnboardingPage = 0
                                     showingOnboarding = true
                                 }
-                                Button("Terms of Service", icon: "document", style: Plain) {
+                                Button("Terms of Service", icon: Icons.system.document, style: Plain) {
                                     Task.launch(handle: browserTask, executor: TaskExecutor.Main) {
                                         try {
                                             await browser.open("https://randusoft.ro/tos.html", openLinksInApp)
@@ -502,7 +502,7 @@ screen Main {
                                         }
                                     }
                                 }
-                                Button("Privacy Policy", icon: "security", style: Plain) {
+                                Button("Privacy Policy", icon: Icons.system.security, style: Plain) {
                                     Task.launch(handle: browserTask, executor: TaskExecutor.Main) {
                                         try {
                                             await browser.open("https://randusoft.ro/pp.html", openLinksInApp)
@@ -516,7 +516,7 @@ screen Main {
                                         }
                                     }
                                 }
-                                Button("Source Code", icon: "code", style: Plain) {
+                                Button("Source Code", icon: Icons.system.code, style: Plain) {
                                     Task.launch(handle: browserTask, executor: TaskExecutor.Main) {
                                         try {
                                             await browser.open("https://github.com/rursache/ToDoList", openLinksInApp)
@@ -549,12 +549,12 @@ screen Main {
                             }
                         }
                     }
-                    Tab(index: 4, label: "Search", icon: "search", role: "search", title: "Search", largeTitle: true, searchable: searchQuery, searchPrompt: "Search tasks...") {
+                    Tab(index: 4, label: "Search", icon: Icons.system.search, role: "search", title: "Search", largeTitle: true, searchable: searchQuery, searchPrompt: "Search tasks...") {
                         Column(gap: 8) {
                             if searchQuery == "" {
-                                ContentUnavailable(title: "Search Tasks", icon: "search", description: "Search across all your tasks")
+                                ContentUnavailable(title: "Search Tasks", icon: Icons.system.search, description: "Search across all your tasks")
                             } else if todoFilter(tasks, 4, searchQuery).isEmpty {
-                                ContentUnavailable(title: "No Results", icon: "search", description: "No tasks match \"\(searchQuery)\"")
+                                ContentUnavailable(title: "No Results", icon: Icons.system.search, description: "No tasks match \"\(searchQuery)\"")
                             } else {
                                 FastList(todoSort(todoFilter(tasks, 4, searchQuery), sortSelection), key:.id) {
                                     task, index in
@@ -563,7 +563,7 @@ screen Main {
                                             if task.isCompleted {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                                                        Icon(system: "check_circle", size: 28, color: themeTint(selectedTheme), description: "")
+                                                        Icon(Icons.system.check_circle, size: 28, color: themeTint(selectedTheme), description: "")
                                                     }.onTap {
                                                         tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
@@ -576,7 +576,7 @@ screen Main {
                                             } else {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                                                        Icon(system: "circle", size: 28, color: themeTint(selectedTheme), description: "")
+                                                        Icon(Icons.system.circle, size: 28, color: themeTint(selectedTheme), description: "")
                                                     }.onTap {
                                                         tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
@@ -604,7 +604,7 @@ screen Main {
                                                 showingDatePicker = false
                                                 taskEditorSheetRef.present()
                                             }.contextMenu {
-                                                Button("Edit", icon: "edit") {
+                                                Button("Edit", icon: Icons.system.edit) {
                                                     editingID = task.id
                                                     taskTitle = task.title
                                                     taskDescription = task.taskDescription
@@ -615,7 +615,7 @@ screen Main {
                                                     showingDatePicker = false
                                                     taskEditorSheetRef.present()
                                                 }
-                                                Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
+                                                Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: Icons.system.check) {
                                                     tasks = toggleTodo(tasks, task.id)
                                                     Haptics.notification(kind: Success)
                                                     cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
@@ -623,7 +623,7 @@ screen Main {
                                                         await persistTaskAndRefreshBadge(tasks, task.id, notifications)
                                                     }
                                                 }
-                                                Button("Delete", icon: "delete") {
+                                                Button("Delete", icon: Icons.system.delete) {
                                                     cancelTaskReminders(reminders, task.id, notifications)
                                                     reminders = deleteTaskReminders(reminders, task.id)
                                                     tasks = deleteTodo(tasks, task.id)
@@ -635,7 +635,7 @@ screen Main {
                                         }
                                     }
                                 }.swipeActions {
-                                    Button("Delete", icon: "delete", style: Borderless) {
+                                    Button("Delete", icon: Icons.system.delete, style: Borderless) {
                                         cancelTaskReminders(reminders, task.id, notifications)
                                         reminders = deleteTaskReminders(reminders, task.id)
                                         tasks = deleteTodo(tasks, task.id)
@@ -679,9 +679,9 @@ screen Main {
                             Column(gap: 12, padding: 16) {
                                 Text("Task details", fontSize: 20, fontWeight: Semibold)
                                 Row(gap: 12, alignment: Center) {
-                                    Picker(items: ["None", "Highest", "High", "Normal", "Low"], selected: priority, icon: "flag_filled", tint: priority == "None"?"#8E8E93": taskPriorityTint(priority), accessibilityLabel: "Priority", accessibilityValue: priority)
+                                    Picker(items: ["None", "Highest", "High", "Normal", "Low"], selected: priority, icon: Icons.system.flag_filled, tint: priority == "None"?"#8E8E93": taskPriorityTint(priority), accessibilityLabel: "Priority", accessibilityValue: priority)
                                     Spacer()
-                                    Button("", icon: "submit", style: Plain, size: Large, accessibilityLabel: "Save task", disabled: taskTitle.trimmed == "") {
+                                    Button("", icon: Icons.system.submit, style: Plain, size: Large, accessibilityLabel: "Save task", disabled: taskTitle.trimmed == "") {
                                         if taskTitle.trimmed != "" {
                                             if editingID < 0 {
                                                 let createdTaskID = nextTaskID
@@ -730,10 +730,10 @@ screen Main {
                                 }
                                 if dateMatchLabel(detectedDate) != "" &&!hasDueDate &&!dateSuggestionDismissed {
                                     Row(gap: 8, padding: 12, background: "#F5EDFF", cornerRadius: 18) {
-                                        Icon(system: "star", size: 16, color: "#8E44AD", description: "")
+                                        Icon(Icons.system.star, size: 16, color: "#8E44AD", description: "")
                                         SuggestedDateLabel(label: dateMatchLabel(detectedDate))
                                         Spacer()
-                                        Button("", icon: "check_circle_filled", accessibilityLabel: "Accept detected date", style: Plain, tint: "#20BF6B") {
+                                        Button("", icon: Icons.system.check_circle_filled, accessibilityLabel: "Accept detected date", style: Plain, tint: "#20BF6B") {
                                             let choice = todoDateSuggestionChoice(detectedDate, dueTimestamp)
                                             hasDueDate = true
                                             hasTime = choice.hasTime
@@ -744,7 +744,7 @@ screen Main {
                                         }
                                             showingDatePicker = choice.needsPicker
                                         }
-                                        Button("", icon: "close", accessibilityLabel: "Dismiss detected date", style: Plain, tint: "#8E8E93") {
+                                        Button("", icon: Icons.system.close, accessibilityLabel: "Dismiss detected date", style: Plain, tint: "#8E8E93") {
                                             dateSuggestionDismissed = true
                                         }
                                     }
@@ -753,32 +753,32 @@ screen Main {
                                 FastList(count: 1, axis: Horizontal) {
                                     index in
                                     Row(gap: 8) {
-                                            Button("Today", icon: "calendar", style: Bordered, shape: Capsule, tint: isTodoTodaySelected(hasDueDate, dueTimestamp)?"#20BF6B": "#8E8E93", accessibilityLabel: "Today", accessibilityValue: isTodoTodaySelected(hasDueDate, dueTimestamp)?"Selected": "") {
+                                            Button("Today", icon: Icons.system.calendar, style: Bordered, shape: Capsule, tint: isTodoTodaySelected(hasDueDate, dueTimestamp)?"#20BF6B": "#8E8E93", accessibilityLabel: "Today", accessibilityValue: isTodoTodaySelected(hasDueDate, dueTimestamp)?"Selected": "") {
                                                 hasDueDate = true
                                                 dueTimestamp = todoTodayStart()
                                                 hasTime = false
                                                 detectedDate = null
                                             }
-                                            Button("Tomorrow", icon: "sunrise", style: Bordered, shape: Capsule, tint: isTodoTomorrowSelected(hasDueDate, dueTimestamp)?"#F39C12": "#8E8E93", accessibilityLabel: "Tomorrow", accessibilityValue: isTodoTomorrowSelected(hasDueDate, dueTimestamp)?"Selected": "") {
+                                            Button("Tomorrow", icon: Icons.system.sunrise, style: Bordered, shape: Capsule, tint: isTodoTomorrowSelected(hasDueDate, dueTimestamp)?"#F39C12": "#8E8E93", accessibilityLabel: "Tomorrow", accessibilityValue: isTodoTomorrowSelected(hasDueDate, dueTimestamp)?"Selected": "") {
                                                 hasDueDate = true
                                                 dueTimestamp = todoTomorrowStart()
                                                 hasTime = false
                                                 detectedDate = null
                                             }
-                                            Button("Next Week", icon: "event_add", style: Bordered, shape: Capsule, tint: isTodoNextWeekSelected(hasDueDate, dueTimestamp)?"#8E44AD": "#8E8E93", accessibilityLabel: "Next Week", accessibilityValue: isTodoNextWeekSelected(hasDueDate, dueTimestamp)?"Selected": "") {
+                                            Button("Next Week", icon: Icons.system.event_add, style: Bordered, shape: Capsule, tint: isTodoNextWeekSelected(hasDueDate, dueTimestamp)?"#8E44AD": "#8E8E93", accessibilityLabel: "Next Week", accessibilityValue: isTodoNextWeekSelected(hasDueDate, dueTimestamp)?"Selected": "") {
                                                 hasDueDate = true
                                                 dueTimestamp = todoNextWeekStart()
                                                 hasTime = false
                                                 detectedDate = null
                                             }
-                                            Button(todoQuickPickDateLabel(hasDueDate, dueTimestamp), icon: "calendar_time", style: Bordered, shape: Capsule, tint: isTodoCustomDateSelected(hasDueDate, dueTimestamp)?"#0984E3": "#8E8E93", accessibilityLabel: todoQuickPickDateLabel(hasDueDate, dueTimestamp), accessibilityValue: isTodoCustomDateSelected(hasDueDate, dueTimestamp)?"Selected": "") {
+                                            Button(todoQuickPickDateLabel(hasDueDate, dueTimestamp), icon: Icons.system.calendar_time, style: Bordered, shape: Capsule, tint: isTodoCustomDateSelected(hasDueDate, dueTimestamp)?"#0984E3": "#8E8E93", accessibilityLabel: todoQuickPickDateLabel(hasDueDate, dueTimestamp), accessibilityValue: isTodoCustomDateSelected(hasDueDate, dueTimestamp)?"Selected": "") {
                                                 detectedDate = null
                                                 pickerTimestamp = dueTimestamp
                                                 pickerHasTime = hasTime
                                                 showingDatePicker = true
                                             }
                                             if hasDueDate {
-                                                Button("Clear", icon: "close", style: Bordered, shape: Capsule, tint: "#E74C3C") {
+                                                Button("Clear", icon: Icons.system.close, style: Bordered, shape: Capsule, tint: "#E74C3C") {
                                                     hasDueDate = false
                                                     hasTime = false
                                                     dateSuggestionDismissed = false
@@ -793,7 +793,7 @@ screen Main {
                                 }
                                 Row(gap: 8) {
                                     Spacer()
-                                    Button(taskCommentButtonLabel(tasks, editingID), icon: "comment", style: Bordered) {
+                                    Button(taskCommentButtonLabel(tasks, editingID), icon: Icons.system.comment, style: Bordered) {
                                         if editingID < 0 {
                                             tasks.append(makeTask(nextTaskID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority, nextTaskSortOrder(tasks)))
                                             editingID = nextTaskID
@@ -807,7 +807,7 @@ screen Main {
                                         taskEditorSheetRef.dismiss()
                                         commentsSheetRef.present()
                                     }
-                                    Button(taskReminderButtonLabel(tasks, editingID), icon: "notifications", style: Bordered) {
+                                    Button(taskReminderButtonLabel(tasks, editingID), icon: Icons.system.notifications, style: Bordered) {
                                         if editingID < 0 {
                                             tasks.append(makeTask(nextTaskID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority, nextTaskSortOrder(tasks)))
                                             editingID = nextTaskID
@@ -866,7 +866,7 @@ screen Main {
                                     reminderStatus = ""
                                 }
                                 Spacer()
-                                Button("Save", icon: "submit", style: BorderedProminent, disabled: reminderTimestamp <= Time.now()) {
+                                Button("Save", icon: Icons.system.submit, style: BorderedProminent, disabled: reminderTimestamp <= Time.now()) {
                                     let reminderIdentifier = "todo-reminder-\(nextReminderID)"
                                     let normalizedTitle = reminderTitle.trimmed
                                     let title: String = normalizedTitle == ""?Locale.localized("Reminder"): normalizedTitle
@@ -925,7 +925,7 @@ screen Main {
                     } else {
                         Column {
                             Row(gap: 12, alignment: Center) {
-                                Button("Back", icon: "back", style: Borderless) {
+                                Button("Back", icon: Icons.system.back, style: Borderless) {
                                     Task.launch(executor: TaskExecutor.Main) {
                                         tasks = await todoPersistence.loadTasks()
                                         remindersSheetRef.dismiss()
@@ -938,7 +938,7 @@ screen Main {
                                 }
                                 Text("Reminders", fontSize: 20, fontWeight: Semibold)
                                 Spacer()
-                                Button("", icon: "add", accessibilityLabel: "Add reminder", style: Borderless) {
+                                Button("", icon: Icons.system.add, accessibilityLabel: "Add reminder", style: Borderless) {
                                     reminderTitle = ""
                                     reminderStatus = ""
                                     reminderTimestamp = hasDueDate?dueTimestamp: Time.now() + 3600000
@@ -948,7 +948,7 @@ screen Main {
                             }
                             if activeTaskReminders(reminders, selectedTaskID).isEmpty {
                                 Column(gap: 8, padding: 32, alignment: Center) {
-                                    Icon(system: "notifications", size: 36, color: "#8E8E93", description: "")
+                                    Icon(Icons.system.notifications, size: 36, color: "#8E8E93", description: "")
                                     Text("No reminders", fontSize: 20)
                                     Text("Tap + to add a reminder", fontSize: 16, color: "#8E8E93")
                                 }
@@ -965,7 +965,7 @@ screen Main {
                                             }
                                         }
                                         Spacer()
-                                        Button("", icon: "delete", accessibilityLabel: "Delete", style: Plain) {
+                                        Button("", icon: Icons.system.delete, accessibilityLabel: "Delete", style: Plain) {
                                             notifications.cancelLocal(reminder.identifier)
                                             reminders = deleteReminder(reminders, reminder.id)
                                             Task.launch(executor: TaskExecutor.Main) {

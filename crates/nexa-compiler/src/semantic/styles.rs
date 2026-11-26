@@ -380,6 +380,7 @@ pub(super) fn lower_edge_insets(
             type_arguments,
             mut arguments,
             span,
+            ..
         } if name == "Insets" && type_arguments.is_empty() => {
             let all_value = arguments.remove("all");
             if all_value.is_some() {
@@ -809,6 +810,7 @@ pub(super) fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileE
             type_arguments,
             mut arguments,
             span,
+            ..
         } if name == "Tween" && type_arguments.is_empty() => {
             let unknown = arguments
                 .keys()
@@ -869,6 +871,7 @@ fn parse_animation_easing(expr: ast::Expr) -> Result<AnimationEasing, CompileErr
             type_arguments,
             arguments,
             span,
+            ..
         } if name == "CubicBezier" && type_arguments.is_empty() => {
             let expected = ["x1", "y1", "x2", "y2"];
             if let Some(unknown) = arguments

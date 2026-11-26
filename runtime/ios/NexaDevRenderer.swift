@@ -368,7 +368,36 @@ private func nexaDevIconSpec(
     scope: String,
     isDark: Bool
 ) -> NexaIconSpec? {
-    guard let icon = rawIcon as? [String: Any] else { return nil }
+    guard let raw = rawIcon, !(raw is NSNull) else { return nil }
+    var iconDict = raw as? [String: Any]
+    if let dict = iconDict,
+       dict["source"] == nil,
+       dict["shared"] == nil,
+       dict["FontGlyph"] == nil,
+       dict["font_glyph"] == nil,
+       dict["System"] == nil,
+       dict["system"] == nil,
+       dict["Icon"] == nil,
+       dict["IconWith"] == nil {
+        iconDict = store.evaluate(raw, locals: locals, scope: scope) as? [String: Any]
+    }
+    guard let unwrapped = iconDict else { return nil }
+    if let withSpec = unwrapped["IconWith"] as? [String: Any] {
+        guard let base = nexaDevIconSpec(withSpec["base"], store: store, locals: locals, scope: scope, isDark: isDark) else {
+            return nil
+        }
+        let description = withSpec["description"] as? String
+        let size = (withSpec["size"] as? NSNumber).map { CGFloat($0.doubleValue) }
+        let tint: Color? = {
+            guard let value = withSpec["color"] as? [String: Any] else { return nil }
+            if let dynamic = value["Dynamic"] {
+                return devHexColor(store.stringify(store.evaluate(dynamic, locals: locals, scope: scope)))
+            }
+            return devColor(value, isDark: isDark)
+        }()
+        return base.withOverrides(description: description, size: size, tint: tint)
+    }
+    let icon = (unwrapped["Icon"] as? [String: Any]) ?? unwrapped
     let source = icon["source"] as? [String: Any] ?? icon
     let description = icon["description"] as? String
     let size = (icon["size"] as? NSNumber).map { CGFloat($0.doubleValue) }
@@ -400,13 +429,6 @@ private func nexaDevIconSpec(
        let symbol = nexaDevSharedIconSymbol(shared) {
         return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
     }
-    if let symbol = system["sf_symbol"] as? String {
-        return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
-    }
-    if let material = system["material_symbol"] as? String,
-       let symbol = nexaDevMaterialIconSymbol(material) {
-        return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
-    }
     return nil
 }
 
@@ -426,21 +448,6 @@ private func nexaDevIconLayers(_ raw: Any?) -> [NexaIconLayer] {
                 opacity: Double(rgba[3].intValue) / 255
             )
         )
-    }
-}
-
-private func nexaDevMaterialIconSymbol(_ name: String) -> String? {
-    let rawSymbol = name.split(separator: ":", maxSplits: 1).last.map(String.init) ?? name
-    let symbol = rawSymbol
-        .split(whereSeparator: { $0 == "." || $0 == "_" || $0 == "-" })
-        .map { part in
-            guard let first = part.first else { return "" }
-            return String(first).uppercased() + String(part.dropFirst())
-        }
-        .joined()
-    switch symbol {
-__NEXA_SHARED_ICON_MATERIAL_SF_CASES__
-    default: return nil
     }
 }
 
@@ -2907,7 +2914,11 @@ struct NexaDevNodeList: View {
         case "Picker":
             let name = fields["state"] as? String ?? ""
             let items = store.evaluate(fields["items"] ?? NSNull(), locals: locals, scope: scope) as? [String] ?? []
-            let itemIcons = (fields["item_icons"] as? [Any] ?? []).compactMap { nexaDevIconSpec($0, store: store, locals: locals, scope: scope, isDark: colorScheme == .dark) }
+            let evaluatedItemIcons = fields["item_icons"].flatMap { value -> [Any]? in
+                if value is NSNull { return nil }
+                return store.evaluate(value, locals: locals, scope: scope) as? [Any]
+            } ?? []
+            let itemIcons = evaluatedItemIcons.compactMap { nexaDevIconSpec($0, store: store, locals: locals, scope: scope, isDark: colorScheme == .dark) }
             let icon = nexaDevIconSpec(fields["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
             let label = fields["label"].flatMap { value in
                 value is NSNull ? nil : store.stringify(store.evaluate(value, locals: locals, scope: scope))
@@ -3005,6 +3016,10 @@ struct NexaDevNodeList: View {
                 enabled: boolean("enabled"),
                 accessibilityLabel: string("accessibility_label")
             ))
+        case "Icon":
+            let icon = nexaDevIconSpec(fields["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
+                ?? NexaIconSpec(symbol: "questionmark")
+            return AnyView(NexaIconView(icon: icon, description: nil, size: nil))
         case "SystemIcon":
             let icon = nexaDevIconSpec(fields["icon"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
                 ?? NexaIconSpec(symbol: "questionmark")

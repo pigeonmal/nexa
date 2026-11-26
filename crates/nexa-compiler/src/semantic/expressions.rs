@@ -1455,9 +1455,19 @@ fn lower_expr_inner(
         ast::Expr::CallNamed {
             name,
             type_arguments,
+            positional,
             arguments,
             span,
-        } => lower_named_call(name, type_arguments, arguments, *span, expected, ctx, false),
+        } => lower_named_call(
+            name,
+            type_arguments,
+            positional,
+            arguments,
+            *span,
+            expected,
+            ctx,
+            false,
+        ),
         ast::Expr::MethodCall {
             base,
             name,
@@ -1720,7 +1730,27 @@ fn lower_expr_inner(
             optional,
             span,
         } => {
+            if !*optional
+                && let ast::Expr::Member {
+                    base: root,
+                    name: set_name,
+                    optional: false,
+                    ..
+                } = base.as_ref()
+                && let ast::Expr::Name(root_name, _) = root.as_ref()
+                && root_name == "Icons"
+            {
+                return lower_icon_member(set_name, name, *span, expected, ctx);
+            }
             if !*optional && let ast::Expr::Name(namespace, _) = base.as_ref() {
+                if namespace == "Icons" {
+                    return Err(CompileError::new(
+                        *span,
+                        format!(
+                            "specify an icon name after `Icons.{name}`, such as `Icons.{name}.search`"
+                        ),
+                    ));
+                }
                 let geometry = match (namespace.as_str(), name.as_str()) {
                     ("Layout", "screenWidth") => Some(Expr::ScreenWidth),
                     ("Layout", "screenHeight") => Some(Expr::ScreenHeight),
@@ -1995,11 +2025,13 @@ fn lower_expr_inner(
                 ast::Expr::CallNamed {
                     name,
                     type_arguments,
+                    positional,
                     arguments,
                     span: call_span,
                 } => lower_named_call(
                     name,
                     type_arguments,
+                    positional,
                     arguments,
                     *call_span,
                     expected,
@@ -2688,6 +2720,17 @@ fn lower_call(
     ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
+    if name == "Icon" {
+        return lower_icon_constructor(
+            type_arguments,
+            arguments,
+            None,
+            span,
+            expected,
+            ctx,
+            awaited,
+        );
+    }
     if name == "ComponentRef" {
         if awaited {
             return Err(CompileError::new(
@@ -3133,15 +3176,235 @@ fn lower_component_ref_method_call(
     })
 }
 
+fn lower_icon_member(
+    set_name: &str,
+    icon_name: &str,
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+) -> Result<Expr, CompileError> {
+    require_expected(expected, &Type::Icon, span)?;
+    if set_name == "system" {
+        let icon = nexa_ir::SystemIcon::shared(icon_name).ok_or_else(|| {
+            CompileError::new(
+                span,
+                format!(
+                    "unknown system icon `Icons.system.{icon_name}`; custom icons use `Icons.<Set>.<name>`"
+                ),
+            )
+        })?;
+        return Ok(Expr::Icon(Box::new(nexa_ir::IconSpec::system(icon))));
+    }
+    let sets = ctx
+        .custom_icons
+        .map(|icons| icons.sets.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let Some(icon_set) = ctx.custom_icons.and_then(|icons| icons.sets.get(set_name)) else {
+        let detail = if sets.is_empty() {
+            "no custom icon sets were found".to_owned()
+        } else {
+            format!("available sets: {}", sets.join(", "))
+        };
+        return Err(CompileError::new(
+            span,
+            format!("unknown custom icon set `Icons.{set_name}`; {detail}"),
+        ));
+    };
+    if !icon_set.icons.contains_key(icon_name) {
+        let known = icon_set.icons.keys().cloned().collect::<Vec<_>>();
+        let detail = format!("available icons in `{set_name}`: {}", known.join(", "));
+        return Err(CompileError::new(
+            span,
+            format!("unknown custom icon `Icons.{set_name}.{icon_name}`; {detail}"),
+        ));
+    }
+    let (font_family, font_resource, glyph, raw_layers) = ctx
+        .resolve_custom_icon(set_name, icon_name)
+        .ok_or_else(|| {
+            CompileError::new(
+                span,
+                format!("custom icon `Icons.{set_name}.{icon_name}` could not be resolved"),
+            )
+        })?;
+    let mut layers: Vec<nexa_ir::IconGlyphLayer> = raw_layers
+        .into_iter()
+        .map(|layer| nexa_ir::IconGlyphLayer {
+            glyph: layer.glyph,
+            rgba: layer.rgba,
+        })
+        .collect();
+    let mut final_glyph = glyph;
+    let mut color = None;
+    if let [layer] = layers.as_slice() {
+        final_glyph = layer.glyph;
+        let [red, green, blue, alpha] = layer.rgba;
+        color = Some(nexa_ir::ColorExpression::Static(
+            nexa_ir::ColorValue::Static(nexa_ir::Color {
+                red,
+                green,
+                blue,
+                alpha,
+            }),
+        ));
+        layers.clear();
+    }
+    Ok(Expr::Icon(Box::new(nexa_ir::IconSpec {
+        source: nexa_ir::IconSource::FontGlyph {
+            font_family,
+            font_resource,
+            glyph: final_glyph,
+            layers,
+        },
+        description: None,
+        size: None,
+        color,
+    })))
+}
+
+pub(super) fn lower_icon_constructor(
+    type_arguments: &[ast::TypeSyntax],
+    positional: &[ast::Expr],
+    named_arguments: Option<&BTreeMap<String, ast::Expr>>,
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+    awaited: bool,
+) -> Result<Expr, CompileError> {
+    if awaited {
+        return Err(CompileError::new(
+            span,
+            "Icon is synchronous and cannot be awaited",
+        ));
+    }
+    if !type_arguments.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "Icon does not take type arguments",
+        ));
+    }
+    if positional.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "Icon requires an icon value as its first argument, such as `Icons.system.search` or `Icons.Brand.heart`",
+        ));
+    }
+    if positional.len() > 1 {
+        return Err(CompileError::new(
+            positional[1].span(),
+            "Icon accepts only one positional icon argument",
+        ));
+    }
+    let mut description = None;
+    let mut size = None;
+    let mut color = None;
+    if let Some(arguments) = named_arguments {
+        for (key, value) in arguments {
+            match key.as_str() {
+                "description" => {
+                    let ast::Expr::String(text, _) = value else {
+                        return Err(CompileError::new(
+                            value.span(),
+                            "Icon description must be a string literal",
+                        ));
+                    };
+                    description = Some(text.clone());
+                }
+                "size" => {
+                    let ast::Expr::Number(raw, number_span) = value else {
+                        return Err(CompileError::new(
+                            value.span(),
+                            "Icon size must be a numeric literal",
+                        ));
+                    };
+                    let parsed = raw
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|number| number.is_finite() && *number > 0.0 && *number <= 512.0)
+                        .ok_or_else(|| {
+                            CompileError::new(
+                                *number_span,
+                                "Icon size must be positive and no greater than 512",
+                            )
+                        })?;
+                    size = Some(parsed);
+                }
+                "color" => {
+                    let parsed_color = if matches!(
+                        value,
+                        ast::Expr::String(_, _) | ast::Expr::ThemeToken(_, _)
+                    ) {
+                        let empty_themes = super::themes::ThemeSymbols::default();
+                        let themes = ctx.themes.unwrap_or(&empty_themes);
+                        super::styles::parse_color(value.clone(), themes, "Icon color")
+                            .map(nexa_ir::ColorExpression::Static)?
+                    } else {
+                        lower_expr(value, Some(&Type::String), ctx)
+                            .map(|expr| nexa_ir::ColorExpression::Dynamic(Box::new(expr)))?
+                    };
+                    color = Some(parsed_color);
+                }
+                _ => {
+                    return Err(CompileError::new(
+                        value.span(),
+                        format!("Icon has no argument `{key}`; use `color:` to tint an icon"),
+                    ));
+                }
+            }
+        }
+    }
+    require_expected(expected, &Type::Icon, span)?;
+    let base_expr = lower_expr(&positional[0], Some(&Type::Icon), ctx)?;
+    if let Expr::Icon(mut spec) = base_expr {
+        if let Some(description) = description {
+            spec.description = Some(description);
+        }
+        if let Some(size) = size {
+            spec.size = Some(size);
+        }
+        if let Some(color) = color {
+            spec.color = Some(color);
+        }
+        return Ok(Expr::Icon(spec));
+    }
+    if description.is_none() && size.is_none() && color.is_none() {
+        return Ok(base_expr);
+    }
+    Ok(Expr::IconWith {
+        base: Box::new(base_expr),
+        description,
+        size,
+        color,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn lower_named_call(
     name: &str,
     type_arguments: &[ast::TypeSyntax],
+    positional: &[ast::Expr],
     named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
     expected: Option<&Type>,
     ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
+    if name == "Icon" {
+        return lower_icon_constructor(
+            type_arguments,
+            positional,
+            Some(named_arguments),
+            span,
+            expected,
+            ctx,
+            awaited,
+        );
+    }
+    if !positional.is_empty() {
+        return Err(CompileError::new(
+            span,
+            format!("`{name}` does not support mixing positional and named arguments"),
+        ));
+    }
     if name == "Regex" {
         if named_arguments.len() != 1 || !named_arguments.contains_key("pattern") {
             return Err(CompileError::new(
@@ -4294,6 +4557,7 @@ fn validate_json_value_type(
         Type::ComponentRef { .. } | Type::ComponentRefError(_) => Err(unsupported(
             "component references and their errors cannot be represented as JSON values",
         )),
+        Type::Icon => Err(unsupported("`Icon` values cannot be represented as JSON values")),
         Type::Signal(_) => Err(unsupported("signals cannot be represented as JSON values")),
     }
 }
@@ -4394,6 +4658,8 @@ fn lower_plugin_call(
             screen_ids: ctx.screen_ids,
             allow_navigation_actions: ctx.allow_navigation_actions,
             source_file: ctx.source_file,
+            custom_icons: ctx.custom_icons,
+            themes: ctx.themes,
         },
         span,
     )?;
@@ -4592,6 +4858,8 @@ fn lower_plugin_method_call(
             screen_ids: ctx.screen_ids,
             allow_navigation_actions: ctx.allow_navigation_actions,
             source_file: ctx.source_file,
+            custom_icons: ctx.custom_icons,
+            themes: ctx.themes,
         },
         span,
     )?;
@@ -4909,6 +5177,7 @@ fn is_equatable_type(ty: &Type, symbols: &HashMap<String, (Type, bool)>) -> bool
         | Type::Bytes
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::ComponentRef { .. }
         | Type::ComponentRefError(_) => false,
     }
@@ -5018,7 +5287,9 @@ pub(super) fn infer_expr_type(
             arguments,
             ..
         } => {
-            if name == "Regex" && arguments.contains_key("pattern") && arguments.len() == 1 {
+            if name == "Icon" {
+                Some(Type::Icon)
+            } else if name == "Regex" && arguments.contains_key("pattern") && arguments.len() == 1 {
                 Some(regex_type())
             } else {
                 functions.get(name).and_then(|signature| {
@@ -5095,6 +5366,17 @@ pub(super) fn infer_expr_type(
             optional,
             ..
         } => {
+            if !*optional
+                && let ast::Expr::Member {
+                    base: root,
+                    optional: false,
+                    ..
+                } = base.as_ref()
+                && let ast::Expr::Name(root_name, _) = root.as_ref()
+                && root_name == "Icons"
+            {
+                return Some(Type::Icon);
+            }
             if !*optional
                 && let ast::Expr::Name(namespace, _) = base.as_ref()
                 && matches!(
@@ -5759,6 +6041,7 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::Struct { .. }
         | Type::Class { .. } => ty.clone(),
         Type::ComponentRef { .. } => ty.clone(),
@@ -5830,7 +6113,8 @@ fn type_contains_task_handle(ty: &Type) -> bool {
         | Type::Plugin { .. }
         | Type::ComponentRef { .. }
         | Type::ComponentRefError(_)
-        | Type::NetworkResponse => false,
+        | Type::NetworkResponse
+        | Type::Icon => false,
     }
 }
 
@@ -5902,6 +6186,7 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::Struct { .. }
         | Type::Class { .. }
         | Type::ComponentRef { .. }
@@ -5959,6 +6244,7 @@ fn parse_named_type(name: &str, _span: Span) -> Result<Type, CompileError> {
         "RegexMatch" => regex_match_type(),
         "Range" => regex_range_type(),
         "TaskHandle" => Type::TaskHandle,
+        "Icon" => Type::Icon,
         _ => Type::Enum(name.to_owned()),
     };
     Ok(ty)
@@ -6071,6 +6357,7 @@ pub(super) fn lowered_type(expr: &Expr) -> Option<Type> {
         | Expr::TimeCall { return_type, .. }
         | Expr::PluginEnumOptionalConstructor { return_type, .. } => Some(return_type.clone()),
         Expr::Await(value) | Expr::TryAwait(value) => lowered_type(value),
+        Expr::Icon(_) | Expr::IconWith { .. } => Some(Type::Icon),
         Expr::State(_, ty) => Some(ty.clone()),
         Expr::ScreenWidth | Expr::ScreenHeight | Expr::SystemInset(_) => {
             Some(Type::Numeric(NumericType::Float64))
@@ -6122,6 +6409,7 @@ pub(super) fn type_name(ty: &Type) -> String {
         Type::TypeParam(name) => name.clone(),
         Type::NetworkResponse => "NetworkResponse".to_owned(),
         Type::TaskHandle => "TaskHandle".to_owned(),
+        Type::Icon => "Icon".to_owned(),
         Type::Struct { name, .. } => name.clone(),
         Type::Class { name, .. } => name.clone(),
         Type::Result(value, error) => {

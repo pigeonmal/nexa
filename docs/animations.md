@@ -92,7 +92,7 @@ app FollowArtistButton {
 
     body {
         Column(scale: iconScale) {
-            Icon(Brand: "heart", description: "Follow artist", size: 21, color: "#FFFFFF")
+            Icon(Icons.Brand.heart, description: "Follow artist", size: 21, color: "#FFFFFF")
         }
         Button("Follow") {
             withAnimation(Tween(duration: 0.07, easing: Linear)) {
@@ -131,7 +131,7 @@ app ShuffleControl {
     body {
         Pressable(accessibilityLabel: "Shuffle", accessibilityRole: Button) {
             Row(scaleY: iconScaleY) {
-                Icon(system: "music", description: "", size: 18, color: "#FFFFFF")
+                Icon(Icons.system.music, description: "", size: 18, color: "#FFFFFF")
             }
         }
         .onTap {
@@ -175,7 +175,7 @@ SegmentedControl(
 Row(width: Fill, height: 40, gap: 12,
     animation: Marquee(speed: 32, gap: 24, delay: 1, edgeFade: 16, playing: marqueePlaying)) {
     Text(songTitle, lineLimit: 1)
-    Icon(system: "music", size: 20, color: "#047DF6", description: "Music")
+    Icon(Icons.system.music, size: 20, color: "#047DF6", description: "Music")
 }
 
 Column(height: 64, gap: 12, animation: Marquee(speed: 24, edgeFade: 12)) {

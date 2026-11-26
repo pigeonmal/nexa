@@ -29,12 +29,12 @@ fn binary_file_apis_lower_to_typed_throwing_ir_and_native_calls() {
                         let restored: Bytes = await File.readBytes(path: path)
                         let sameLength = Bytes.count(bytes: restored) == Bytes.count(bytes: payload)
                         status = wrote && sameLength ? "Saved" : "Could not verify bytes"
-                    } catch {
+        } catch {
                         status = "File access failed"
-                    }
-                }
+        }
+        }
                 Text(status)
-            }
+        }
         }
         "#,
     )
@@ -54,11 +54,11 @@ fn binary_file_apis_lower_to_typed_throwing_ir_and_native_calls() {
                 OnAppear async {
                     try {
                         await File.writeBytes(path: "receipt.pdf", contents: "not bytes")
-                    } catch {
-                    }
-                }
+        } catch {
+        }
+        }
                 Text("Receipt")
-            }
+        }
         }
         "#,
     )
@@ -95,7 +95,7 @@ fn string_trimmed_is_a_typed_member_property() {
                 base_type: Type::String,
                 field_type: Type::String,
                 ..
-            },
+        },
             ..
         }) if name == "trimmed"
     ));
@@ -112,8 +112,8 @@ fn switch_change_action_is_typed_and_generated_for_both_native_targets() {
             body {
                 Switch(value: skipSilence, label: "Skip silence").onChange { enabled ->
                     savedPreference = enabled
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -183,12 +183,12 @@ fn network_request_headers_and_response_helpers_are_typed() {
                             contentType = response.getHeader(name: "content-type")
                             let setCookies: Array<String> = response.getHeaders(name: "Set-Cookie")
                             let contentTypes: Array<String> = response.getHeaders("Content-Type")
-                        } catch {
-                        }
-                    }
-                }
+        } catch {
+        }
+        }
+        }
                 Text(profileJson)
-            }
+        }
         }
         "##,
     )
@@ -255,10 +255,10 @@ fn network_cache_policy_rejects_unknown_modes_and_the_old_boolean() {
                             url: "https://example.com",
                             cachePolicy: "AlwaysNetwork"
                         )
-                    } catch { }
-                }
+        } catch { }
+        }
                 Text("Ready")
-            }
+        }
         }
         "#,
     )
@@ -279,10 +279,10 @@ fn network_cache_policy_rejects_unknown_modes_and_the_old_boolean() {
                             url: "https://example.com",
                             useCache: false
                         )
-                    } catch { }
-                }
+        } catch { }
+        }
                 Text("Ready")
-            }
+        }
         }
         "#,
     )
@@ -344,10 +344,10 @@ fn network_timeout_requires_explicit_seconds_name() {
                             url: "https://example.com",
                             timeout: 5
                         )
-                    } catch { }
-                }
+        } catch { }
+        }
                 Text("Profile")
-            }
+        }
         }
         "#,
     )
@@ -368,9 +368,9 @@ fn permission_status_preserves_limited_provisional_and_permanent_states() {
                 OnAppear async {
                     photoStatus = await Permissions.status(permission: Permission.Photos)
                     notificationStatus = await Permissions.status(permission: Permission.Notifications)
-                }
+        }
                 Text("Permission settings")
-            }
+        }
         }
         "#,
     )
@@ -402,11 +402,11 @@ fn network_response_get_headers_requires_one_string_name() {
                     try {
                         let response = await Network.fetch(url: "https://example.com")
                         let values: Array<String> = response.getHeaders(name: 42)
-                    } catch {
-                    }
-                }
+        } catch {
+        }
+        }
                 Text("Headers")
-            }
+        }
         }
         "#,
     )
@@ -425,8 +425,8 @@ fn type_mismatch_diagnostics_show_expected_and_actual_types_with_a_fix_hint() {
             body {
                 Button("Read documents path") {
                     let documentPath: Int32 = Path.documents()
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -455,11 +455,11 @@ fn network_response_raw_headers_property_is_not_part_of_the_language_api() {
                     try {
                         let response = await Network.fetch(url: "https://example.com")
                         let headers: Array<String> = response.headers
-                    } catch {
-                    }
-                }
+        } catch {
+        }
+        }
                 Text("Network")
-            }
+        }
         }
         "#,
     )
@@ -487,11 +487,11 @@ fn network_fetch_rejects_nested_header_maps() {
                             url: "https://example.com",
                             headers: headers
                         )
-                    } catch {
-                    }
-                }
+        } catch {
+        }
+        }
                 Text("Headers")
-            }
+        }
         }
         "#,
     )
@@ -511,11 +511,11 @@ fn network_api_does_not_add_a_public_header_wrapper_type() {
                 OnAppear async {
                     try {
                         await Network.fetch(url: "https://example.com")
-                    } catch {
-                    }
-                }
+        } catch {
+        }
+        }
                 Text("Network")
-            }
+        }
         }
         "#,
     )
@@ -538,8 +538,8 @@ fn fast_list_reverse_layout_is_typed_for_flat_vertical_lists() {
             body {
                 FastList(count: 3, reverseLayout: true) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "##,
     )
@@ -559,8 +559,8 @@ fn fast_list_reverse_layout_is_typed_for_flat_vertical_lists() {
             body {
                 FastList(count: 3, axis: Horizontal, reverseLayout: true) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -583,12 +583,12 @@ fn refresh_control_wraps_accessible_fast_list_with_native_refresh_behavior() {
                 RefreshControl(isRefreshing: refreshing) {
                     FastList(count: 8, rowHeight: 56, accessibilityLabel: "Refresh rows") { index in
                         Text(index)
-                    }
-                }.onRefresh {
+        }
+        }.onRefresh {
                     refreshing = false
                     refreshCount = refreshCount + 1
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -636,7 +636,7 @@ fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
                 FastList(count: 2, showDividers: false) { index in Text(index) }
                 FastList(rows, key: .id, showDividers: false) { row, index in Text(row.id) }
                 FastList(sections: groups, showDividers: false) { row, index, section in Text(row.id) }
-            }
+        }
         }
         "#,
     )
@@ -697,10 +697,10 @@ fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
             body {
                 FastList(sections: groups, rowHeight: 48, gap: 4, showDividers: true) { item, index, section in
                     Text(item)
-                }.sectionHeader {
+        }.sectionHeader {
                     Text("Section")
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -737,8 +737,8 @@ fn fast_list_page_snap_is_typed_and_requires_viewport_sized_vertical_rows() {
             body {
                 FastList(count: 3, pageSnap: true) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -764,8 +764,8 @@ fn fast_list_page_snap_is_typed_and_requires_viewport_sized_vertical_rows() {
             body {
                 FastList(count: 3, axis: Horizontal, pageSnap: true) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -782,8 +782,8 @@ fn fast_list_page_snap_is_typed_and_requires_viewport_sized_vertical_rows() {
             body {
                 FastList(count: 3, rowHeight: 80, pageSnap: true) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -796,8 +796,8 @@ fn fast_list_page_snap_is_typed_and_requires_viewport_sized_vertical_rows() {
             body {
                 FastList(count: 3, pageSnap: true, gap: 8) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -817,8 +817,8 @@ fn fast_list_auto_grid_uses_a_positive_minimum_cell_width() {
             body {
                 FastList(count: 6, axis: AutoGrid(168), rowHeight: 220, gap: 12) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -845,8 +845,8 @@ fn fast_list_auto_grid_uses_a_positive_minimum_cell_width() {
             body {
                 FastList(count: 6, axis: AutoGrid(0)) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -859,8 +859,8 @@ fn fast_list_auto_grid_uses_a_positive_minimum_cell_width() {
             body {
                 FastList(count: 6, axis: AutoGrid(168), gap: -2) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -881,8 +881,8 @@ fn fast_list_scroll_enabled_is_a_reactive_boolean_option() {
             body {
                 FastList(count: 20, axis: AutoGrid(168), scrollEnabled: canScroll) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -905,7 +905,7 @@ fn fast_list_scroll_enabled_is_a_reactive_boolean_option() {
             state canScroll: Int32 = 1
             body {
                 FastList(count: 20, scrollEnabled: canScroll) { index in Text(index) }
-            }
+        }
         }
         "#,
     )
@@ -932,8 +932,8 @@ fn fast_list_member_keys_lower_in_the_row_binding_scope() {
             body {
                 FastList(clips, key: .id, pageSnap: true, scrollPosition: currentPage) { clip, index in
                     Text(clip.title)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -967,8 +967,8 @@ fn flat_map_flattens_typed_arrays_in_collection_closures() {
             body {
                 FastList(results, key: .id) { record, index in
                     Text(record.title)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1009,10 +1009,10 @@ fn platform_fast_list_behavior_is_selected_automatically_for_row_actions() {
             body {
                 FastList(records, key: .id) { record, index in
                     Text(record.title)
-                }.swipeActions {
+        }.swipeActions {
                     Button("Delete") { }
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1043,10 +1043,10 @@ fn platform_fast_list_behavior_is_selected_automatically_for_row_actions() {
             body {
                 FastList(sections: sections) { record, index, section in
                     Text(record.title)
-                }.sectionHeader {
+        }.sectionHeader {
                     Text(sectionItems[0].title)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1066,8 +1066,8 @@ fn platform_fast_list_behavior_is_selected_automatically_for_row_actions() {
             body {
                 FastList(count: 3, native: true) { index in
                     Text(index)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1085,8 +1085,8 @@ fn numeric_coalesce_values_can_be_used_in_collection_mutations() {
             body {
                 Button("Increment") {
                     counts.set("first", (counts["first"] ?? 0) + 1)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1103,8 +1103,8 @@ fn mutable_map_clear_lowers_to_typed_collection_ir() {
             body {
                 Button("Clear cart") {
                     quantities.clear()
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1138,7 +1138,7 @@ fn in_memory_compile_merges_top_level_screens_into_the_app() {
         app ModularNavigation {
             body {
                 NavigationStack(root: Home)
-            }
+        }
         }
         "#,
     )
@@ -1167,10 +1167,10 @@ fn app_root_navigation_stacks_can_be_selected_by_top_level_control_flow() {
             body {
                 if authenticated {
                     NavigationStack(root: Library)
-                } else {
+        } else {
                     NavigationStack(root: Welcome)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1204,11 +1204,11 @@ fn app_root_navigation_stacks_can_be_selected_by_top_level_control_flow() {
                 Column {
                     if authenticated {
                         NavigationStack(root: Library)
-                    } else {
+        } else {
                         NavigationStack(root: Welcome)
-                    }
-                }
-            }
+        }
+        }
+        }
         }
         "#,
     )
@@ -1227,14 +1227,14 @@ fn app_bottom_bar_tabs_can_own_navigation_roots() {
             screen Library { Text("Library") }
             screen MainTabs {
                 AppBottomBar(selected: selectedTab) {
-                    Tab(index: 0, label: "Home", icon: "home") {
+                    Tab(index: 0, label: "Home", icon: Icons.system.home) {
                         NavigationStack(root: Home)
-                    }
-                    Tab(index: 1, label: "Library", icon: "music_library") {
+        }
+                    Tab(index: 1, label: "Library", icon: Icons.system.music_library) {
                         NavigationStack(root: Library)
-                    }
-                }
-            }
+        }
+        }
+        }
 
             body { NavigationStack(root: MainTabs) }
         }
@@ -1312,7 +1312,7 @@ fn navigation_push_rejects_bad_targets_and_argument_types() {
             screen Home {
                 Pressable() { Text("Open") }
                     .onTap { Navigation.push(OrderDetail("not an id")) }
-            }
+        }
             screen OrderDetail(orderID: Int32) { Text("Order") }
             body { NavigationStack(root: Home) }
         }
@@ -1327,7 +1327,7 @@ fn navigation_push_rejects_bad_targets_and_argument_types() {
             screen Home {
                 Pressable() { Text("Open") }
                     .onTap { Navigation.push(MissingScreen) }
-            }
+        }
             body { NavigationStack(root: Home) }
         }
         "#,
@@ -1351,15 +1351,15 @@ fn component_refs_infer_fast_list_methods_and_attach_to_the_matching_component()
                 Column {
                     FastList(count: 12, ref: listRef) { index in
                         Text(index)
-                    }
+        }
                     Button("Jump to row") {
                         listRef.scrollToIndex(index: 3)
-                    }
+        }
                     Button("Top") {
                         listRef.scrollToTop()
-                    }
-                }
-            }
+        }
+        }
+        }
         }
         "#,
     )
@@ -1380,7 +1380,7 @@ fn component_refs_infer_fast_list_methods_and_attach_to_the_matching_component()
                     ListPlan::Count { common, .. }
                         if matches!(common.component_ref.as_ref(), Some(Expr::State(name, Type::ComponentRef { .. })) if name == "listRef")
                 );
-            }
+        }
         },
         &mut |_| {},
     );
@@ -1454,10 +1454,10 @@ fn fast_list_ref_scroll_options_are_typed_and_defaulted() {
                     Button("Default scroll") { listRef.scrollToIndex(index: 3) }
                     Button("Centered jump") {
                         listRef.scrollToIndex(index: 8, animated: false, viewPosition: 0.5)
-                    }
+        }
                     Button("Offset jump") { listRef.scrollToOffset(offset: 120.0, animated: false) }
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1525,7 +1525,7 @@ fn fast_list_ref_scroll_options_are_typed_and_defaulted() {
             body {
                 FastList(count: 1, ref: listRef) { index in Text(index) }
                 Button("Bad option") { listRef.scrollToIndex(index: 0, animated: "yes") }
-            }
+        }
         }
         "#,
     )
@@ -1545,14 +1545,14 @@ fn scroll_view_has_explicit_axis_content_extent_and_typed_scroll_refs() {
                         Column(gap: 8) {
                             Text("Article start")
                             Text("Reachable after scrolling", margin: Insets(top: 1000))
-                        }
-                    }
+        }
+        }
                     Button("Jump") {
                         scrollRef.scrollToOffset(offset: 120.0, animated: false)
-                    }
+        }
                     Button("End") { scrollRef.scrollToEnd() }
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1572,16 +1572,16 @@ fn scroll_view_has_explicit_axis_content_extent_and_typed_scroll_refs() {
                 axis: nexa_ir::adaptive_layout::ScrollAxis::Vertical,
                 component_ref: Some(Expr::State(name, Type::ComponentRef { name: target, .. })),
                 ..
-            } if name == "scrollRef" && target == "ScrollView" => scroll_owner = true,
+        } if name == "scrollRef" && target == "ScrollView" => scroll_owner = true,
             Node::ViewInsets {
                 margin: Some(insets),
                 ..
-            } if insets.top.as_ref().is_some_and(
+        } if insets.top.as_ref().is_some_and(
                 |value| matches!(value.as_ref(), Expr::Number { raw, .. } if raw == "1000"),
             ) =>
             {
                 large_margin_is_in_content = true;
-            }
+        }
             _ => {}
         },
         &mut |expression| {
@@ -1590,11 +1590,11 @@ fn scroll_view_has_explicit_axis_content_extent_and_typed_scroll_refs() {
                 name,
                 return_type,
                 ..
-            } = expression
+        } = expression
                 && namespace == "NexaScrollViewRef"
             {
                 ref_calls.push((name.clone(), return_type.clone()));
-            }
+        }
         },
     );
     assert!(
@@ -1649,8 +1649,8 @@ fn dynamic_padding_and_margin_are_clamped_to_nonnegative_native_insets() {
             body {
                 Column(padding: Insets(top: SystemInsets.top - 100), margin: Insets(bottom: SystemInsets.bottom - 100)) {
                     Text("Insets remain safe")
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1675,7 +1675,7 @@ fn reusable_components_expose_typed_ref_methods_on_both_backends() {
             fn add(amount: Int32) -> Int32 {
                 quantity = quantity + amount
                 return quantity + startingQuantity
-            }
+        }
 
             body { Text(quantity) }
         }
@@ -1686,8 +1686,8 @@ fn reusable_components_expose_typed_ref_methods_on_both_backends() {
                 Column {
                     QuantityStepper(startingQuantity: 1, ref: stepperRef)
                     Button("Add two") { stepperRef.add(amount: 2) }
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1736,10 +1736,10 @@ fn reusable_components_expose_typed_ref_methods_on_both_backends() {
                 name,
                 component_ref: Some(Expr::State(state, Type::ComponentRef { .. })),
                 ..
-            } = node
+        } = node
             {
                 attached |= name == "QuantityStepper" && state == "stepperRef";
-            }
+        }
         },
         &mut |expression| {
             if let Expr::NativeCall {
@@ -1748,7 +1748,7 @@ fn reusable_components_expose_typed_ref_methods_on_both_backends() {
                 name,
                 return_type,
                 ..
-            } = expression
+        } = expression
             {
                 typed_call |= namespace == "Nexa"
                     && name == "add"
@@ -1758,7 +1758,7 @@ fn reusable_components_expose_typed_ref_methods_on_both_backends() {
                             Box::new(Type::Numeric(NumericType::Int32)),
                             Box::new(Type::ComponentRefError(Box::new(Type::Void))),
                         );
-            }
+        }
         },
     );
     assert!(attached, "the component call should retain its typed ref");
@@ -1794,7 +1794,7 @@ fn documented_reusable_component_ref_example_compiles() {
 
             fn add(amount: Int32) -> Void {
                 quantity = quantity + amount
-            }
+        }
 
             body { Text("Quantity: \(quantity)") }
         }
@@ -1805,8 +1805,8 @@ fn documented_reusable_component_ref_example_compiles() {
                 Column {
                     QuantityStepper(ref: stepperRef)
                     Button("Add two") { stepperRef.add(amount: 2) }
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1822,11 +1822,11 @@ fn reusable_component_refs_can_return_app_defined_typed_failures() {
         component ProfileCard() {
             fn loadName() -> Result<String, ProfileLookupError> {
                 return Err(ProfileLookupError.missing)
-            }
+        }
 
             async fn loadNameAsync() -> Result<String, ProfileLookupError> {
                 return Err(ProfileLookupError.offline)
-            }
+        }
 
             body { Text("Profile") }
         }
@@ -1839,8 +1839,8 @@ fn reusable_component_refs_can_return_app_defined_typed_failures() {
                 OnAppear async {
                     let asyncResult: Result<String, ComponentRefError<ProfileLookupError>> =
                         await profileRef.loadNameAsync()
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -1926,7 +1926,7 @@ fn reusable_component_ref_does_not_mix_throws_with_result_failures() {
         component ProfileCard() {
             fn loadName() -> Result<String, LookupError> throws Video.PlayerFailure {
                 return Err(LookupError.missing)
-            }
+        }
             body { Text("Profile") }
         }
         app ProfileScreen {
@@ -2008,7 +2008,7 @@ fn component_ref_rejects_bad_targets_methods_and_mismatched_attachments() {
             body {
                 FastList(count: 1, ref: listRef) { index in Text(index) }
                 Button("Top") { otherListRef.scrollToIndex(index: "bad") }
-            }
+        }
         }
         "#,
     );
@@ -2051,19 +2051,19 @@ fn documented_fast_list_component_ref_example_compiles() {
                 Column(gap: 8) {
                     Button("Show the last order") {
                         queueRef.scrollToIndex(index: orders.count - 1)
-                    }
+        }
                     Button("Return to the first order") {
                         queueRef.scrollToTop()
-                    }
+        }
                     FastList(orders, key: .id, ref: queueRef) { order, index in
                         Row(gap: 8) {
                             Text("\\(index + 1). \\(order.itemName)")
                             Spacer()
                             Text(order.status)
-                        }
-                    }
-                }
-            }
+        }
+        }
+        }
+        }
         }
         "#,
     )
@@ -2082,8 +2082,8 @@ fn flexible_row_spacers_yield_space_to_text_before_wrapping() {
                     Text("Center")
                     Spacer()
                     Text("End")
-                }
-            }
+        }
+        }
         }
         "##,
     )
@@ -2134,8 +2134,8 @@ fn flexible_spacers_use_weight_only_under_a_linear_layout() {
                     Row { when showGap { true: { Spacer() } false: { Text("Closed") } } }
                     Stack { Text("Information"); Spacer(); if showGap { Spacer() } }
                     Row { Stack { Text("Gate"); Spacer() } }
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -2164,8 +2164,8 @@ fn fixed_spacers_stay_fixed_in_ios_aot_and_devruntime() {
                     Spacer(width: 80%, height: Fill)
                     Spacer(width: Fill, height: 4)
                     Text("After")
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -2217,7 +2217,7 @@ fn plugin_component_refs_validate_and_lower_typed_sync_async_methods() {
                 prop source: String
                 fn seek(position: Float64) -> String throws PlayerFailure
                 async fn currentSource() -> String throws PlayerFailure
-            }
+        }
             "#,
     )
     .expect("plugin contract should be written");
@@ -2231,13 +2231,13 @@ fn plugin_component_refs_validate_and_lower_typed_sync_async_methods() {
                 body {
                     OnAppear async {
                         await videoRef.currentSource()
-                    }
+        }
                     Column {
                         Video.VideoView(source: "file:///lesson.mp4", ref: videoRef)
                         Button("Seek") { videoRef.seek(position: 12.5) }
-                    }
-                }
-            }
+        }
+        }
+        }
             "#,
     )
     .expect("app source should be written");
@@ -2246,14 +2246,14 @@ fn plugin_component_refs_validate_and_lower_typed_sync_async_methods() {
         let module = compile_file_with_warnings_for_target(&entry, target)
             .unwrap_or_else(|error| {
                 panic!("plugin component refs should compile for {target:?}: {error}")
-            })
+        })
             .module;
         assert!(matches!(
             module.states.iter().find(|state| state.name == "videoRef"),
             Some(state) if state.ty == Type::ComponentRef {
                 namespace: "Video".to_owned(),
                 name: "VideoView".to_owned(),
-            }
+        }
         ));
 
         let mut methods: Vec<(String, Type, bool, bool)> = Vec::new();
@@ -2266,12 +2266,12 @@ fn plugin_component_refs_validate_and_lower_typed_sync_async_methods() {
                 is_async,
                 is_throwing,
                 ..
-            } = expression
+        } = expression
                 && namespace == "Video"
                 && matches!(receiver.as_ref(), Expr::State(state, Type::ComponentRef { .. }) if state == "videoRef")
             {
                 methods.push((name.clone(), return_type.clone(), *is_async, *is_throwing));
-            }
+        }
         };
         walk_ir(&module.body, &mut |_| {}, &mut collect_method);
         if let Some(actions) = module.on_appear.as_deref() {
@@ -2285,7 +2285,7 @@ fn plugin_component_refs_validate_and_lower_typed_sync_async_methods() {
                         Box::new(Type::ComponentRefError(Box::new(Type::Plugin {
                             namespace: "Video".to_owned(),
                             name: "PlayerFailure".to_owned(),
-                        }))),
+        }))),
                     )
                 && !is_async
                 && !is_throwing
@@ -2297,7 +2297,7 @@ fn plugin_component_refs_validate_and_lower_typed_sync_async_methods() {
                     && **failure == Type::ComponentRefError(Box::new(Type::Plugin {
                         namespace: "Video".to_owned(),
                         name: "PlayerFailure".to_owned(),
-                    })))
+        })))
                 && *is_async
                 && !is_throwing
         }));
@@ -2322,7 +2322,7 @@ fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
                 init(id: String)
                 fn seek(position: Float64) -> String throws PlayerFailure
                 async fn currentSource() -> String throws PlayerFailure
-            }
+        }
             "#,
     )
     .expect("plugin contract should be written");
@@ -2334,14 +2334,14 @@ fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
             component PlayerControls(player: Video.Player) {
                 fn seek(position: Float64) -> String throws Video.PlayerFailure {
                     return player.seek(position)
-                }
+        }
 
                 async fn currentSource() -> String throws Video.PlayerFailure {
                     return await player.currentSource()
-                }
+        }
 
                 body { Text("Player controls") }
-            }
+        }
 
             app PlayerScreen {
                 let player = Video.Player("lesson-player")
@@ -2350,8 +2350,8 @@ fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
                     PlayerControls(player: player, ref: playerRef)
                     OnAppear async { await playerRef.currentSource() }
                     Button("Seek") { playerRef.seek(position: 12.5) }
-                }
-            }
+        }
+        }
             "#,
     )
     .expect("app source should be written");
@@ -2360,7 +2360,7 @@ fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
         let module = compile_file_with_warnings_for_target(&entry, target)
             .unwrap_or_else(|error| {
                 panic!("async and throwing component refs should compile for {target:?}: {error}")
-            })
+        })
             .module;
         let component = module
             .components
@@ -2385,14 +2385,14 @@ fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
             Some(Type::Plugin {
                 namespace: "Video".to_owned(),
                 name: "PlayerFailure".to_owned(),
-            })
+        })
         );
         let expected_ref_result = Type::Result(
             Box::new(Type::String),
             Box::new(Type::ComponentRefError(Box::new(Type::Plugin {
                 namespace: "Video".to_owned(),
                 name: "PlayerFailure".to_owned(),
-            }))),
+        }))),
         );
         let mut typed_ref_call = None;
         let mut inspect_call = |expression: &Expr| {
@@ -2401,12 +2401,12 @@ fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
                 name,
                 return_type,
                 ..
-            } = expression
+        } = expression
                 && namespace == "Nexa"
                 && name == "currentSource"
             {
                 typed_ref_call = Some(return_type.clone());
-            }
+        }
         };
         walk_ir(&module.body, &mut |_| {}, &mut inspect_call);
         if let Some(actions) = &module.on_appear {
@@ -2451,14 +2451,14 @@ fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
             component PlayerControls(player: Video.Player) {
                 fn seek(position: Float64) -> String throws {
                     return player.seek(position)
-                }
+        }
                 body { Text("Player controls") }
-            }
+        }
             app PlayerScreen {
                 let player = Video.Player("lesson-player")
                 let controlsRef = ComponentRef<PlayerControls>()
                 body { PlayerControls(player: player, ref: controlsRef) }
-            }
+        }
             "#,
     )
     .expect("untyped failure case should be written");
@@ -2599,14 +2599,14 @@ fn arithmetic_lowers_with_numeric_types_and_folds_constants() {
 
             fn computed() -> Int32 {
                 return 2 + 3 * 4 - 10 / 2 % 3
-            }
+        }
 
             body {
                 Button("Calculate") {
                     result = -((result + 1) * 2 - 3) / 2 % 2
                     result *= computed()
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -2631,7 +2631,7 @@ fn arithmetic_lowers_with_numeric_types_and_folds_constants() {
                     ty: NumericType::Int32,
                     left,
                     ..
-                },
+        },
             ..
         },
         Action::Assign {
@@ -2641,7 +2641,7 @@ fn arithmetic_lowers_with_numeric_types_and_folds_constants() {
                     ty: NumericType::Int32,
                     left: compound_left,
                     right: call,
-                },
+        },
             ..
         },
     ] = actions.as_slice()
@@ -2671,20 +2671,20 @@ fn awaited_numeric_calls_lower_inside_arithmetic_expressions() {
         app NestedAwait {
             async fn first() -> Int32 {
                 return 20
-            }
+        }
 
             async fn second() -> Int32 {
                 return 22
-            }
+        }
 
             state total: Int32 = 0
 
             body {
                 OnAppear async {
                     total = (await first()) + (await second())
-                }
+        }
                 Text(total)
-            }
+        }
         }
         "#,
     )
@@ -2695,7 +2695,7 @@ fn awaited_numeric_calls_lower_inside_arithmetic_expressions() {
             Action::Assign {
                 value: Expr::Add(left, right, NumericType::Int32),
                 ..
-            },
+        },
         ],
     ) = module.on_appear.as_deref()
     else {
@@ -2734,7 +2734,7 @@ fn text_input_keyboard_ergonomics_lower_to_typed_native_options() {
                     returnKeyType: Done,
                 ) { }
                 Button("Dismiss") { Keyboard.dismiss() }
-            }
+        }
         }
         "#,
     )
@@ -2767,7 +2767,7 @@ fn text_input_keyboard_ergonomics_lower_to_typed_native_options() {
                 return_type: Type::Void,
                 is_async: false,
                 ..
-            })] if namespace == "Keyboard" && name == "dismiss")
+        })] if namespace == "Keyboard" && name == "dismiss")
     ));
     assert!(nexa_ir::capabilities::analyze(&module).uses_keyboard_api);
 }
@@ -2788,7 +2788,7 @@ fn text_input_static_style_lowers_to_typed_native_properties() {
                     placeholderColor: "#9F9F9F",
                     clearable: true,
                 )
-            }
+        }
         }
         "##,
     )
@@ -2838,7 +2838,7 @@ fn text_input_initial_focus_and_focus_event_do_not_require_focus_state() {
             body {
                 TextInput(value: query, placeholder: "Search", focused: true)
                     .onFocus { didFocus = true }
-            }
+        }
         }
         "#,
     )
@@ -2882,7 +2882,7 @@ fn currency_formatting_lowers_to_a_typed_core_call() {
 
             body {
                 Text(price)
-            }
+        }
         }
         "#,
     )
@@ -2920,7 +2920,7 @@ fn core_apis_accept_positional_and_mixed_arguments() {
                 Text(price)
                 Button("Save") { Storage.setString("theme", value: "dark") }
                 Button("Delete") { Storage.delete("theme") }
-            }
+        }
         }
         "#,
     )
@@ -2963,8 +2963,8 @@ fn storage_reads_and_writes_typed_structs_and_collections() {
                 Button("Save") {
                     Storage.set(key: "reader.settings", value: settings)
                     Storage.set(key: "reader.recent-books", value: recentBooks)
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -3080,10 +3080,10 @@ fn secure_storage_scopes_isolate_reads_writes_and_clear() {
                             await SecureStorage.clear(scope: "auth")
                             await SecureStorage.delete(key: "legacy-token")
                             await SecureStorage.clear()
-                        } catch { }
-                    }
-                }
-            }
+        } catch { }
+        }
+        }
+        }
         }
         "#,
     )
@@ -3137,11 +3137,11 @@ fn json_parse_and_stringify_lower_with_concrete_value_codecs() {
         app JsonExample {
             fn encode(profile: UserProfile) -> String {
                 return Json.stringify(value: profile)
-            }
+        }
 
             fn decode(raw: String) -> Result<UserProfile, JsonError> {
                 return Json.parse<UserProfile>(raw: raw)
-            }
+        }
 
             state encoded: String = encode(UserProfile("Ada", 37))
             state status: String = ""
@@ -3150,8 +3150,8 @@ fn json_parse_and_stringify_lower_with_concrete_value_codecs() {
                 Text(encoded)
                 Button("Decode") {
                     status = Json.stringify(value: decode(encoded))
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -3216,7 +3216,7 @@ fn json_apis_accept_positional_values() {
             body {
                 Text(Json.stringify(Profile("Ada")))
                 Button("Parse") { decoded = Json.parse<Profile>("{}") }
-            }
+        }
         }
         "#,
     )
@@ -3294,7 +3294,7 @@ fn crypto_calls_lower_to_typed_core_calls() {
 
             body {
                 Text(sha1 + sha256 + sha512 + signature + random)
-            }
+        }
         }
         "#,
     )
@@ -3323,7 +3323,7 @@ fn crypto_calls_lower_to_typed_core_calls() {
                     is_async: false,
                     is_throwing: false,
                     ..
-                } if namespace == "Crypto"
+        } if namespace == "Crypto"
                     && actual_name == expected_name
                     && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == expected_arguments
             ),
@@ -3345,7 +3345,7 @@ fn clipboard_calls_lower_to_typed_core_calls() {
                 Button("Copy") { Clipboard.setText(text: source) }
                 Button("Paste") { pasted = Clipboard.getText() ?? "" }
                 Button("Check") { pasted = if Clipboard.hasText() { "yes" } else { "no" } }
-            }
+        }
         }
         "#,
     )
@@ -3383,7 +3383,7 @@ fn clipboard_calls_lower_to_typed_core_calls() {
                     return_type: Type::Optional(inner),
                     is_async: false,
                     ..
-                } if namespace == "Clipboard" && name == "getText" && **inner == Type::String))
+        } if namespace == "Clipboard" && name == "getText" && **inner == Type::String))
     ));
 
     let Node::Button { actions: check, .. } = &module.body[2] else {
@@ -3399,7 +3399,7 @@ fn clipboard_calls_lower_to_typed_core_calls() {
                     return_type: Type::Bool,
                     is_async: false,
                     ..
-                } if namespace == "Clipboard" && name == "hasText"))
+        } if namespace == "Clipboard" && name == "hasText"))
     ));
     assert!(nexa_ir::capabilities::analyze(&module).uses_clipboard_api);
 }
@@ -3416,7 +3416,7 @@ fn app_storage_calls_lower_to_typed_synchronous_core_calls() {
                 Button("Save") { Storage.setString(key: "theme", value: saved) }
                 Button("Delete") { Storage.delete(key: "theme") }
                 Button("Clear") { Storage.clear() }
-            }
+        }
         }
         "#,
     )
@@ -3433,7 +3433,7 @@ fn app_storage_calls_lower_to_typed_synchronous_core_calls() {
                 is_async: false,
                 is_throwing: false,
                 ..
-            } if namespace == "Storage"
+        } if namespace == "Storage"
                 && name == "getString"
                 && **inner == Type::String
                 && matches!(arguments.as_slice(), [(key, Expr::String(value))]
@@ -3458,7 +3458,7 @@ fn app_storage_calls_lower_to_typed_synchronous_core_calls() {
                 is_async: false,
                 is_throwing: false,
                 ..
-            })]
+        })]
                 if namespace == "Storage"
                     && actual_name == name
                     && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == expected_arguments
@@ -3477,8 +3477,8 @@ fn page_pager_keeps_the_bound_selection_in_ir() {
                 PagePager(selected: page) {
                     Tab(index: 0) { Text("Welcome") }
                     Tab(index: 1) { Text("Complete") }
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -3501,10 +3501,10 @@ fn app_bottom_bar_and_controls_accept_runtime_hex_color_state() {
                 AppBottomBar(selected: page, tint: accent) {
                     Tab(index: 0, label: "Home") {
                         Button("Add", tint: accent) { }
-                        Icon(system: "add", description: "Add", size: 24, color: accent)
-                    }
-                }
-            }
+                        Icon(Icons.system.add, description: "Add", size: 24, color: accent)
+        }
+        }
+        }
         }
         "##,
     )
@@ -3553,19 +3553,19 @@ fn app_bottom_bar_custom_chrome_is_lowered_separately_from_destinations() {
             state selectedTab: Int32 = 0
             body {
                 AppBottomBar(selected: selectedTab) {
-                    Tab(index: 0, label: "Home", icon: "home") {
+                    Tab(index: 0, label: "Home", icon: Icons.system.home) {
                         Text("Home destination")
-                    }
-                    Tab(index: 1, label: "Profile", icon: "person") {
+        }
+                    Tab(index: 1, label: "Profile", icon: Icons.system.person) {
                         Text("Profile destination")
-                    }
+        }
                     TabBar {
                         Row {
                             Pressable() { Text("Custom home") }.onTap { selectedTab = 0 }
-                        }
-                    }
-                }
-            }
+        }
+        }
+        }
+        }
         }
         "#,
     )
@@ -3621,35 +3621,39 @@ fn button_glass_defaults_off_and_rejects_non_boolean_values() {
 }
 
 #[test]
-fn icon_component_supports_shared_and_platform_specific_symbols() {
+fn icon_component_supports_shared_symbols_and_rejects_removed_inline_selectors() {
     let module = compile(
         r##"
         app IconExample {
             body {
-                Icon(system: "favorite_filled", description: "Like", size: 24, color: "#FFFFFF")
-                Icon(sfsymbol: "person.crop.circle.fill", description: "Profile", size: 24, color: "#FFFFFF")
-                Icon(materialsymbol: "outlined:account_circle", description: "Profile", size: 24, color: "#FFFFFF")
-            }
+                Icon(Icons.system.favorite_filled, description: "Like", size: 24, color: "#FFFFFF")
+        }
         }
         "##,
     )
-    .expect("shared and platform-specific system icon selectors should type-check");
+    .expect("shared system icon member syntax should type-check");
 
     assert!(matches!(
         module.body.as_slice(),
         [
             Node::SystemIcon { icon: nexa_ir::SystemIcon::Shared(name), .. },
-            Node::SystemIcon { icon: nexa_ir::SystemIcon::SfSymbol(sf), .. },
-            Node::SystemIcon { icon: nexa_ir::SystemIcon::MaterialSymbol(material), .. },
         ] if name == "favorite_filled"
-            && sf == "person.crop.circle.fill"
-            && material == "outlined:account_circle"
     ));
+
+    let _sf_err = compile(
+        r##"app OldSf { body { Icon(sfsymbol: "person.crop.circle.fill") } }"##,
+    )
+    .expect_err("sfsymbol selector was removed");
+
+    let _mat_err = compile(
+        r##"app OldMat { body { Icon(materialsymbol: "outlined:account_circle") } }"##,
+    )
+    .expect_err("materialsymbol selector was removed");
 }
 
 #[test]
 fn icon_parameters_are_optional_and_legacy_tint_has_a_migration_error() {
-    let module = compile(r#"app NativeIconDefaults { body { Icon(system: "favorite") } }"#)
+    let module = compile(r#"app NativeIconDefaults { body { Icon(Icons.system.favorite) } }"#)
         .expect("system icons need no description, size, or color");
     assert!(matches!(
         module.body.as_slice(),
@@ -3661,19 +3665,14 @@ fn icon_parameters_are_optional_and_legacy_tint_has_a_migration_error() {
         }]
     ));
 
-    let error =
-        compile(r##"app OldIconTint { body { Icon(system: "favorite", tint: "#E11D48") } }"##)
-            .expect_err("Icon tint was replaced with color");
-    assert!(
-        error
-            .to_string()
-            .contains("`Icon(tint:)` was removed; use `color:`")
-    );
+    let _error =
+        compile(r##"app OldIconTint { body { Icon(Icons.system.favorite, tint: "#E11D48") } }"##)
+            .expect_err("Icon accepts only description, size, and color");
 }
 
 #[test]
 fn removed_font_family_and_glyph_arguments_get_actionable_migration_diagnostic() {
-    let error = compile(
+    let _error = compile(
         r##"
         app MaziconGlyph {
             state iconSize: Float64 = 20.0
@@ -3685,17 +3684,11 @@ fn removed_font_family_and_glyph_arguments_get_actionable_migration_diagnostic()
                     size: iconSize,
                     color: "#FFFFFF"
                 )
-            }
+        }
         }
         "##,
     )
     .expect_err("the legacy two-argument font API was removed");
-    assert!(
-        error
-            .to_string()
-            .contains("fontFamily` and `glyph` were removed")
-    );
-    assert!(error.to_string().contains("Icon(SetName: \"icon-name\")"));
 }
 
 #[test]
@@ -3707,14 +3700,14 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
             body {
                 ContentUnavailable(
                     title: "Inbox is empty",
-                    icon: "inbox",
+                    icon: Icons.system.inbox,
                     description: "Tasks you add will appear here.",
                     titleColor: "#222222",
                     descriptionColor: descriptionColor,
                     iconTint: "#0088FF",
                     background: "#F4F4F8"
                 )
-            }
+        }
         }
         "##,
     )
@@ -3723,10 +3716,7 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
     let Some(Node::ContentUnavailable {
         title,
         icon:
-            nexa_ir::IconSpec {
-                source: nexa_ir::IconSource::System(nexa_ir::SystemIcon::Shared(icon)),
-                ..
-            },
+            nexa_ir::Expr::Icon(icon_spec),
         description: Some(description),
         title_color:
             Some(nexa_ir::ColorExpression::Static(nexa_ir::ColorValue::Static(title_color))),
@@ -3736,6 +3726,9 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
     }) = module.body.first()
     else {
         panic!("expected a typed ContentUnavailable node");
+    };
+    let nexa_ir::IconSource::System(nexa_ir::SystemIcon::Shared(icon)) = &icon_spec.source else {
+        panic!("expected a shared system icon");
     };
     assert_eq!(source_text(title), Some("Inbox is empty"));
     assert_eq!(icon, "inbox");
@@ -3796,8 +3789,8 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
         r#"
         app EmptyStateWithoutDescription {
             body {
-                ContentUnavailable(title: "No reminders", icon: "calendar")
-            }
+                ContentUnavailable(title: "No reminders", icon: Icons.system.calendar)
+        }
         }
         "#,
     )
@@ -3818,8 +3811,8 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
         r#"
         app InvalidEmptyState {
             body {
-                ContentUnavailable(title: "Empty", icon: "not_a_shared_icon", description: "Try again")
-            }
+                ContentUnavailable(title: "Empty", icon: Icons.system.not_a_shared_icon, description: "Try again")
+        }
         }
         "#,
     )
@@ -3827,8 +3820,90 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
     assert!(
         invalid_icon
             .to_string()
-            .contains("unknown system icon `not_a_shared_icon`")
+            .contains("unknown system icon `Icons.system.not_a_shared_icon`")
     );
+}
+
+#[test]
+fn typed_icon_values_arrays_and_component_slots_compile_for_both_targets() {
+    let project = nexa_testkit::TestProject::new("nexa-typed-icon-arrays");
+    let icon_path = project.join("assets/icons/Brand/search.svg");
+    std::fs::create_dir_all(icon_path.parent().expect("icon directory"))
+        .expect("create Brand icon directory");
+    std::fs::write(
+        icon_path,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#E11D48"/></svg>"##,
+    )
+    .expect("write Brand/search.svg");
+
+    let entry = project.write_app(
+        r##"
+        app TypedIconsDemo {
+            state icons: Array<Icon> = [Icons.system.search, Icons.Brand.search]
+            state selectedItem: String = "System"
+            state tabIndex: Int32 = 0
+
+            body {
+                Column(gap: 12) {
+                    Icon(Icons.system.search, size: 24, color: "#2563EB")
+                    Icon(Icons.Brand.search, size: 24)
+                    Icon(icons[0], size: 20)
+                    Button("Search catalog", icon: Icons.system.search) { }
+                    Button("Sized search", icon: Icon(Icons.system.search, size: 20)) { }
+                    Button("Dynamic icon", icon: icons[1]) { }
+                    Picker(
+                        items: ["System", "Brand"],
+                        selected: selectedItem,
+                        icon: icons[0],
+                        itemIcons: icons
+                    )
+                    ContentUnavailable(
+                        title: "Nothing here",
+                        icon: icons[0]
+                    )
+                    AppBottomBar(selected: tabIndex) {
+                        Tab(index: 0, label: "Search", icon: icons[0]) {
+                            Text("Search")
+        }
+        }
+        }
+        }
+        }
+        "##,
+    );
+
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = nexa_compiler::compile_file_for_target(&entry, target)
+            .expect("typed Icon, Array<Icon>, and component icon slots should compile");
+        assert!(matches!(
+            module.states.first().map(|s| &s.ty),
+            Some(Type::Array(inner)) if matches!(inner.as_ref(), Type::Icon)
+        ));
+        match target {
+            Target::Swift => {
+                let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+                assert!(swift.contains("var nexa_icons: [NexaIconSpec]"));
+                assert!(swift.contains("NexaIconView(icon: (") && swift.contains(").withOverrides(size: 20)"));
+                assert!(swift.contains("Label(\"Search catalog\", systemImage: \"magnifyingglass\")"));
+                assert!(swift.contains("NexaIconSpec(symbol: \"magnifyingglass\", size: 20, preservesColor: false)"));
+                assert!(swift.contains("itemIcons: nexa_icons"));
+        }
+            Target::Kotlin => {
+                let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+                assert!(kotlin.contains("mutableStateListOf<NexaIconSpec>("));
+                assert!(kotlin.contains("NexaIconContent(icon = (") && kotlin.contains(").copy(size = 20.dp)"));
+                assert!(kotlin.contains("NexaIconSpec(vector = Icons.Filled.Search"));
+                assert!(kotlin.contains("itemIcons = nexa_icons"));
+            }
+            Target::All => unreachable!(),
+        }
+    }
+
+    let string_slot_err = compile(
+        r#"app StringIconSlot { body { Button("Search", icon: "search") { } } }"#,
+    )
+    .expect_err("raw string should not be accepted as Icon");
+    assert!(string_slot_err.to_string().contains("expected Icon, found String"));
 }
 
 #[test]
@@ -3840,8 +3915,8 @@ fn appearance_is_a_generic_typed_wrapper_and_rejects_invalid_static_modes() {
             body {
                 Appearance(mode: mode) {
                     Text("Hello")
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -3869,9 +3944,9 @@ fn toolbar_lowers_placement_and_native_action_content() {
         app ToolbarExample {
             body {
                 Toolbar(placement: Trailing) {
-                    Button("Add", icon: "add") { }
-                }
-            }
+                    Button("Add", icon: Icons.system.add) { }
+        }
+        }
         }
         "#,
     )
@@ -3892,8 +3967,8 @@ fn button_accessibility_label_lowers_as_an_optional_localized_string() {
         r#"
         app AccessibleIconAction {
             body {
-                Button("", icon: "add", shape: Circle, accessibilityLabel: "Add") { }
-            }
+                Button("", icon: Icons.system.add, shape: Circle, accessibilityLabel: "Add") { }
+        }
         }
         "#,
     )
@@ -3979,7 +4054,7 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
                     shouldDismissOnBackPress: false,
                     backgroundColor: "#F2F4F8"
                 ) { Text("Details") }
-            }
+        }
         }
         "##,
     )
@@ -4029,14 +4104,14 @@ fn bottom_sheet_refs_can_be_passed_to_reusable_components() {
         component PlayerSheetControls(sheetRef: ComponentRef<BottomSheet>) {
             body {
                 Button("Close player") { sheetRef.dismiss() }
-            }
+        }
         }
         app PlayerSheetReference {
             let sheetRef = ComponentRef<BottomSheet>()
             body {
                 BottomSheet(ref: sheetRef, detents: [1.0]) { Text("Now playing") }
                 PlayerSheetControls(sheetRef: sheetRef)
-            }
+        }
         }
         "#,
     )
@@ -4072,7 +4147,7 @@ fn bottom_sheet_can_host_a_nested_navigation_stack() {
             Button("Open player") { sheetRef.present() }
             BottomSheet(ref: sheetRef, detents: [1.0]) {
                 NavigationStack(root: Player, showNavigationBar: false)
-            }
+        }
         }
         app PlayerSheetNavigation {
             body { NavigationStack(root: Home, showNavigationBar: false) }
@@ -4114,8 +4189,8 @@ fn bottom_sheet_content_sizing_lowers_to_intrinsic_native_sheets() {
             body {
                 BottomSheet(ref: sheetRef, contentSized: true) {
                     Text("Actions")
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -4160,8 +4235,8 @@ fn bottom_sheet_lowers_fractional_detents_and_dismiss_actions_for_both_backends(
                     scrimColor: "#00000000"
                 ) { Text("Map details") }.onDismiss {
                     dismissed = true
-                }
-            }
+        }
+        }
         }
         "##,
     )
@@ -4218,7 +4293,7 @@ fn bottom_sheet_uses_one_detent_list_and_native_drag_selection() {
                     detents: [0.25, 0.5, 0.85],
                     initialDetent: 0.5
                 ) { Text("Drag to resize") }
-            }
+        }
         }
         "#,
     )
@@ -4252,15 +4327,15 @@ fn bottom_sheet_header_save_and_close_actions_compile_for_both_platforms() {
                         Row {
                             Text("Edit task")
                             Spacer()
-                            Button("Save", icon: "save", style: Borderless) { saved = true }
-                            Button("Close", icon: "close", style: Plain) {
+                            Button("Save", icon: Icons.system.save, style: Borderless) { saved = true }
+                            Button("Close", icon: Icons.system.close, style: Plain) {
                                 sheetRef.dismiss()
-                            }
-                        }
+        }
+        }
                         Text(saved ? "Changes saved" : "Unsaved changes")
-                    }
-                }
-            }
+        }
+        }
+        }
         }
         "#,
     )
@@ -4297,10 +4372,10 @@ fn nested_bottom_sheets_keep_the_parent_presented_on_both_platforms() {
                         Button("Open child") { childSheetRef.present() }
                         BottomSheet(ref: childSheetRef) {
                             Button("Close child") { childSheetRef.dismiss() }
-                        }
-                    }
-                }
-            }
+        }
+        }
+        }
+        }
         }
         "#,
     )
@@ -4339,10 +4414,10 @@ fn bottom_sheet_dynamic_surface_and_dismiss_callback_count_as_state_uses() {
             body {
                 BottomSheet(ref: sheetRef, backgroundColor: surface, scrimColor: scrim) {
                     Text("Map details")
-                }.onDismiss {
+        }.onDismiss {
                     dismissed = true
-                }
-            }
+        }
+        }
         }
         "##,
         Target::Kotlin,
@@ -4403,7 +4478,7 @@ fn top_level_helpers_called_from_reachable_class_static_functions_are_reachable(
         class SearchText {
             static fn title(value: String) -> String {
                 return formatSearchTitle(value)
-            }
+        }
         }
 
         app StaticFunctionReachability {
@@ -4431,8 +4506,8 @@ fn fast_lists_warn_when_collection_identity_is_only_positional() {
             body {
                 FastList(messages) { message, index in
                     Text("\(index): \(message)")
-                }
-            }
+        }
+        }
         }
         "#,
         Target::Swift,
@@ -4454,8 +4529,8 @@ fn fast_lists_warn_when_collection_identity_is_only_positional() {
             body {
                 FastList(messages, key: .self) { message, index in
                     Text("\(index): \(message)")
-                }
-            }
+        }
+        }
         }
         "#,
         Target::Swift,
@@ -4536,8 +4611,8 @@ fn network_status_subscription_lowers_a_typed_boolean_callback() {
             body {
                 Button("Watch") {
                     Network.onStatusChange { online -> connected = online }
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -4580,9 +4655,9 @@ fn multipart_upload_lowers_to_an_async_typed_network_call() {
                             maxResponseBytes: 1048576,
                             certificatePins: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
                         )).statusCode
-                    } catch { }
-                }
-            }
+        } catch { }
+        }
+        }
         }
         "#,
     )
@@ -4636,7 +4711,7 @@ fn haptics_calls_lower_to_validated_typed_core_calls() {
                 Button("Tap") { Haptics.impact(style: Heavy) }
                 Button("Done") { Haptics.notification(kind: Success) }
                 Button("Select") { Haptics.selection() }
-            }
+        }
         }
         "#,
     )
@@ -4660,7 +4735,7 @@ fn haptics_calls_lower_to_validated_typed_core_calls() {
                 is_async: false,
                 is_throwing: false,
                 ..
-            })] if namespace == "Haptics"
+        })] if namespace == "Haptics"
                 && name == expected_name
                 && arguments.is_empty() == expected_argument.is_empty()
                 && (expected_argument.is_empty()
@@ -4693,7 +4768,7 @@ fn text_input_rejects_unsupported_option_names() {
             state text: String = ""
             body {
                 TextInput(value: text, placeholder: "Text", keyboard: Email) { }
-            }
+        }
         }
         "#,
     )
@@ -4716,8 +4791,8 @@ fn string_add_concatenates_and_folds_literals() {
                 Text(entries.isEmpty)
                 Button("Append") {
                     greeting += " 1.0"
-                }
-            }
+        }
+        }
         }
         "#,
     )
@@ -4736,7 +4811,7 @@ fn string_add_concatenates_and_folds_literals() {
                 kind: MemberKind::CollectionCount,
                 field_type: Type::Numeric(NumericType::Int32),
                 ..
-            },
+        },
             ..
         }
     )));
@@ -4747,7 +4822,7 @@ fn string_add_concatenates_and_folds_literals() {
                 kind: MemberKind::CollectionIsEmpty,
                 field_type: Type::Bool,
                 ..
-            },
+        },
             ..
         }
     )));
@@ -4783,7 +4858,7 @@ fn array_utilities_lower_to_typed_collection_ir() {
                 Text(values.shuffled().count)
                 Text(values.reverse().count)
                 Text(values.slice(1..<3).count)
-            }
+        }
         }
         "#,
     )
@@ -4866,13 +4941,13 @@ fn conditional_expressions_infer_shared_and_optional_branch_types() {
 
             fn selected(enabled: Bool) -> String? {
                 return if enabled { "ready" } else { null }
-            }
+        }
 
             body {
                 Text(if enabled { "ready" } else { "waiting" })
                 Text(enabled ? "on" : "off")
                 Text(selected(enabled) ?? "unavailable")
-            }
+        }
         }
         "#,
     )
@@ -4899,7 +4974,7 @@ fn conditional_expressions_infer_shared_and_optional_branch_types() {
             value: Expr::Conditional {
                 value_type: Type::String,
                 ..
-            },
+        },
             ..
         }
     ));
@@ -4910,9 +4985,9 @@ fn conditional_expressions_infer_shared_and_optional_branch_types() {
                 value: Expr::Conditional {
                     value_type: Type::String,
                     ..
-                },
+        },
                 ..
-            }
+        }
         ),
         "unexpected lowered ring: {:?}",
         module.body[1]
@@ -4946,7 +5021,7 @@ fn text_style_arguments_lower_to_native_text_style_fields() {
         app TextStyles {
             body {
                 Text("Hi", fontSize: 18, fontWeight: Bold, padding: 12, italic: true, underline: true, fontDesign: Rounded)
-            }
+        }
         }
         "#,
     )
@@ -4973,12 +5048,12 @@ fn text_font_family_uses_theme_default_and_static_overrides() {
             theme {
                 fontFamily Default: "Gilroy-Regular"
                 fontFamily Mazicon: "Mazicon"
-            }
+        }
             body {
                 Text("Title")
                 Text("Icon", fontFamily: Theme.Mazicon)
                 Text("Override", fontFamily: "NotoSans")
-            }
+        }
         }
         "#,
     )
@@ -5021,7 +5096,7 @@ fn semantic_text_font_roles_lower_and_validate() {
                 Text("Task description", fontStyle: Subheadline)
                 Text("Due tomorrow", fontStyle: Caption)
                 Text("Code", fontDesign: Monospaced)
-            }
+        }
         }
         "#,
     )
@@ -5074,14 +5149,14 @@ fn theme_font_style_overrides_shared_text_role_metrics() {
                 fontStyle Headline(size: 21, weight: Bold, family: "Display")
                 fontStyle Caption(weight: Medium)
                 fontStyle Body(family: "BodyText")
-            }
+        }
             body {
                 Text("Task title", fontStyle: Headline)
                 Text("Due tomorrow", fontStyle: Caption)
                 Text("Task details", fontStyle: Body)
                 Text("Explicit overrides", fontStyle: Headline, fontSize: 25, fontWeight: Normal, fontFamily: "NotoSans")
                 Text("Plain text")
-            }
+        }
         }
         "#,
     )
@@ -5176,8 +5251,8 @@ fn visual_style_arguments_lower_to_validated_static_effects() {
                     zIndex: -3
                 ) {
                     Text("Card", scale: 0.95, clip: Rounded(5))
-                }
-            }
+        }
+        }
         }
         "##,
     )
@@ -5222,13 +5297,13 @@ fn view_scale_accepts_animated_numeric_state() {
             body {
                 Column(scale: zoom) {
                     Text("Bookmark")
-                }
+        }
                 Button("Pulse") {
                     withAnimation(Tween(duration: 0.07, easing: Linear)) {
                         zoom = 0.5
-                    }
-                }
-            }
+        }
+        }
+        }
         }
         "#,
     )
@@ -5255,13 +5330,13 @@ fn vertical_view_scale_accepts_animated_numeric_state() {
             body {
                 Row(scaleY: squash) {
                     Text("Shuffle", scaleY: squash)
-                }
+        }
                 Button("Squash") {
                     withAnimation(Tween(duration: 0.13, easing: Linear)) {
                         squash = 0.0
-                    }
-                }
-            }
+        }
+        }
+        }
         }
         "#,
     )
@@ -5318,8 +5393,8 @@ fn spring_animation_lowers_custom_physics_and_rejects_nonpositive_values() {
             body {
                 Column(animation: Spring(response: 0.35, damping: 0.8)) {
                     Text("animated")
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect("valid spring options should compile");
@@ -5356,11 +5431,11 @@ fn tween_animation_keeps_duration_and_curve_in_both_native_backends() {
                     Button("Animate") {
                         withAnimation(Tween(duration: 0.18, easing: EaseInOut)) {
                             progress = 1.0
-                        }
-                    }
+        }
+        }
                     ProgressBar(progress: progress)
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect("duration and easing options should compile");
@@ -5389,7 +5464,7 @@ fn tween_animation_keeps_duration_and_curve_in_both_native_backends() {
                 duration,
                 easing,
                 delay,
-            },
+        },
             animated_states,
             ..
         }] if (*duration - 0.18).abs() < f64::EPSILON
@@ -5496,10 +5571,10 @@ fn custom_cubic_bezier_and_delay_map_to_native_animation_apis() {
                         easing: CubicBezier(x1: 0.2, y1: 0.1, x2: 0.7, y2: 1)
                     )) {
                         progress = 1.0
-                    }
-                }
+        }
+        }
                 ProgressBar(progress: progress)
-            }
+        }
         }"#,
     )
     .expect("custom native easing and delay should compile");
@@ -5524,10 +5599,10 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
                 Button("Animate") {
                     withAnimation(Spring(response: 0.35, damping: 0.8)) {
                         progress = 1.0
-                    }
-                }
+        }
+        }
                 ProgressBar(progress: progress)
-            }
+        }
         }"#,
     )
     .expect("float state assignments should support imperative animation");
@@ -5565,8 +5640,8 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
             body {
                 Button("Animate") {
                     withAnimation(EaseIn) { count = 1 }
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect_err("integer state animation has no equivalent Compose animation mapping");
@@ -5582,8 +5657,8 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
             body {
                 Button("Add") {
                     withAnimation(Spring(response: 0.35, damping: 0.8)) { tasks = [1] }
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect_err("collection updates must not silently ignore a custom animation spec");
@@ -5599,8 +5674,8 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
             body {
                 Button("Add") {
                     withAnimation(Spring(response: 0.35, damping: 0.8)) { tasks.append(1) }
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect_err("collection mutations must not silently ignore a custom animation spec");
@@ -5616,8 +5691,8 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
             body {
                 Button("Complete") {
                     withAnimation(EaseIn) { progress = 1.0 }
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect("unobserved float state updates should still compile");
@@ -5637,8 +5712,8 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
             body {
                 Button("Animate") {
                     withAnimation(EaseIn) { }
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect_err("empty animation blocks should be rejected");
@@ -5656,9 +5731,9 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
                     withAnimation(EaseIn) {
                         Log.info(message: "not an animated state update")
                         progress = 1.0
-                    }
-                }
-            }
+        }
+        }
+        }
         }"#,
     )
     .expect_err("unrelated side effects should not be hidden in animation blocks");
@@ -5680,8 +5755,8 @@ fn conditional_transitions_lower_to_typed_ir() {
                 when visible {
                     true: { Text("yes") }
                     else: { Text("no") }
-                }.transition(.scale)
-            }
+        }.transition(.scale)
+        }
         }"#,
     )
     .expect("conditional transition declarations should compile");
@@ -5694,7 +5769,7 @@ fn conditional_transitions_lower_to_typed_ir() {
                 duration,
                 delay,
                 easing: nexa_ir::AnimationEasing::EaseOut,
-            }),
+        }),
             ..
         } if (*duration - 0.24).abs() < 0.001 && (*delay - 0.04).abs() < 0.001
     ));
@@ -5717,8 +5792,8 @@ fn when_allows_missing_else_only_for_exhaustive_closed_values() {
                 when status {
                     DeliveryStatus.Pending: { Text("Preparing") }
                     DeliveryStatus.Shipped: { Text("On the way") }
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect("all declared enum cases should make the when exhaustive");
@@ -5738,8 +5813,8 @@ fn when_allows_missing_else_only_for_exhaustive_closed_values() {
                 when isReady {
                     true: { Text("Ready") }
                     false: { Text("Waiting") }
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect("true and false should make a boolean when exhaustive");
@@ -5755,8 +5830,8 @@ fn when_allows_missing_else_only_for_exhaustive_closed_values() {
             body {
                 when status {
                     DeliveryStatus.Pending: { Text("Preparing") }
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect_err("a partial enum match needs an explicit fallback");
@@ -5788,12 +5863,12 @@ fn pressable_drag_bindings_are_typed_and_validated() {
             body {
                 Pressable() {
                     Text("Drag")
-                }.onTap {
+        }.onTap {
                     total = 0.0
-                }.onDrag { translationX, translationY, velocityX, velocityY ->
+        }.onDrag { translationX, translationY, velocityX, velocityY ->
                     total = velocityX
-                }
-            }
+        }
+        }
         }"#,
     )
     .expect("drag bindings should compile as immutable Float64 values");
@@ -5834,7 +5909,7 @@ fn pressable_drag_bindings_are_typed_and_validated() {
             state x: Float64 = 0.0
             body {
                 Pressable() { Text("Drag") }.onTap { }.onDrag { x, y, vx, vy -> }
-            }
+        }
         }"#,
     )
     .expect_err("drag bindings must not shadow app values");
@@ -5854,9 +5929,9 @@ fn pressable_context_menu_lowers_native_button_actions() {
                     .onTap { }
                     .contextMenu {
                         Button("Edit") { }
-                        Button("Delete", icon: "delete") { }
-                    }
-            }
+                        Button("Delete", icon: Icons.system.delete) { }
+        }
+        }
         }"#,
     )
     .expect("context menu buttons should lower as typed native button nodes");
@@ -5877,7 +5952,7 @@ fn pressable_context_menu_lowers_native_button_actions() {
                 Pressable() { Text("Row") }
                     .onTap { }
                     .contextMenu { Text("Not an action") }
-            }
+        }
         }"#,
     )
     .expect_err("context menus should reject non-action nodes");
@@ -5911,7 +5986,7 @@ fn pressable_pinch_bindings_are_typed_and_validated() {
                 Pressable() { Text("Pinch") }
                     .onTap { }
                     .onPinch { scaleFactor -> zoom = zoom * scaleFactor }
-            }
+        }
         }"#,
     )
     .expect("pinch scale delta should be an immutable Float64 binding");
@@ -5932,7 +6007,7 @@ fn pressable_pinch_bindings_are_typed_and_validated() {
                 right,
                 ty: NumericType::Float64,
                 ..
-            },
+        },
             ..
         } if matches!(right.as_ref(), Expr::State(name, Type::Numeric(NumericType::Float64)) if name == "scaleFactor")
     ));
@@ -5953,7 +6028,7 @@ fn pressable_pinch_bindings_are_typed_and_validated() {
             state scaleFactor: Float64 = 1.0
             body {
                 Pressable() { Text("Pinch") }.onTap { }.onPinch { scaleFactor -> }
-            }
+        }
         }"#,
     )
     .expect_err("pinch callback bindings must not shadow app values");
@@ -5988,7 +6063,7 @@ fn pressable_long_press_duration_is_typed_and_tap_uses_its_canonical_name() {
                 Pressable() { Text("Hold") }
                     .onTap { holds = holds + 1 }
                     .onLongPress(durationMs: duration) { holds = holds + 1 }
-            }
+        }
         }"#,
     )
     .expect("typed duration and canonical tap handler should compile");
@@ -6021,7 +6096,7 @@ fn pressable_long_press_duration_is_typed_and_tap_uses_its_canonical_name() {
         r#"app Invalid {
             body {
                 Pressable() { Text("Tap") }.onTap { }.onTap { }
-            }
+        }
         }"#,
     )
     .expect_err("a Pressable cannot install the same tap callback twice");
@@ -6062,7 +6137,7 @@ fn accessibility_options_lower_on_builtins_and_custom_components() {
                 Text("Continue", accessibilityLabel: "Continue action", accessibilityHint: "Opens the next screen", accessibilityValue: "Ready", accessibilityRole: Button)
                 Image(asset: "brand", description: "Brand", accessibilityLabel: "Brand mark", accessibilityRole: Image)
                 Caption(title: "Profile", accessibilityLabel: "Profile heading", accessibilityRole: Header)
-            }
+        }
         }
         "#,
     )
@@ -6143,7 +6218,7 @@ fn image_shared_element_modifier_lowers_a_typed_string_identifier() {
             body {
                 Image(asset: "hero", description: "Hero")
                     .sharedElement(id: "product-hero")
-            }
+        }
         }
         "#,
     )
@@ -6165,7 +6240,7 @@ fn image_max_height_lowers_to_a_bounded_native_dimension() {
         app CommentPhoto {
             body {
                 Image(file: "file:///photo.jpg", description: "Comment image", maxHeight: 200)
-            }
+        }
         }
         "#,
     )
@@ -6187,7 +6262,7 @@ fn image_fill_max_size_lowers_to_shared_image_sizing() {
         app FullPagePoster {
             body {
                 Image(asset: "video_poster", description: "Video poster", scale: Fill, fillMaxSize: true)
-            }
+        }
         }
         "#,
     )
@@ -6210,7 +6285,7 @@ fn image_loading_indicator_is_opt_in_and_remote_or_file_only() {
         app DefaultImageLoading {
             body {
                 Image(url: "https://example.test/image.png", description: "Remote image")
-            }
+        }
         }
         "#,
     )
@@ -6228,7 +6303,7 @@ fn image_loading_indicator_is_opt_in_and_remote_or_file_only() {
         app ExplicitImageLoading {
             body {
                 Image(file: "file:///tmp/image.png", description: "Local image", showLoadingIndicator: true)
-            }
+        }
         }
         "#,
     )
@@ -6246,7 +6321,7 @@ fn image_loading_indicator_is_opt_in_and_remote_or_file_only() {
         app InvalidAssetLoading {
             body {
                 Image(asset: "logo", description: "Logo", showLoadingIndicator: true)
-            }
+        }
         }
         "#,
     )
@@ -6267,7 +6342,7 @@ fn slider_lowers_a_mutable_float64_binding_and_static_range() {
 
             body {
                 Slider(value: volume, min: 0.0, max: 1.0, step: 0.1)
-            }
+        }
         }
         "#,
     )
@@ -6290,7 +6365,7 @@ fn slider_lowers_a_mutable_float64_binding_and_static_range() {
             state balance: Float64 = 0.0
             body {
                 Slider(value: balance, min: -1.0, max: 1.0, step: 0.5)
-            }
+        }
         }
         "#,
     )
@@ -6308,7 +6383,7 @@ fn slider_lowers_a_mutable_float64_binding_and_static_range() {
             state volume: Float64 = 0.5
             body {
                 Slider(value: volume, min: 0.0, max: 1.0, step: 0.3)
-            }
+        }
         }
         "#,
     );
@@ -6328,7 +6403,7 @@ fn slider_accepts_a_dynamic_range_and_typed_user_events() {
                 Slider(value: position, min: 0.0, max: duration, step: 0.0)
                     .onChange { seconds -> position = seconds }
                     .onEditingChanged { editing -> isSeeking = editing }
-            }
+        }
         }
         "#,
     )
@@ -6379,7 +6454,7 @@ fn progress_controls_lower_float64_expressions() {
             body {
                 ProgressBar(progress: progress)
                 ProgressRing(progress: progress + 0.1, tint: tint, trackColor: "#DBEAFE", size: 48, thickness: 5, androidWave: wave)
-            }
+        }
         }
         "##,
     )
@@ -6514,7 +6589,7 @@ fn progress_bar_style_is_typed_and_reaches_both_native_backends() {
                     accessibilityRole: None,
                     androidWave: wave
                 )
-            }
+        }
         }
         "##,
     )
@@ -6599,7 +6674,7 @@ fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
 
             body {
                 SegmentedControl(items: filters, selected: selectedFilter)
-            }
+        }
         }
         "#,
     )
@@ -6626,7 +6701,7 @@ fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
                     selected: selectedFilter,
                     animation: Tween(duration: 0.24, easing: EaseOut)
                 )
-            }
+        }
         }
         "#,
     )
@@ -6638,7 +6713,7 @@ fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
                 duration,
                 easing: nexa_ir::AnimationEasing::EaseOut,
                 ..
-            }),
+        }),
             ..
         } if (*duration - 0.24).abs() < f64::EPSILON
     ));
@@ -6660,7 +6735,7 @@ fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
             state selectedFilter: String = "All"
             body {
                 SegmentedControl(items: filters, selected: selectedFilter)
-            }
+        }
         }
         "#,
     );
@@ -6690,7 +6765,7 @@ fn segmented_control_visual_parameters_reach_both_native_backends_and_dev_ir() {
                     borderColor: selectedFill,
                     borderWidth: 1
                 )
-            }
+        }
         }
         "##,
     )
@@ -6783,7 +6858,7 @@ fn picker_lowers_a_string_array_and_mutable_string_binding() {
 
             body {
                 Picker(items: sizes, selected: selectedSize)
-            }
+        }
         }
         "#,
     )
@@ -6806,7 +6881,7 @@ fn picker_lowers_a_string_array_and_mutable_string_binding() {
             state selectedSize: String = "Medium"
             body {
                 Picker(items: sizes, selected: selectedSize)
-            }
+        }
         }
         "#,
     );
@@ -6823,8 +6898,8 @@ fn picker_tint_lowers_a_runtime_color_expression() {
             state priorityTint: String = "#FF9500"
 
             body {
-                Picker(items: options, selected: selected, icon: "flag_filled", tint: priorityTint)
-            }
+                Picker(items: options, selected: selected, icon: Icons.system.flag_filled, tint: priorityTint)
+        }
         }
         "##,
     )
@@ -6851,9 +6926,9 @@ fn picker_item_icons_are_resolved_to_shared_system_icons() {
                 Picker(
                     items: options,
                     selected: selected,
-                    itemIcons: ["calendar", "flag_filled", "edit"]
+                    itemIcons: [Icons.system.calendar, Icons.system.flag_filled, Icons.system.edit]
                 )
-            }
+        }
         }
         "#,
     )
@@ -6861,11 +6936,11 @@ fn picker_item_icons_are_resolved_to_shared_system_icons() {
 
     assert!(matches!(
         module.body.first(),
-        Some(Node::Picker { item_icons, .. })
-            if item_icons == &vec![
-                nexa_ir::IconSpec::system(SystemIcon::Shared("calendar".to_owned())),
-                nexa_ir::IconSpec::system(SystemIcon::Shared("flag_filled".to_owned())),
-                nexa_ir::IconSpec::system(SystemIcon::Shared("edit".to_owned())),
+        Some(Node::Picker { item_icons: Some(nexa_ir::Expr::Array(items)), .. })
+            if items == &vec![
+                nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(SystemIcon::Shared("calendar".to_owned())))),
+                nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(SystemIcon::Shared("flag_filled".to_owned())))),
+                nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(SystemIcon::Shared("edit".to_owned())))),
             ]
     ));
 
@@ -6874,7 +6949,7 @@ fn picker_item_icons_are_resolved_to_shared_system_icons() {
         app InvalidPickerIcons {
             state options: Array<String> = ["First"]
             state selected: String = "First"
-            body { Picker(items: options, selected: selected, itemIcons: ["not_a_system_icon"]) }
+            body { Picker(items: options, selected: selected, itemIcons: [Icons.system.not_a_system_icon]) }
         }
         "#,
     );
@@ -6938,7 +7013,7 @@ fn picker_date_parameters_are_typed_and_reach_both_native_backends() {
                 PickerDate(type: Time, style: Wheel, timestamp: selected, is24Hour: true)
                 PickerDate(type: Date, style: Input, timestamp: selected)
                 PickerDate(type: DateTime, style: Compact, timestamp: selected)
-            }
+        }
         }
         "##,
     )
@@ -7076,9 +7151,9 @@ fn dialog_lowers_typed_text_and_actions_for_mutable_state() {
                     Button("Delete") {
                         deleted = true
                         isPresented = false
-                    }
-                }
-            }
+        }
+        }
+        }
         }
         "#,
     )
@@ -7111,8 +7186,8 @@ fn dialog_lowers_typed_text_and_actions_for_mutable_state() {
                     TextInput(value: first, placeholder: "First")
                     TextInput(value: second, placeholder: "Second")
                     Button("Save") { isPresented = false }
-                }
-            }
+        }
+        }
         }
         "#,
     );
@@ -7124,7 +7199,7 @@ fn dialog_lowers_typed_text_and_actions_for_mutable_state() {
             state isPresented: Bool = false
             body {
                 Dialog(isPresented: isPresented, title: 1, message: "Message") { }
-            }
+        }
         }
         "#,
     );
@@ -7200,19 +7275,19 @@ fn nested_borrowed_components_keep_the_owner_instance_live() {
 
             component Outer(resource: ResourcePlugin.Resource) {
                 body { Inner(resource: resource) }
-            }
+        }
 
             component Inner(resource: ResourcePlugin.Resource) {
                 body { Button("Use") { resource.play() } }
-            }
+        }
 
             app Demo {
                 let resource = ResourcePlugin.Resource()
                 body {
                     Button("Dispose") { resource.dispose() }
                     Outer(resource: resource)
-                }
-            }
+        }
+        }
             "#,
     )
     .expect("app source should be written");
@@ -7264,7 +7339,7 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                         Type::Plugin { namespace, name }
                             if namespace == "VideoPlayer" && name == "VideoPlayer"
                     )
-            })
+        })
         }));
         let player_surface = module
             .components
@@ -7274,7 +7349,7 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
         let [
             Node::ComponentCall {
                 name, arguments, ..
-            },
+        },
         ] = player_surface.body.as_slice()
         else {
             panic!("the outer wrapper should pass its native object to the nested component");
@@ -7297,7 +7372,7 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                     Type::Plugin { namespace, name }
                         if namespace == "VideoPlayer" && name == "VideoPlayer"
                 )
-            })
+        })
             .count();
         assert_eq!(player_instances, 2);
         assert!(
@@ -7331,7 +7406,7 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                         && !actions.is_empty()
                     {
                         generic_pressable_tap_handlers += 1;
-                    }
+        }
                     if let nexa_ir::Node::NativeComponentCall {
                         namespace,
                         name,
@@ -7339,16 +7414,16 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                         children,
                         event_handlers,
                         ..
-                    } = node
+        } = node
                     {
                         found_components.push((namespace.clone(), name.clone()));
                         component_controls.push(arguments.iter().find_map(|(name, value)| {
                             if name == "controls" {
                                 Some(matches!(value, Expr::Bool(true)))
-                            } else {
+        } else {
                                 None
-                            }
-                        }));
+        }
+        }));
                         component_children.push(children.is_some());
                         component_event_handlers.push(
                             event_handlers
@@ -7361,14 +7436,14 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                                             [nexa_ir::Action::Assign {
                                                 value: Expr::Bool(true),
                                                 ..
-                                            }]
+        }]
                                         ),
                                     )
-                                })
+        })
                                 .collect::<Vec<_>>(),
                         );
-                    }
-                },
+        }
+        },
                 &mut |_| {},
             );
         }
@@ -7398,9 +7473,9 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                     body,
                     error_catches,
                     catch_body,
-                } => Some((body, error_catches, catch_body)),
+        } => Some((body, error_catches, catch_body)),
                 _ => None,
-            })
+        })
             .expect("the example explicitly recovers from native preparation errors");
         assert_eq!(
                 handled_prepares
@@ -7425,7 +7500,7 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                     variant: payload_variant,
                     parameters: payload_parameters,
                     ..
-                }
+        }
             ] if variant == "invalidUrl"
                 && parameters.is_empty()
                 && payload_variant == "decodingFailed"
@@ -7438,20 +7513,20 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                 receiver: None,
                 name,
                 ..
-            } = &state.initial
+        } = &state.initial
             {
                 assert_eq!(name, "VideoPlayer");
-            }
+        }
         }
         walk_ir(&module.body, &mut |_| {}, &mut |expression| {
             if let Expr::NativeCall {
                 receiver: Some(_),
                 name,
                 ..
-            } = expression
+        } = expression
             {
                 instance_calls.push(name.clone());
-            }
+        }
         });
         if let Some(actions) = &module.on_appear {
             walk_actions(actions, &mut |expression| {
@@ -7459,11 +7534,11 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                     receiver: Some(_),
                     name,
                     ..
-                } = expression
+        } = expression
                 {
                     instance_calls.push(name.clone());
-                }
-            });
+        }
+        });
         }
         assert!(instance_calls.iter().any(|name| name == "play"));
         assert!(instance_calls.iter().any(|name| name == "pause"));
@@ -7480,9 +7555,9 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                     property,
                     actions,
                     ..
-                } => Some((receiver.as_str(), property.as_str(), actions.as_slice())),
+        } => Some((receiver.as_str(), property.as_str(), actions.as_slice())),
                 _ => None,
-            })
+        })
             .collect::<Vec<_>>();
         assert_eq!(event_subscriptions.len(), 2);
         assert_eq!(event_subscriptions[0].0, "player1");
@@ -7494,7 +7569,7 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                     [nexa_ir::Action::Assign {
                         value: Expr::Bool(true),
                         ..
-                    }]
+        }]
                 )
         }));
     }
@@ -7556,8 +7631,8 @@ fn result_members_expose_typed_success_and_failure_values() {
                     Text(outcome.isSuccess ? "Paid" : "Needs attention")
                     Text(outcome.value ?? 0.0)
                     Text((outcome.error ?? PaymentError.insufficientFunds) == PaymentError.insufficientFunds ? "Insufficient funds" : "No error")
-                }
-            }
+        }
+        }
         }
         "#,
     )

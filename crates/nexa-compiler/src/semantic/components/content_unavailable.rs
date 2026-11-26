@@ -14,10 +14,10 @@ pub(super) fn lower_content_unavailable_component(
         Some(&Type::String),
         &cx.exprs(false),
     )?;
-    let icon = lower_icon_spec(
+    let icon = lower_expr(
         &take_required_arg(&mut args, &inv.name, "icon", span)?,
-        "ContentUnavailable icon",
-        cx,
+        Some(&Type::Icon),
+        &cx.exprs(false),
     )?;
     let description = args
         .remove("description")

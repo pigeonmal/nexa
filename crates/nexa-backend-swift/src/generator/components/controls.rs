@@ -2,7 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
     Action, AnimationEasing, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle,
-    IconSpec, Module, Node, ScreenId, TaskExecutor, Type,
+    Module, Node, ScreenId, TaskExecutor, Type,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -56,7 +56,7 @@ pub(crate) fn render_button(
     label: &nexa_ir::Expr,
     comment: Option<&str>,
     accessibility_label: Option<&nexa_ir::Expr>,
-    icon: Option<&IconSpec>,
+    icon: Option<&nexa_ir::Expr>,
     loading: Option<&nexa_ir::Expr>,
     disabled: Option<&nexa_ir::Expr>,
     style: Option<nexa_ir::ButtonStyle>,
@@ -91,7 +91,7 @@ pub(crate) fn render_button_node(
     label: &nexa_ir::Expr,
     comment: Option<&str>,
     accessibility_label: Option<&nexa_ir::Expr>,
-    icon: Option<&IconSpec>,
+    icon: Option<&nexa_ir::Expr>,
     loading: Option<&nexa_ir::Expr>,
     disabled: Option<&nexa_ir::Expr>,
     style: Option<nexa_ir::ButtonStyle>,
@@ -283,55 +283,56 @@ pub(crate) fn render_swipe_action_button(button: &Node, depth: usize, out: &mut 
 fn render_button_label(
     label: &nexa_ir::Expr,
     comment: Option<&str>,
-    icon: Option<&IconSpec>,
+    icon: Option<&nexa_ir::Expr>,
 
     depth: usize,
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
     if let Some(icon) = icon {
-        if matches!(&icon.source, nexa_ir::IconSource::FontGlyph { .. })
-            || icon.description.is_some()
-            || icon.size.is_some()
-            || icon.color.is_some()
+        if let nexa_ir::Expr::Icon(spec) = icon
+            && matches!(&spec.source, nexa_ir::IconSource::System(_))
+            && spec.description.is_none()
+            && spec.size.is_none()
+            && spec.color.is_none()
         {
-            let font_icon = format!(
-                "NexaIconView(icon: {}, description: \"\", size: CGFloat({}))",
-                super::system_icons::spec(icon),
-                nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
-            );
+            let nexa_ir::IconSource::System(system_icon) = &spec.source else {
+                return;
+            };
             if comment.is_none() && is_empty_button_label(label) {
-                out.push_str(&format!("{font_icon}\n"));
+                out.push_str(&format!(
+                    "Image(systemName: {}).font(.system(size: {}))\n",
+                    swift_string(&system_icon.sf_symbol_name()),
+                    nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+                ));
+            } else if comment.is_none() && !has_localized_comment(label) {
+                out.push_str(&format!(
+                    "Label({}, systemImage: {}).font(.system(size: {}))\n",
+                    crate::generator::engine::expressions::text_expression(label),
+                    swift_string(&system_icon.sf_symbol_name()),
+                    nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+                ));
             } else {
                 out.push_str(&format!(
-                    "Label {{ {} }} icon: {{ {font_icon} }}.font(.system(size: {}))\n",
+                    "Label {{ {} }} icon: {{ Image(systemName: {}) }}.font(.system(size: {}))\n",
                     crate::generator::expressions::localized_text_view(label, comment),
+                    swift_string(&system_icon.sf_symbol_name()),
                     nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
                 ));
             }
             return;
         }
-        let nexa_ir::IconSource::System(system_icon) = &icon.source else {
-            return;
-        };
+        let icon_view = format!(
+            "NexaIconView(icon: {}, description: \"\", size: CGFloat({}))",
+            expression(icon),
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+        );
         if comment.is_none() && is_empty_button_label(label) {
-            out.push_str(&format!(
-                "Image(systemName: {}).font(.system(size: {}))\n",
-                swift_string(&system_icon.sf_symbol_name()),
-                nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
-            ));
-        } else if comment.is_none() && !has_localized_comment(label) {
-            out.push_str(&format!(
-                "Label({}, systemImage: {}).font(.system(size: {}))\n",
-                crate::generator::engine::expressions::text_expression(label),
-                swift_string(&system_icon.sf_symbol_name()),
-                nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
-            ));
+            out.push_str(&format!("{icon_view}\n"));
         } else {
             out.push_str(&format!(
-                "Label {{ {} }} icon: {{ Image(systemName: {}) }}.font(.system(size: {}))\n",
+                "Label {{ {} }} icon: {{ {icon_view} }}.font(.system(size: {}))\n",
                 crate::generator::expressions::localized_text_view(label, comment),
-                swift_string(&system_icon.sf_symbol_name()),
                 nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
             ));
         }
@@ -613,8 +614,8 @@ pub(crate) fn render_segmented_control(
 
 #[derive(Default)]
 pub(crate) struct PickerOptions<'a> {
-    pub icon: Option<&'a IconSpec>,
-    pub item_icons: &'a [IconSpec],
+    pub icon: Option<&'a nexa_ir::Expr>,
+    pub item_icons: Option<&'a nexa_ir::Expr>,
     pub label: Option<&'a nexa_ir::Expr>,
     pub tint: Option<&'a nexa_ir::ColorExpression>,
     pub comment: Option<&'a str>,
@@ -647,12 +648,8 @@ pub(crate) fn render_picker_node(
         comment,
     } = options;
     let selected = state_name(state);
-    let icon = icon.map_or_else(|| "nil".to_owned(), super::system_icons::spec);
-    let item_icons = item_icons
-        .iter()
-        .map(super::system_icons::spec)
-        .collect::<Vec<_>>()
-        .join(", ");
+    let icon = icon.map_or_else(|| "nil".to_owned(), expression);
+    let item_icons = item_icons.map_or_else(|| "[]".to_owned(), expression);
     let tint = tint.map_or_else(
         || "nil".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -661,7 +658,7 @@ pub(crate) fn render_picker_node(
     out.line_at(
         depth,
         format_args!(
-            "NexaPickerPrimitive(selection: ${selected}, items: {}, itemIcons: [{item_icons}], icon: {icon}, tint: {tint}, hasLabel: {has_label}) {{",
+            "NexaPickerPrimitive(selection: ${selected}, items: {}, itemIcons: {item_icons}, icon: {icon}, tint: {tint}, hasLabel: {has_label}) {{",
             expression(items),
         ),
     );
@@ -1341,7 +1338,8 @@ fn cancellation_return_statement(ty: &Type) -> String {
         | Type::TypeParam(_)
         | Type::Plugin { .. }
         | Type::TaskHandle
-        | Type::NetworkResponse => {
+        | Type::NetworkResponse
+        | Type::Icon => {
             "fatalError(\"cancelled while producing a value without a default\")".to_owned()
         }
     }
@@ -1403,7 +1401,8 @@ fn cancellation_default_value(ty: &Type) -> String {
         | Type::TypeParam(_)
         | Type::Plugin { .. }
         | Type::TaskHandle
-        | Type::NetworkResponse => "fatalError(\"no cancellation default\")".to_owned(),
+        | Type::NetworkResponse
+        | Type::Icon => "fatalError(\"no cancellation default\")".to_owned(),
     }
 }
 
@@ -2055,10 +2054,10 @@ mod tests {
             &items,
             "priority",
             PickerOptions {
-                icon: Some(&IconSpec::system(SystemIcon::Shared(
+                icon: Some(&nexa_ir::Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared(
                     "flag_filled".to_owned(),
-                ))),
-                item_icons: &[],
+                ))))),
+                item_icons: None,
                 label: None,
                 tint: Some(&tint),
                 comment: None,
@@ -2080,11 +2079,11 @@ mod tests {
             Expr::String("Priority".to_owned()),
             Expr::String("Title".to_owned()),
         ]);
-        let item_icons = vec![
-            IconSpec::system(SystemIcon::Shared("calendar".to_owned())),
-            IconSpec::system(SystemIcon::Shared("flag_filled".to_owned())),
-            IconSpec::system(SystemIcon::Shared("edit".to_owned())),
-        ];
+        let item_icons = nexa_ir::Expr::Array(vec![
+            nexa_ir::Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("calendar".to_owned())))),
+            nexa_ir::Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("flag_filled".to_owned())))),
+            nexa_ir::Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("edit".to_owned())))),
+        ]);
         let mut output = SourceWriter::new();
 
         render_picker(
@@ -2092,7 +2091,7 @@ mod tests {
             "priority",
             PickerOptions {
                 icon: None,
-                item_icons: &item_icons,
+                item_icons: Some(&item_icons),
                 label: Some(&Expr::String("Priority".to_owned())),
                 tint: None,
                 comment: None,
@@ -2144,7 +2143,7 @@ mod tests {
             },
             None,
             None,
-            Some(&IconSpec::system(SystemIcon::Shared("close".to_owned()))),
+            Some(&Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("close".to_owned()))))),
             None,
             None,
             Some(nexa_ir::ButtonStyle::Plain),
@@ -2168,7 +2167,7 @@ mod tests {
             &Expr::String(String::new()),
             None,
             Some(&Expr::String("Add".to_owned())),
-            Some(&IconSpec::system(SystemIcon::Shared("add".to_owned()))),
+            Some(&Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("add".to_owned()))))),
             None,
             None,
             Some(nexa_ir::ButtonStyle::BorderedProminent),
@@ -2221,9 +2220,9 @@ mod tests {
             },
             None,
             None,
-            Some(&IconSpec::system(SystemIcon::Shared(
+            Some(&Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared(
                 "notifications".to_owned(),
-            ))),
+            ))))),
             None,
             None,
             Some(nexa_ir::ButtonStyle::Bordered),

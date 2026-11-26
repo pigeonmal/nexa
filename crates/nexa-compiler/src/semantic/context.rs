@@ -72,6 +72,8 @@ pub(super) struct ExprContext<'a> {
     /// Navigation actions are available only inside screen-owned action blocks.
     pub(super) allow_navigation_actions: bool,
     pub(super) source_file: Option<&'a str>,
+    pub(super) custom_icons: Option<&'a nexa_icon_font::IconRegistry>,
+    pub(super) themes: Option<&'a ThemeSymbols>,
 }
 
 impl<'a> ExprContext<'a> {
@@ -107,7 +109,24 @@ impl<'a> ExprContext<'a> {
             screen_ids: None,
             allow_navigation_actions: false,
             source_file: None,
+            custom_icons: None,
+            themes: None,
         }
+    }
+
+    pub(super) fn resolve_custom_icon(
+        &self,
+        set: &str,
+        name: &str,
+    ) -> Option<(String, String, u32, Vec<nexa_icon_font::IconGlyphLayer>)> {
+        let icon_set = self.custom_icons?.sets.get(set)?;
+        let glyph = *icon_set.icons.get(name)?;
+        Some((
+            icon_set.font_family.clone(),
+            icon_set.font_resource.clone(),
+            glyph,
+            icon_set.layers.get(name).cloned().unwrap_or_default(),
+        ))
     }
 
     pub(super) fn with_nullable_generic_plugin_reads(mut self, allow: bool) -> Self {
@@ -117,6 +136,14 @@ impl<'a> ExprContext<'a> {
 
     pub(super) fn with_source_file(mut self, source_file: Option<&'a str>) -> Self {
         self.source_file = source_file;
+        self
+    }
+
+    pub(super) fn with_custom_icons(
+        mut self,
+        custom_icons: Option<&'a nexa_icon_font::IconRegistry>,
+    ) -> Self {
+        self.custom_icons = custom_icons;
         self
     }
 }
@@ -132,6 +159,8 @@ pub(super) struct TypeRegistries<'a> {
     pub screen_ids: Option<&'a ScreenSignatures>,
     pub allow_navigation_actions: bool,
     pub source_file: Option<&'a str>,
+    pub custom_icons: Option<&'a nexa_icon_font::IconRegistry>,
+    pub themes: Option<&'a ThemeSymbols>,
 }
 
 impl Default for TypeRegistries<'_> {
@@ -143,6 +172,8 @@ impl Default for TypeRegistries<'_> {
             screen_ids: None,
             allow_navigation_actions: false,
             source_file: None,
+            custom_icons: None,
+            themes: None,
         }
     }
 }
@@ -160,6 +191,8 @@ impl<'a> TypeRegistries<'a> {
         context.screen_ids = self.screen_ids;
         context.allow_navigation_actions = self.allow_navigation_actions;
         context.source_file = self.source_file;
+        context.custom_icons = self.custom_icons;
+        context.themes = self.themes;
         context
     }
 }
@@ -263,21 +296,6 @@ impl<'a> SemanticContext<'a> {
         self
     }
 
-    pub(super) fn resolve_custom_icon(
-        &self,
-        set: &str,
-        name: &str,
-    ) -> Option<(String, String, u32, Vec<nexa_icon_font::IconGlyphLayer>)> {
-        let icon_set = self.custom_icons?.sets.get(set)?;
-        let glyph = *icon_set.icons.get(name)?;
-        Some((
-            icon_set.font_family.clone(),
-            icon_set.font_resource.clone(),
-            glyph,
-            icon_set.layers.get(name).cloned().unwrap_or_default(),
-        ))
-    }
-
     pub(super) fn with_navigation(&self, allow_stack: bool, allow_back: bool) -> Self {
         Self {
             allow_navigation_stack: allow_stack,
@@ -298,6 +316,8 @@ impl<'a> SemanticContext<'a> {
             screen_ids: Some(self.screen_ids),
             allow_navigation_actions: self.allow_navigation_back,
             source_file: self.source_file,
+            custom_icons: self.custom_icons,
+            themes: Some(self.themes),
         }
     }
 
@@ -309,6 +329,8 @@ impl<'a> SemanticContext<'a> {
             screen_ids: Some(self.screen_ids),
             allow_navigation_actions: self.allow_navigation_back,
             source_file: self.source_file,
+            custom_icons: self.custom_icons,
+            themes: Some(self.themes),
         }
     }
 

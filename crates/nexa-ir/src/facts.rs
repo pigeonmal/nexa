@@ -433,6 +433,9 @@ impl ModuleFacts {
                     &mut facts.ui.app.size_class,
                 );
             });
+            walk_expression(&state.initial, &mut |expression| {
+                observe_icon_expr(expression, &mut facts.ui);
+            });
         }
         for screen in &module.screens {
             for state in &screen.states {
@@ -444,6 +447,9 @@ impl ModuleFacts {
                         &mut facts.permissions,
                         &mut facts.ui.app.size_class,
                     );
+                });
+                walk_expression(&state.initial, &mut |expression| {
+                    observe_icon_expr(expression, &mut facts.ui);
                 });
             }
             for parameter in &screen.parameters {
@@ -467,6 +473,9 @@ impl ModuleFacts {
                         size_class,
                     );
                 });
+                walk_expression(&state.initial, &mut |expression| {
+                    observe_icon_expr(expression, &mut facts.ui);
+                });
             }
         }
 
@@ -482,6 +491,9 @@ impl ModuleFacts {
                         &mut false,
                     );
                 });
+                walk_expression(&local.initial, &mut |expression| {
+                    observe_icon_expr(expression, &mut facts.ui);
+                });
             }
             walk_expression(&function.body, &mut |expression| {
                 observe_expr(
@@ -490,6 +502,9 @@ impl ModuleFacts {
                     &mut facts.permissions,
                     &mut false,
                 );
+            });
+            walk_expression(&function.body, &mut |expression| {
+                observe_icon_expr(expression, &mut facts.ui);
             });
             if let Some(actions) = &function.body_actions {
                 facts.uses_task_launch |= actions_contain_task_launch(actions);
@@ -1078,7 +1093,7 @@ fn observe_node(
             ..
         } => {
             ui.content_unavailable = true;
-            observe_icon_spec(icon, ui);
+            observe_icon_expr(icon, ui);
             let foreground_colors = [
                 title_color.as_ref(),
                 description_color.as_ref(),
@@ -1088,10 +1103,7 @@ fn observe_node(
                 .iter()
                 .flatten()
                 .any(|color| matches!(color, crate::ColorExpression::Dynamic(_)))
-                || icon
-                    .color
-                    .as_ref()
-                    .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_)))
+                || icon_expr_has_dynamic_color(icon)
                 || background
                     .as_ref()
                     .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_)));
@@ -1141,7 +1153,7 @@ fn observe_node(
             ui.button.glass |= *glass;
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
             if let Some(icon) = icon {
-                observe_icon_spec(icon, ui);
+                observe_icon_expr(icon, ui);
             }
         }
         Node::Form { children, .. } => {
@@ -1250,10 +1262,10 @@ fn observe_node(
             ui.picker_present = true;
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
             if let Some(icon) = icon {
-                observe_icon_spec(icon, ui);
+                observe_icon_expr(icon, ui);
             }
-            for icon in item_icons {
-                observe_icon_spec(icon, ui);
+            if let Some(item_icons) = item_icons {
+                observe_icon_expr(item_icons, ui);
             }
         }
         Node::PickerDate { props } => {
@@ -1305,6 +1317,9 @@ fn observe_node(
             record_icon_font(ui, font_resource, icon_codepoint(glyph), layers);
             ui.style.color |= tint.is_some();
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
+        }
+        Node::Icon { icon } => {
+            observe_icon_expr(icon, ui);
         }
         Node::LinearGradient { .. } => ui.linear_gradient = true,
         Node::Pressable {
@@ -1423,7 +1438,7 @@ fn observe_node(
                         .insert(SystemIcon::Shared("search".to_owned()));
                 }
                 if let Some(icon) = &tab.icon {
-                    observe_icon_spec(icon, ui);
+                    observe_icon_expr(icon, ui);
                 }
                 ui.bottom_bar.tab_badge |= tab.badge.is_some();
                 record_child_layout(&tab.children, ui);
@@ -1514,6 +1529,49 @@ fn observe_node(
                 calls.push(name.clone());
             }
         }
+    }
+}
+
+fn observe_icon_expr(expr: &Expr, ui: &mut UiFacts) {
+    match expr {
+        Expr::Icon(spec) => observe_icon_spec(spec, ui),
+        Expr::IconWith { base, color, .. } => {
+            observe_icon_expr(base, ui);
+            ui.style.color |= color.is_some();
+            ui.style.dynamic_color |= color
+                .as_ref()
+                .is_some_and(|c| matches!(c, crate::ColorExpression::Dynamic(_)));
+        }
+        Expr::Array(elements) => {
+            for element in elements {
+                observe_icon_expr(element, ui);
+            }
+        }
+        Expr::Conditional {
+            then_value,
+            else_value,
+            ..
+        } => {
+            observe_icon_expr(then_value, ui);
+            observe_icon_expr(else_value, ui);
+        }
+        _ => {}
+    }
+}
+
+fn icon_expr_has_dynamic_color(expr: &Expr) -> bool {
+    match expr {
+        Expr::Icon(spec) => spec
+            .color
+            .as_ref()
+            .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_))),
+        Expr::IconWith { base, color, .. } => {
+            color
+                .as_ref()
+                .is_some_and(|c| matches!(c, crate::ColorExpression::Dynamic(_)))
+                || icon_expr_has_dynamic_color(base)
+        }
+        _ => false,
     }
 }
 
@@ -2222,9 +2280,9 @@ mod tests {
                 index: 0,
                 label: "Primary".to_owned(),
                 comment: None,
-                icon: Some(crate::IconSpec::system(SystemIcon::Shared(
-                    "inbox".to_owned(),
-                ))),
+                icon: Some(Expr::Icon(Box::new(crate::IconSpec::system(
+                    SystemIcon::Shared("inbox".to_owned()),
+                )))),
                 badge: None,
                 role: None,
                 navigation_title: None,

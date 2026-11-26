@@ -1129,7 +1129,7 @@ fn dev_runtime_source_with_fonts(
     filename: &str,
     template: &str,
     package: &str,
-    module: &Module,
+    _module: &Module,
     font_catalog: &nexa_codegen::FontCatalog,
 ) -> String {
     let mut source =
@@ -1145,20 +1145,7 @@ fn dev_runtime_source_with_fonts(
                 .map(|icon| format!("    case \"{}\": return \"{}\"", icon.name, icon.sf_symbol))
                 .collect::<Vec<_>>()
                 .join("\n");
-            let mut material_names = std::collections::BTreeSet::new();
-            let material_sf_cases = SHARED_ICONS
-                .iter()
-                .filter(|icon| material_names.insert(icon.material_name))
-                .map(|icon| {
-                    format!(
-                        "    case \"{}\": return \"{}\"",
-                        icon.material_name, icon.sf_symbol
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
             source = source.replace("__NEXA_SHARED_ICON_SF_CASES__", &cases);
-            source = source.replace("__NEXA_SHARED_ICON_MATERIAL_SF_CASES__", &material_sf_cases);
         }
         "NexaDevRenderer.kt" => {
             source = source.replace(
@@ -1172,18 +1159,6 @@ fn dev_runtime_source_with_fonts(
                         "    \"{}\" -> Icons.{}.{}",
                         icon.name, icon.material_namespace, icon.material_name
                     )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let sf_alias_cases = SHARED_ICONS
-                .iter()
-                .flat_map(|icon| {
-                    icon.aliases.iter().map(move |alias| {
-                        format!(
-                            "    \"{alias}\" -> Icons.{}.{}",
-                            icon.material_namespace, icon.material_name
-                        )
-                    })
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -1201,45 +1176,11 @@ fn dev_runtime_source_with_fonts(
                 .into_iter()
                 .collect::<Vec<_>>()
                 .join("\n");
-            let used_icons = nexa_ir::facts::ModuleFacts::analyze(module).ui.system_icons;
-            let material_symbol_icons = used_icons
-                .iter()
-                .filter_map(|icon| match icon {
-                    nexa_ir::SystemIcon::MaterialSymbol(name) => Some((
-                        name.clone(),
-                        icon.material_reference(),
-                        icon.material_import(),
-                    )),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            let material_symbol_cases = material_symbol_icons
-                .iter()
-                .map(|(name, reference, _)| format!("    \"{name}\" -> {reference}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            let specific_material_imports = material_symbol_icons
-                .iter()
-                .map(|(_, _, import)| import.clone())
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .map(|import| format!("import {import}"))
-                .collect::<Vec<_>>()
-                .join("\n");
             source = source
                 .replace("__NEXA_SHARED_ICON_MATERIAL_CASES__", &material_cases)
-                .replace("__NEXA_SHARED_ICON_SF_ALIAS_CASES__", &sf_alias_cases)
                 .replace(
                     "__NEXA_SHARED_ICON_AUTO_MIRRORED_IMPORTS__",
                     &auto_mirrored_imports,
-                )
-                .replace(
-                    "__NEXA_SPECIFIC_MATERIAL_ICON_CASES__",
-                    &material_symbol_cases,
-                )
-                .replace(
-                    "__NEXA_SPECIFIC_MATERIAL_ICON_IMPORTS__",
-                    &specific_material_imports,
                 );
         }
         _ => {}
@@ -3058,7 +2999,7 @@ mod tests {
         let entry = project.write_app(
             r##"app IconFontValidation { body {
                 Text("Assigned task", fontFamily: "Gilroy")
-                Icon(Brand: "heart", description: "Save task", size: 24)
+                Icon(Icons.Brand.heart, description: "Save task", size: 24)
             } }"##,
         );
 
@@ -3559,7 +3500,7 @@ mod tests {
     #[test]
     fn generated_dev_icon_mappings_cover_the_shared_catalog() {
         let module = nexa_compiler::compile(
-            r##"app IconMap { body { Icon(materialsymbol: "rounded:account_circle", description: "Profile", size: 24, color: "#FFFFFF") } }"##,
+            r##"app IconMap { body { Icon(Icons.system.person, description: "Profile", size: 24, color: "#FFFFFF") } }"##,
         )
         .expect("compile icon mapping fixture");
         let swift = dev_runtime_source(
@@ -3591,33 +3532,7 @@ mod tests {
                 "Android DevRuntime is missing shared icon {}",
                 icon.name
             );
-            for alias in icon.aliases {
-                assert!(
-                    kotlin.contains(&format!(
-                        "\"{alias}\" -> Icons.{}.{}",
-                        icon.material_namespace, icon.material_name
-                    )),
-                    "Android DevRuntime is missing SF alias {alias} for {}",
-                    icon.name
-                );
-            }
         }
-        let mut material_names = std::collections::BTreeSet::new();
-        for icon in SHARED_ICONS {
-            if !material_names.insert(icon.material_name) {
-                continue;
-            }
-            assert!(
-                swift.contains(&format!(
-                    "case \"{}\": return \"{}\"",
-                    icon.material_name, icon.sf_symbol
-                )),
-                "iOS DevRuntime is missing Material icon translation for {}",
-                icon.material_name
-            );
-        }
-        assert!(kotlin.contains("import androidx.compose.material.icons.rounded.AccountCircle"));
-        assert!(kotlin.contains("\"rounded:account_circle\" -> Icons.Rounded.AccountCircle"));
     }
 
     #[test]
@@ -3628,7 +3543,7 @@ mod tests {
         assert!(!runtime.contains("getIdentifier("));
         assert!(!runtime.contains("assets.open("));
         assert!(runtime.contains(
-            "\"Text\", \"Spacer\", \"Divider\", \"SystemIcon\", \"FontIcon\", \"LinearGradient\""
+            "\"Text\", \"Spacer\", \"Divider\", \"Icon\", \"SystemIcon\", \"FontIcon\", \"LinearGradient\""
         ));
     }
 
@@ -3643,7 +3558,7 @@ mod tests {
                 Text("Regular fallback", fontFamily: "Gilroy", fontWeight: Medium)
                 Text("Exact face", fontFamily: "Gilroy", fontWeight: Semibold)
                 Text("Semibold fallback", fontFamily: "Gilroy", fontWeight: Bold)
-                Icon(Brand: "heart", description: "Brand", size: 24, color: "#000000")
+                Icon(Icons.Brand.heart, description: "Brand", size: 24, color: "#000000")
             } }"##,
         );
         let icon_path = icon_project.join("assets/icons/Brand/heart.svg");

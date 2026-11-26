@@ -497,9 +497,9 @@ Reference: components.md#content-unavailable
 
 Displays a system icon or a project icon from a named set
 
-Signature: `Icon(system:, sfsymbol:, materialsymbol:, description:, size:, color:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Icon(value, description:, size:, color:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `system`, `sfsymbol`, `materialsymbol`, `description`, `size`, `color`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `description`, `size`, `color`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -915,5 +915,5 @@ Reference: components.md#safe-area-and-edge-attached-content
 
 Keywords: app, screen, component, state, let, fn, async, await, enum, struct, plugin, try, catch, case, return, if, else, while, for, in, break, continue
 
-Types: String, Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, Bytes, Result, Array, Map, Set, Regex, RegexMatch, Range, Pair, Triple, Void, Ok, Err
+Types: String, Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, Bytes, Result, Array, Map, Set, Regex, RegexMatch, Range, Pair, Triple, Icon, Void, Ok, Err
 

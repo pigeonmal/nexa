@@ -2,7 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
     Action, AnimationEasing, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle,
-    IconSpec, Module, Node, ScreenId, TaskExecutor,
+    Module, Node, ScreenId, TaskExecutor,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -344,7 +344,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 pub(crate) fn render_button(
     label: &Expr,
     accessibility_label: Option<&Expr>,
-    icon: Option<&IconSpec>,
+    icon: Option<&Expr>,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
     style: Option<nexa_ir::ButtonStyle>,
@@ -379,7 +379,7 @@ pub(crate) fn render_button(
 pub(crate) fn render_button_node(
     label: &Expr,
     accessibility_label: Option<&Expr>,
-    icon: Option<&IconSpec>,
+    icon: Option<&Expr>,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
     style: Option<nexa_ir::ButtonStyle>,
@@ -425,7 +425,7 @@ pub(crate) fn render_button_node(
             ),
         },
     );
-    let icon = icon.map_or_else(|| "null".to_owned(), super::system_icons::spec);
+    let icon = icon.map_or_else(|| "null".to_owned(), expression);
     let tint = tint.map_or_else(
         || "null".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -778,9 +778,9 @@ pub(crate) fn render_segmented_control(
 #[cfg(test)]
 pub(crate) fn render_picker(
     items: &Expr,
-    item_icons: &[IconSpec],
+    item_icons: Option<&Expr>,
     state: &str,
-    icon: Option<&IconSpec>,
+    icon: Option<&Expr>,
     label: Option<&Expr>,
     tint: Option<&nexa_ir::ColorExpression>,
     fill_max_width: bool,
@@ -803,9 +803,9 @@ pub(crate) fn render_picker(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_picker_node(
     items: &Expr,
-    item_icons: &[IconSpec],
+    item_icons: Option<&Expr>,
     state: &str,
-    icon: Option<&IconSpec>,
+    icon: Option<&Expr>,
     label: Option<&Expr>,
     tint: Option<&nexa_ir::ColorExpression>,
     fill_max_width: bool,
@@ -813,19 +813,8 @@ pub(crate) fn render_picker_node(
     out: &mut SourceWriter,
 ) {
     let selected = state_name(state);
-    let icon = icon.map_or_else(|| "null".to_owned(), super::system_icons::spec);
-    let item_icons = if item_icons.is_empty() {
-        "emptyList()".to_owned()
-    } else {
-        format!(
-            "listOf({})",
-            item_icons
-                .iter()
-                .map(super::system_icons::spec)
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    };
+    let icon = icon.map_or_else(|| "null".to_owned(), expression);
+    let item_icons = item_icons.map_or_else(|| "emptyList()".to_owned(), expression);
     let label = label.map_or_else(|| "null".to_owned(), expression);
     let tint = tint.map_or_else(
         || "null".to_owned(),
@@ -1459,7 +1448,7 @@ fn render_context_menu(nodes: &[Node], item_count: usize, depth: usize, out: &mu
                 depth + 1,
                 format_args!(
                     "leadingIcon = {{ NexaIconContent(icon = {}, description = \"\", size = 24.dp) }},",
-                    super::system_icons::spec(icon)
+                    expression(icon)
                 ),
             );
         }
@@ -2080,11 +2069,11 @@ mod tests {
 
         render_picker(
             &Expr::Array(vec![Expr::String("Low".to_owned())]),
-            &[],
+            None,
             "priority",
-            Some(&IconSpec::system(SystemIcon::Shared(
+            Some(&Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared(
                 "flag_filled".to_owned(),
-            ))),
+            ))))),
             None,
             None,
             true,
@@ -2113,16 +2102,16 @@ mod tests {
             Expr::String("Priority".to_owned()),
             Expr::String("Title".to_owned()),
         ]);
-        let item_icons = vec![
-            IconSpec::system(SystemIcon::Shared("calendar".to_owned())),
-            IconSpec::system(SystemIcon::Shared("flag_filled".to_owned())),
-            IconSpec::system(SystemIcon::Shared("edit".to_owned())),
-        ];
+        let item_icons = Expr::Array(vec![
+            Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("calendar".to_owned())))),
+            Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("flag_filled".to_owned())))),
+            Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("edit".to_owned())))),
+        ]);
         let mut output = SourceWriter::new();
 
         render_picker(
             &items,
-            &item_icons,
+            Some(&item_icons),
             "priority",
             None,
             Some(&Expr::String("Priority".to_owned())),
@@ -2146,11 +2135,11 @@ mod tests {
 
         render_picker(
             &items,
-            &[],
+            None,
             "priority",
-            Some(&IconSpec::system(SystemIcon::Shared(
+            Some(&Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared(
                 "flag_filled".to_owned(),
-            ))),
+            ))))),
             None,
             Some(&tint),
             true,
@@ -2260,7 +2249,7 @@ mod tests {
         render_button(
             &label,
             None,
-            Some(&IconSpec::system(SystemIcon::Shared("add".to_owned()))),
+            Some(&Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("add".to_owned()))))),
             None,
             None,
             None,
@@ -2291,7 +2280,7 @@ mod tests {
         render_button(
             &label,
             Some(&accessibility_label),
-            Some(&IconSpec::system(SystemIcon::Shared("add".to_owned()))),
+            Some(&Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("add".to_owned()))))),
             None,
             None,
             Some(nexa_ir::ButtonStyle::BorderedProminent),

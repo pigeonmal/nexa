@@ -142,8 +142,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "ContentUnavailable",
         summary: "Shows a native empty or unavailable content state",
-        snippet: "ContentUnavailable(title: \"${1:Nothing here}\", icon: \"${2:inbox}\")",
-        probe: "app P { body { ContentUnavailable(title: \"Nothing here\", icon: \"inbox\", titleColor: \"#222222\", descriptionColor: \"#666666\", iconTint: \"#0088FF\", background: \"#F4F4F8\") } }",
+        snippet: "ContentUnavailable(title: \"${1:Nothing here}\", icon: Icons.system.${2:inbox})",
+        probe: "app P { body { ContentUnavailable(title: \"Nothing here\", icon: Icons.system.inbox, titleColor: \"#222222\", descriptionColor: \"#666666\", iconTint: \"#0088FF\", background: \"#F4F4F8\") } }",
     },
     ComponentEntry {
         name: "Button",
@@ -190,8 +190,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "Picker",
         summary: "Selects one string option from a native menu",
-        snippet: "Picker(items: ${1:options}, selected: ${2:selectedOption}, itemIcons: [\"calendar\", \"flag_filled\"], icon: \"${3:sort}\", tint: \"${4:#6750A4}\")",
-        probe: "app P { state options: Array<String> = [\"Small\", \"Medium\"]\n state selected: String = \"Medium\"\n body { Picker(items: options, selected: selected, itemIcons: [\"calendar\", \"flag_filled\"]) } }",
+        snippet: "Picker(items: ${1:options}, selected: ${2:selectedOption}, itemIcons: [Icons.system.calendar, Icons.system.flag_filled], icon: Icons.system.${3:sort}, tint: \"${4:#6750A4}\")",
+        probe: "app P { state options: Array<String> = [\"Small\", \"Medium\"]\n state selected: String = \"Medium\"\n body { Picker(items: options, selected: selected, itemIcons: [Icons.system.calendar, Icons.system.flag_filled]) } }",
     },
     ComponentEntry {
         name: "PickerDate",
@@ -208,8 +208,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "Icon",
         summary: "Displays a system icon or a project icon from a named set",
-        snippet: "Icon(system: \"${1:favorite}\", description: \"${2:Like}\", size: ${3:28}, color: \"#FFFFFF\")",
-        probe: "app P { body { Icon(system: \"favorite\", description: \"Like\", size: 28, color: \"#FFFFFF\")\n Icon(Brand: \"heart\", description: \"Activity\", size: 24, color: \"#FFFFFF\") } }",
+        snippet: "Icon(Icons.system.${1:favorite}, description: \"${2:Like}\", size: ${3:28}, color: \"#FFFFFF\")",
+        probe: "app P { body { Icon(Icons.system.favorite, description: \"Like\", size: 28, color: \"#FFFFFF\")\n Icon(Icons.Brand.heart, description: \"Activity\", size: 24, color: \"#FFFFFF\") } }",
     },
     ComponentEntry {
         name: "LinearGradient",
@@ -292,8 +292,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "AppBottomBar",
         summary: "Bottom tab bar bound to a selected-tab binding",
-        snippet: "AppBottomBar(selected: ${1:selectedTab}) {\n    Tab(index: 0, label: \"${2:Home}\", icon: \"home\") {\n        $0\n    }\n    TabBar {\n        Row(alignment: Center) {\n            Pressable(accessibilityLabel: \"Home tab\", accessibilityRole: Button) {\n                Column(gap: 4, alignment: Center) {\n                    Icon(system: \"home\", description: \"Home\", size: 20)\n                    Text(\"Home\")\n                }\n            }.onTap { selectedTab = 0 }\n        }\n    }\n}",
-        probe: "app P { state tab: Int32 = 0\n body { AppBottomBar(selected: tab) { Tab(index: 0, label: \"Home\", icon: \"home\") { Text(\"x\") } TabBar { Text(\"custom\") } } } }",
+        snippet: "AppBottomBar(selected: ${1:selectedTab}) {\n    Tab(index: 0, label: \"${2:Home}\", icon: Icons.system.home) {\n        $0\n    }\n    TabBar {\n        Row(alignment: Center) {\n            Pressable(accessibilityLabel: \"Home tab\", accessibilityRole: Button) {\n                Column(gap: 4, alignment: Center) {\n                    Icon(Icons.system.home, description: \"Home\", size: 20)\n                    Text(\"Home\")\n                }\n            }.onTap { selectedTab = 0 }\n        }\n    }\n}",
+        probe: "app P { state tab: Int32 = 0\n body { AppBottomBar(selected: tab) { Tab(index: 0, label: \"Home\", icon: Icons.system.home) { Text(\"x\") } TabBar { Text(\"custom\") } } } }",
     },
     ComponentEntry {
         name: "PagePager",
@@ -610,6 +610,10 @@ pub const TYPES: &[TypeEntry] = &[
         summary: "Three-element tuple Triple<A, B, C>",
     },
     TypeEntry {
+        name: "Icon",
+        summary: "Typed system or custom icon value (Icons.system.* or Icons.<Set>.*)",
+    },
+    TypeEntry {
         name: "Void",
         summary: "Empty return type for functions",
     },
@@ -648,6 +652,7 @@ app T {
     state range: Range? = null
     state pair: Pair<String, Int32> = Pair("", 0)
     state triple: Triple<String, Int32, Bool> = Triple("", 0, false)
+    state icon: Icon = Icons.system.search
     fn load() -> Result<Int32, String> {
         return Ok(1)
     }
@@ -2307,11 +2312,8 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         doc: "components.md#icon",
         features: &[FeatureTag::Media],
         parens: ParensModel::Required,
-        positional: PositionalModel::None,
+        positional: PositionalModel::Single,
         arguments: &[
-            opt("system"),
-            opt("sfsymbol"),
-            opt("materialsymbol"),
             opt("description"),
             opt("size"),
             opt("color"),

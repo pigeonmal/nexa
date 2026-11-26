@@ -34,7 +34,7 @@ component CommentPanel(taskID: Int32) {
             Column(gap: 10, padding: 12) {
                 if activeTaskComments(comments, taskID).isEmpty {
                     Column(gap: 8, padding: 32, alignment: Center) {
-                        Icon(system: "comment_left", size: 36, color: "#8E8E93", description: "")
+                        Icon(Icons.system.comment_left, size: 36, color: "#8E8E93", description: "")
                         Text("No comments", fontSize: 20)
                         Text("Add a comment below", fontSize: 16, color: "#8E8E93")
                     }
@@ -62,7 +62,7 @@ component CommentPanel(taskID: Int32) {
                             }
                         }
                     }.swipeActions {
-                        Button("Delete", icon: "delete", style: Borderless) {
+                        Button("Delete", icon: Icons.system.delete, style: Borderless) {
                             comments = deleteComment(comments, comment.id)
                             Task.launch(executor: TaskExecutor.Main) {
                                 await commentPersistence.saveComment(comments, comment.id)
@@ -96,7 +96,7 @@ component CommentPanel(taskID: Int32) {
                 Divider(color: "#8E8E93", thickness: 1)
                 Row(gap: 12, padding: 8) {
                     MediaPicker.MediaPickerControl(isVideo: false, selectionLimit: 1) {
-                        Icon(system: "image", size: 24, color: "#8E8E93", description: "Add photo")
+                        Icon(Icons.system.image, size: 24, color: "#8E8E93", description: "Add photo")
                     }
                     .onPicked { uris ->
                         let uri = uris.first() ?? ""
@@ -111,7 +111,7 @@ component CommentPanel(taskID: Int32) {
                     }
                     .onFailed { message -> commentStatus = message }
                     TextInput(value: newComment, placeholder: "Add comment...")
-                    Button("", icon: "submit", accessibilityLabel: "Send comment", disabled: newComment.trimmed == "") {
+                    Button("", icon: Icons.system.submit, accessibilityLabel: "Send comment", disabled: newComment.trimmed == "") {
                         let normalizedComment = newComment.trimmed
                         if normalizedComment != "" {
                             comments.append(CommentItem(nextCommentID, taskID, normalizedComment, "", Time.now(), false))

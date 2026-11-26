@@ -66,6 +66,16 @@ fn swift_layers(layers: &[nexa_ir::IconGlyphLayer]) -> String {
         .join(", ")
 }
 
+pub(crate) fn render_expr(icon: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
+    out.line_at(
+        depth,
+        format_args!(
+            "NexaIconView(icon: {}, description: nil, size: nil)",
+            crate::generator::engine::expressions::expression(icon),
+        ),
+    );
+}
+
 pub(crate) fn render(
     icon: &SystemIcon,
     description: Option<&str>,

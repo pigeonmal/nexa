@@ -4,10 +4,10 @@ app IconFastList {
             FastList(count: 600, rowHeight: 52, accessibilityLabel: "Saved products") {
                 index in
                 Row(gap: 12, padding: 8) {
-                    Icon(Brand: "saved", size: 24)
-                    Icon(Brand: "saved", size: 24, color: "#2563EB")
-                    Icon(Brand: "badge", size: 24)
-                    Icon(mazicon: "play", size: 24, color: "#111827")
+                    Icon(Icons.Brand.saved, size: 24)
+                    Icon(Icons.Brand.saved, size: 24, color: "#2563EB")
+                    Icon(Icons.Brand.badge, size: 24)
+                    Icon(Icons.mazicon.play, size: 24, color: "#111827")
                     Text("Saved product \(index)", color: "#111827")
                 }
             }

@@ -144,6 +144,7 @@ fn render_decode_body(ty: &Type, enums: &[EnumDecl], out: &mut SourceWriter) {
         | Type::Class { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::ComponentRef { .. }
         | Type::ComponentRefError(_)
         | Type::Signal(_) => {
@@ -315,6 +316,7 @@ fn render_encode_body(ty: &Type, out: &mut SourceWriter) {
         | Type::Class { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::ComponentRef { .. }
         | Type::ComponentRefError(_)
         | Type::Signal(_) => {

@@ -141,50 +141,49 @@ pub(super) fn lower_icon_component(
     cx: &SemanticContext<'_>,
 ) -> Result<Node, CompileError> {
     let span = inv.span;
-    if inv.arguments.contains_key("fontFamily") || inv.arguments.contains_key("glyph") {
-        return Err(CompileError::new(
-            span,
-            "`fontFamily` and `glyph` were removed from Icon; use `Icon(SetName: \"icon-name\")` and add a sidecar map for prebuilt fonts",
-        ));
-    }
-    let call = ast::Expr::CallNamed {
-        name: "Icon".to_owned(),
-        type_arguments: Vec::new(),
-        arguments: inv.arguments,
+    let expr = super::super::expressions::lower_icon_constructor(
+        &[],
+        &inv.positional,
+        Some(&inv.arguments),
         span,
-    };
-    let spec = super::lower_icon_spec(&call, "Icon", cx)?;
-    let description = spec.description;
-    let tint = spec.color;
-    let size = spec.size;
-    match spec.source {
-        nexa_ir::IconSource::System(icon) => Ok(Node::SystemIcon {
-            icon,
-            description,
-            size,
-            tint,
-        }),
-        nexa_ir::IconSource::FontGlyph {
-            font_family,
-            font_resource,
-            glyph,
-            layers,
-        } => Ok(Node::FontIcon {
-            font_family,
-            font_resource,
-            glyph: Expr::Number {
-                raw: glyph.to_string(),
-                ty: NumericType::Int32,
-            },
-            layers,
-            description,
-            size: size.map(|size| Expr::Number {
-                raw: size.to_string(),
-                ty: NumericType::Float64,
+        Some(&Type::Icon),
+        &cx.exprs(false),
+        false,
+    )?;
+    if let Expr::Icon(spec) = expr {
+        let description = spec.description;
+        let tint = spec.color;
+        let size = spec.size;
+        return match spec.source {
+            nexa_ir::IconSource::System(icon) => Ok(Node::SystemIcon {
+                icon,
+                description,
+                size,
+                tint,
             }),
-            tint,
-        }),
+            nexa_ir::IconSource::FontGlyph {
+                font_family,
+                font_resource,
+                glyph,
+                layers,
+            } => Ok(Node::FontIcon {
+                font_family,
+                font_resource,
+                glyph: Expr::Number {
+                    raw: glyph.to_string(),
+                    ty: NumericType::Int32,
+                },
+                layers,
+                description,
+                size: size.map(|size| Expr::Number {
+                    raw: size.to_string(),
+                    ty: NumericType::Float64,
+                }),
+                tint,
+            }),
+        };
     }
+    Ok(Node::Icon { icon: expr })
 }
 
 #[inline(never)]

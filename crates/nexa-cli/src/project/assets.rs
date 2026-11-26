@@ -1166,7 +1166,7 @@ mod tests {
 
         for (contents, expect_subset) in [
             (
-                r#"app IconProbe { body { Button("Play", icon: Icon(mazicon: "play")) {} } }"#,
+                r#"app IconProbe { body { Button("Play", icon: Icons.mazicon.play) {} } }"#,
                 true,
             ),
             (

@@ -221,6 +221,7 @@ fn contains_parameter(ty: &Type, parameter: &str) -> bool {
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::Struct { .. }
         | Type::Class { .. }
         | Type::ComponentRef { .. } => false,
@@ -262,6 +263,7 @@ pub(super) fn mentions_type_parameter(ty: &Type) -> bool {
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::Struct { .. }
         | Type::Class { .. }
         | Type::ComponentRef { .. } => false,
@@ -499,6 +501,7 @@ fn require_storable_shape(
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::Signal(_) => Err(CompileError::new(
             span,
             format!(
@@ -584,6 +587,7 @@ fn require_encodable(
         | Type::Class { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::Signal(_) => Err(CompileError::new(
             span,
             format!(

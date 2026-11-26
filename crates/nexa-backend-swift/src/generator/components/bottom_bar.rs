@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use crate::generator::{
     components::{
         input::{self, TextInputProps},
-        render_children, system_icons,
+        render_children,
     },
     features::Features,
     utils::{indent, swift_string},
@@ -492,7 +492,7 @@ fn swift_tab_label(tab: &BottomBarTab) -> String {
     tab.icon.as_ref().map_or(text.clone(), |icon| {
         format!(
             "NexaTabLabelPrimitive(title: {text}, icon: {})",
-            system_icons::spec(icon)
+            crate::generator::engine::expressions::expression(icon)
         )
     })
 }

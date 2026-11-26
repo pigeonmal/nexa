@@ -61,39 +61,27 @@ fn compile_documented_example(location: &str, source: &str, target: Target) -> R
 fn custom_icon_sets(source: &str) -> BTreeMap<String, BTreeSet<String>> {
     let mut sets = BTreeMap::new();
     let mut cursor = 0;
-    while let Some(relative) = source[cursor..].find("Icon(") {
-        let start = cursor + relative + "Icon(".len();
-        let Some(end) = source[start..].find(')') else {
-            break;
-        };
-        let invocation = &source[start..start + end];
-        cursor = start + end + 1;
-        let Some((set, icon)) = invocation.split_once(':') else {
-            continue;
-        };
-        let set = set.trim();
-        if matches!(set, "system" | "sfsymbol" | "materialsymbol") {
+    while let Some(relative) = source[cursor..].find("Icons.") {
+        let start = cursor + relative + "Icons.".len();
+        let rest = &source[start..];
+        let set_len = rest
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(rest.len());
+        let set = &rest[..set_len];
+        cursor = start + set_len;
+        if set.is_empty() || set == "system" || !rest[set_len..].starts_with('.') {
             continue;
         }
+        let icon_rest = &rest[set_len + 1..];
+        let icon_len = icon_rest
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(icon_rest.len());
+        let name = &icon_rest[..icon_len];
+        cursor = start + set_len + 1 + icon_len;
         let valid_set = set.chars().enumerate().all(|(index, value)| {
             value == '_' || value.is_ascii_alphanumeric() && (index > 0 || !value.is_ascii_digit())
         });
-        if !valid_set || set.is_empty() {
-            continue;
-        }
-        let Some(first_quote) = icon.find('"') else {
-            continue;
-        };
-        let icon = &icon[first_quote + 1..];
-        let Some(last_quote) = icon.find('"') else {
-            continue;
-        };
-        let name = &icon[..last_quote];
-        if name.is_empty()
-            || name.chars().any(char::is_whitespace)
-            || name.contains('/')
-            || name.contains('\\')
-        {
+        if !valid_set || name.is_empty() {
             continue;
         }
         sets.entry(set.to_owned())

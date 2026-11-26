@@ -8,7 +8,7 @@ use crate::generator::{
     components::{
         RenderScope, accessibility, controls,
         input::{self, TextInputProps},
-        navigation, render_children, render_node, system_icons,
+        navigation, render_children, render_node,
     },
     features::Features,
     utils::{indent, kotlin_string},
@@ -381,7 +381,7 @@ pub(crate) fn render_app_bottom_bar(
                     content_depth + 3,
                     format_args!(
                         "NexaIconContent(icon = {}, description = \"\", size = 24.dp)",
-                        system_icons::spec(icon)
+                        crate::generator::expressions::expression(icon)
                     ),
                 );
             } else {
@@ -762,7 +762,7 @@ fn render_tab_toolbar_item(
             tint,
         } => controls::render_picker_node(
             items,
-            item_icons,
+            item_icons.as_ref(),
             state,
             icon.as_ref(),
             label.as_ref(),
@@ -1144,8 +1144,8 @@ mod tests {
                             Type::Array(Box::new(Type::String)),
                         ),
                         state: "sortSelection".to_owned(),
-                        icon: Some(IconSpec::system(SystemIcon::Shared("sort".to_owned()))),
-                        item_icons: Vec::new(),
+                        icon: Some(Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("sort".to_owned()))))),
+                        item_icons: None,
                         label: None,
                         tint: None,
                     }],

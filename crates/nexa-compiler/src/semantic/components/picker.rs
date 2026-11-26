@@ -16,13 +16,18 @@ pub(super) fn lower_picker_component(
     let icon = args
         .remove("icon")
         .as_ref()
-        .map(|value| lower_icon_spec(value, "Picker icon", cx))
+        .map(|value| lower_expr(value, Some(&Type::Icon), &cx.exprs(false)))
         .transpose()?;
     let item_icons = args
         .remove("itemIcons")
-        .map(|icons| lower_picker_item_icons(icons, cx))
-        .transpose()?
-        .unwrap_or_default();
+        .map(|icons| {
+            lower_expr(
+                &icons,
+                Some(&Type::Array(Box::new(Type::Icon))),
+                &cx.exprs(false),
+            )
+        })
+        .transpose()?;
     let state = require_mutable_binding(&selected, &Type::String, symbols, span, "Picker")?;
     let items = localize_ui_text(
         lower_expr(

@@ -13,7 +13,7 @@ app ProfileCard {
     body {
         Column(gap: 12, padding: 16, background: "#F1F5F9", cornerRadius: 12) {
             Row(gap: 10, alignment: Center) {
-                Icon(system: "account_circle", description: "Profile", size: 40, color: "#2563EB")
+                Icon(Icons.system.account_circle, description: "Profile", size: 40, color: "#2563EB")
                 Column(gap: 3) {
                     Text("Alex Morgan", fontSize: 20, fontWeight: Semibold)
                     Text("Product designer", fontSize: 14, color: "#475569")
@@ -74,7 +74,7 @@ Grouping, decimal separators, and currency placement follow the current device l
 
 ## Custom icons
 
-Add SVGs under `assets/icons/<Set>/` and use `Icon(Set: "name")` wherever an
+Add SVGs under `assets/icons/<Set>/` and use `Icon(Icons.Set.name)` wherever an
 icon is accepted. Existing TTF and OTF fonts can use a JSON sidecar. See the
 [custom icons guide](custom-icons.md) for supported artwork, component slots,
 styling, accessibility, live development, and migration.
@@ -475,7 +475,7 @@ Regular bordered and prominent buttons with an icon and label use 8 points or dp
 | action block | Actions | Required | Runs when the enabled button is activated. |
 
 ```nx
-Button("", icon: "add", shape: Circle, accessibilityLabel: "Add task") {
+Button("", icon: Icons.system.add, shape: Circle, accessibilityLabel: "Add task") {
     taskCount = taskCount + 1
 }
 ```
@@ -700,7 +700,7 @@ app AccountPreferences {
             Section(title: "Contact") {
                 TextInput(value: email, placeholder: "Email address", keyboardType: Email)
                 Switch(value: marketingEnabled, label: "Product announcements")
-                Button("Save preferences", icon: "save") {
+                Button("Save preferences", icon: Icons.system.save) {
                     saved = true
                 }
                 if saved {
@@ -1286,10 +1286,10 @@ screen DeliveryAddressEditor {
                     Row(gap: 12) {
                         Text("Edit delivery address", fontSize: 20, fontWeight: Semibold)
                         Spacer()
-                        Button("Save", icon: "save", style: Borderless) {
+                        Button("Save", icon: Icons.system.save, style: Borderless) {
                             addressSaved = true
                         }
-                        Button("Close", icon: "close", style: Plain) {
+                        Button("Close", icon: Icons.system.close, style: Plain) {
                             editorSheetRef.dismiss()
                         }
                     }
@@ -1589,10 +1589,10 @@ The component measures line wrapping with the selected font and width, then cach
 | `accessibilityRole` | Accessibility role | Native default | Overrides the accessibility role. |
 
 ```nx
-ContentUnavailable(title: "No reminders", icon: "calendar")
+ContentUnavailable(title: "No reminders", icon: Icons.system.calendar)
 ContentUnavailable(
     title: "No saved tasks",
-    icon: "inbox",
+    icon: Icons.system.inbox,
     description: "Saved tasks will appear here.",
     titleColor: "#111111",
     descriptionColor: "#666666",
@@ -1801,8 +1801,8 @@ app PriorityControl {
 
     body {
         Column(gap: 12, padding: 16) {
-            Picker(items: priorities, selected: priority, icon: "flag_filled", tint: priorityTint)
-            Picker(items: priorities, selected: priority, itemIcons: ["calendar", "flag_filled", "edit", "flag"])
+            Picker(items: priorities, selected: priority, icon: Icons.system.flag_filled, tint: priorityTint)
+            Picker(items: priorities, selected: priority, itemIcons: [Icons.system.calendar, Icons.system.flag_filled, Icons.system.edit, Icons.system.flag])
             PickerDate(type: Date)
             PickerDate(type: Time)
             PickerDate(timestamp: dueAt, type: DateTime, style: Compact)

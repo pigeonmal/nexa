@@ -428,6 +428,8 @@ pub enum Type {
     /// It is intentionally not a plugin codec or serializable app value.
     TaskHandle,
     NetworkResponse,
+    /// A first-class typed icon value (`Icons.system.*`, `Icons.<Set>.*`, or `Icon(...)`).
+    Icon,
     Struct {
         name: String,
         fields: Vec<(String, Type)>,
@@ -688,6 +690,15 @@ pub enum Expr {
     Await(Box<Expr>),
     /// An async throwing call inside an explicit Nexa try/catch action.
     TryAwait(Box<Expr>),
+    /// A compile-time resolved icon literal or configured icon value.
+    Icon(Box<IconSpec>),
+    /// A dynamic `Icon` expression with local overrides (`Icon(expr, size: ..., color: ..., description: ...)`).
+    IconWith {
+        base: Box<Expr>,
+        description: Option<String>,
+        size: Option<f32>,
+        color: Option<ColorExpression>,
+    },
     ResultOk {
         value: Box<Expr>,
         value_type: Type,
@@ -902,7 +913,7 @@ pub enum Node {
     /// Empty-state content rendered with native platform presentation.
     ContentUnavailable {
         title: Expr,
-        icon: IconSpec,
+        icon: Expr,
         description: Option<Expr>,
         #[serde(default)]
         title_color: Option<ColorExpression>,
@@ -940,7 +951,7 @@ pub enum Node {
     },
     Button {
         label: Expr,
-        icon: Option<IconSpec>,
+        icon: Option<Expr>,
         loading: Option<Expr>,
         disabled: Option<Expr>,
         style: Option<ButtonStyle>,
@@ -1071,10 +1082,10 @@ pub enum Node {
     Picker {
         items: Expr,
         state: String,
-        icon: Option<IconSpec>,
-        /// Compile-time icons displayed beside the matching menu options.
+        icon: Option<Expr>,
+        /// Typed `Array<Icon>` expression displayed beside the matching menu options.
         #[serde(default)]
-        item_icons: Vec<IconSpec>,
+        item_icons: Option<Expr>,
         label: Option<Expr>,
         #[serde(default)]
         tint: Option<ColorExpression>,
@@ -1114,6 +1125,10 @@ pub enum Node {
         size: Option<Expr>,
         #[serde(default)]
         tint: Option<ColorExpression>,
+    },
+    /// A dynamically evaluated `Icon(...)` node in a layout body.
+    Icon {
+        icon: Expr,
     },
     LinearGradient {
         start_color: ColorValue,
@@ -1374,7 +1389,7 @@ pub struct BottomBarTab {
     pub label: String,
     #[serde(default)]
     pub comment: Option<String>,
-    pub icon: Option<IconSpec>,
+    pub icon: Option<Expr>,
     pub badge: Option<String>,
     pub role: Option<String>,
     /// Optional native navigation title for this destination.

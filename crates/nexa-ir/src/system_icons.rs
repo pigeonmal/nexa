@@ -3,17 +3,12 @@
 //! The catalog is target-neutral: app code names a concept once, and each
 //! backend asks the same definition for its native SF Symbol or Compose vector.
 
-/// A system icon selection lowered from `Icon(system:)`, `Icon(sfsymbol:)`, or
-/// `Icon(materialsymbol:)`.
+/// A system icon selection lowered from `Icons.system.<name>`.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SystemIcon {
     /// A name in [`SHARED_ICONS`], mapped to both native icon systems.
     Shared(String),
-    /// An explicit iOS SF Symbol name.
-    SfSymbol(String),
-    /// An explicit Android Compose Material icon name.
-    MaterialSymbol(String),
 }
 
 /// One portable icon name and its native spellings.
@@ -38,7 +33,7 @@ pub struct AndroidWidgetDrawable {
     pub path_data: &'static str,
 }
 
-/// Portable icon names supported by `Icon(system:)` and tab `icon:` values.
+/// Portable icon names supported by `Icons.system.<name>`.
 ///
 /// Keep this table as the single source of truth for both AOT backends. Names
 /// are lowercase semantic identifiers. `system:` accepts only `name`; aliases
@@ -1129,21 +1124,6 @@ const fn icon(
     }
 }
 
-/// Preserve a shared icon's RTL behavior when app code uses its explicit
-/// Material name instead of its portable catalog name.
-fn auto_mirrored_material_namespace<'a>(namespace: &'a str, symbol: &str) -> &'a str {
-    SHARED_ICONS
-        .iter()
-        .find(|icon| {
-            icon.material_name == symbol
-                && matches!(
-                    (namespace, icon.material_namespace),
-                    ("Filled", "AutoMirrored.Filled") | ("Outlined", "AutoMirrored.Outlined")
-                )
-        })
-        .map_or(namespace, |icon| icon.material_namespace)
-}
-
 /// Compose spelling of a shared icon, such as `AutoMirrored.Filled.ArrowBack`.
 ///
 /// This is the same `namespace.Name` form the Android backend emits, built from
@@ -1198,16 +1178,6 @@ impl SystemIcon {
     pub fn android_widget_drawable(&self) -> Option<AndroidWidgetDrawable> {
         let shared = match self {
             Self::Shared(name) => SHARED_ICONS.iter().find(|icon| icon.name == name.as_str()),
-            Self::SfSymbol(name) => SHARED_ICONS.iter().find(|icon| {
-                icon.sf_symbol == name || icon.aliases.iter().any(|alias| *alias == name)
-            }),
-            Self::MaterialSymbol(name) => SHARED_ICONS.iter().find(|icon| {
-                icon.material_name == name
-                    || name
-                        .rsplit('.')
-                        .next()
-                        .is_some_and(|suffix| suffix == icon.material_name)
-            }),
         }?;
 
         let (resource_name, path_data) = match shared.name {
@@ -1250,26 +1220,9 @@ impl SystemIcon {
             .map(|_| Self::Shared(name))
     }
 
-    pub fn sf_symbol(name: impl Into<String>) -> Option<Self> {
-        let name = name.into();
-        (!name.trim().is_empty() && !name.contains(['\n', '\r', '\0']))
-            .then_some(Self::SfSymbol(name))
-    }
-
-    pub fn material_symbol(name: impl Into<String>) -> Option<Self> {
-        let name = name.into();
-        let symbol = material_symbol_parts(&name)?;
-        (!symbol.1.is_empty()).then_some(Self::MaterialSymbol(name))
-    }
-
     pub fn sf_symbol_name(&self) -> String {
         match self {
             Self::Shared(name) => shared_icon(name).map_or_else(
-                || "questionmark".to_owned(),
-                |icon| icon.sf_symbol.to_owned(),
-            ),
-            Self::SfSymbol(name) => name.clone(),
-            Self::MaterialSymbol(name) => shared_icon_by_material(name).map_or_else(
                 || "questionmark".to_owned(),
                 |icon| icon.sf_symbol.to_owned(),
             ),
@@ -1282,15 +1235,6 @@ impl SystemIcon {
                 || material_import("Filled", "Star"),
                 |icon| material_import(icon.material_namespace, icon.material_name),
             ),
-            Self::SfSymbol(name) => shared_icon(name).map_or_else(
-                || material_import("Filled", "Star"),
-                |icon| material_import(icon.material_namespace, icon.material_name),
-            ),
-            Self::MaterialSymbol(name) => {
-                let (namespace, symbol) =
-                    material_symbol_parts(name).unwrap_or(("Filled", "Star".to_owned()));
-                material_import(namespace, &symbol)
-            }
         }
     }
 
@@ -1299,12 +1243,6 @@ impl SystemIcon {
             Self::Shared(name) => shared_icon(name)
                 .map(|icon| (icon.material_namespace, icon.material_name.to_owned()))
                 .unwrap_or_else(|| ("Filled", "Star".to_owned())),
-            Self::SfSymbol(name) => shared_icon(name)
-                .map(|icon| (icon.material_namespace, icon.material_name.to_owned()))
-                .unwrap_or_else(|| ("Filled", "Star".to_owned())),
-            Self::MaterialSymbol(name) => {
-                material_symbol_parts(name).unwrap_or_else(|| ("Filled", "Star".to_owned()))
-            }
         };
         format!("Icons.{namespace}.{symbol}")
     }
@@ -1316,56 +1254,10 @@ pub fn shared_icon(name: &str) -> Option<&'static SharedIconDefinition> {
         .find(|icon| icon.name == name || icon.aliases.contains(&name))
 }
 
-fn shared_icon_by_material(name: &str) -> Option<&'static SharedIconDefinition> {
-    let (_, symbol) = material_symbol_parts(name)?;
-    SHARED_ICONS
-        .iter()
-        .find(|icon| icon.material_name == symbol)
-}
-
 fn material_import(namespace: &str, symbol: &str) -> String {
     // Compose groups are package segments, including `automirrored.filled`.
     let group = namespace.to_lowercase();
     format!("androidx.compose.material.icons.{group}.{symbol}")
-}
-
-fn material_symbol_parts(name: &str) -> Option<(&str, String)> {
-    if name.trim().is_empty()
-        || !name
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | ':'))
-    {
-        return None;
-    }
-    let (namespace, symbol) = if let Some((style, symbol)) = name.split_once(':') {
-        let namespace = match style {
-            "filled" => "Filled",
-            "outlined" => "Outlined",
-            "rounded" => "Rounded",
-            "sharp" => "Sharp",
-            "twoTone" | "two_tone" => "TwoTone",
-            "autoMirroredFilled" => "AutoMirrored.Filled",
-            "autoMirroredOutlined" => "AutoMirrored.Outlined",
-            _ => return None,
-        };
-        (namespace, symbol)
-    } else {
-        ("Filled", name)
-    };
-    let class_name = symbol
-        .split(['_', '.', '-'])
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            chars.next().map_or_else(String::new, |first| {
-                first.to_ascii_uppercase().to_string() + chars.as_str()
-            })
-        })
-        .collect::<String>();
-    Some((
-        auto_mirrored_material_namespace(namespace, &class_name),
-        class_name,
-    ))
 }
 
 #[cfg(test)]
@@ -1404,16 +1296,12 @@ mod tests {
     }
 
     #[test]
-    fn shared_names_are_canonical_and_platform_names_use_escape_hatches() {
+    fn shared_names_are_canonical() {
         assert_eq!(
             SystemIcon::shared("home").unwrap(),
             SystemIcon::Shared("home".to_owned())
         );
         assert!(SystemIcon::shared("house.fill").is_none());
-        assert_eq!(
-            SystemIcon::sf_symbol("house.fill").unwrap(),
-            SystemIcon::SfSymbol("house.fill".to_owned())
-        );
         assert_eq!(shared_icon("search").unwrap().sf_symbol, "magnifyingglass");
     }
 
@@ -1452,70 +1340,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_specific_names_keep_native_target_spellings() {
-        let sf = SystemIcon::sf_symbol("person.crop.circle.fill").unwrap();
-        assert_eq!(sf.sf_symbol_name(), "person.crop.circle.fill");
-        let material = SystemIcon::material_symbol("outlined:account_circle").unwrap();
-        assert_eq!(
-            material.material_reference(),
-            "Icons.Outlined.AccountCircle"
-        );
-        assert_eq!(
-            material.material_import(),
-            "androidx.compose.material.icons.outlined.AccountCircle"
-        );
-        let mirrored = SystemIcon::material_symbol("autoMirroredFilled:arrow_back").unwrap();
-        assert_eq!(
-            mirrored.material_import(),
-            "androidx.compose.material.icons.automirrored.filled.ArrowBack"
-        );
-
-        for (name, reference, import) in [
-            (
-                "Send",
-                "Icons.AutoMirrored.Filled.Send",
-                "androidx.compose.material.icons.automirrored.filled.Send",
-            ),
-            (
-                "outlined:help_outline",
-                "Icons.AutoMirrored.Outlined.HelpOutline",
-                "androidx.compose.material.icons.automirrored.outlined.HelpOutline",
-            ),
-            (
-                "filled:volume_up",
-                "Icons.AutoMirrored.Filled.VolumeUp",
-                "androidx.compose.material.icons.automirrored.filled.VolumeUp",
-            ),
-            (
-                "ViewList",
-                "Icons.AutoMirrored.Filled.ViewList",
-                "androidx.compose.material.icons.automirrored.filled.ViewList",
-            ),
-            (
-                "Sort",
-                "Icons.AutoMirrored.Filled.Sort",
-                "androidx.compose.material.icons.automirrored.filled.Sort",
-            ),
-            (
-                "VolumeOff",
-                "Icons.AutoMirrored.Filled.VolumeOff",
-                "androidx.compose.material.icons.automirrored.filled.VolumeOff",
-            ),
-            (
-                "ArrowBack",
-                "Icons.AutoMirrored.Filled.ArrowBack",
-                "androidx.compose.material.icons.automirrored.filled.ArrowBack",
-            ),
-        ] {
-            let icon = SystemIcon::material_symbol(name).expect("valid Material icon name");
-            assert_eq!(
-                icon.material_reference(),
-                reference,
-                "wrong reference for {name}"
-            );
-            assert_eq!(icon.material_import(), import, "wrong import for {name}");
-        }
-
+    fn list_icon_uses_auto_mirrored_filled_namespace() {
         assert_eq!(
             shared_icon("list").unwrap().material_namespace,
             "AutoMirrored.Filled"

@@ -839,7 +839,7 @@ mod icon_registry_tests {
     #[test]
     fn project_icon_registry_compiles_svg_sets_for_icon_values() {
         let project = TestProject::new("nexa-project-svg-icons");
-        let entry = project.write_app(r#"app BrandIcons { body { Icon(Brand: "marker") } }"#);
+        let entry = project.write_app(r#"app BrandIcons { body { Icon(Icons.Brand.marker) } }"#);
         let icon_path = project.join("assets/icons/Brand/marker.svg");
         std::fs::create_dir_all(icon_path.parent().expect("icon directory"))
             .expect("create icon directory");

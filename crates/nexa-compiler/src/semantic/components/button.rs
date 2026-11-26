@@ -54,7 +54,7 @@ pub(super) fn lower_button_component(
     }
     let icon = icon
         .as_ref()
-        .map(|value| lower_icon_spec(value, "Button icon", cx))
+        .map(|value| lower_expr(value, Some(&Type::Icon), &cx.exprs(false)))
         .transpose()?;
     let loading = loading
         .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))

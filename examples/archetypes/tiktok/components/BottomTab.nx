@@ -4,13 +4,13 @@ component BottomTab(label: String, icon: String, active: Bool) {
     body {
         Column(gap: 3, alignment: Center, padding: 4) {
             if icon == "home" {
-                Icon(system: "home", description: "", size: 21, color: tint)
+                Icon(Icons.system.home, description: "", size: 21, color: tint)
             } else if icon == "search" {
-                Icon(system: "search", description: "", size: 21, color: tint)
+                Icon(Icons.system.search, description: "", size: 21, color: tint)
             } else if icon == "inbox" {
-                Icon(system: "inbox", description: "", size: 21, color: tint)
+                Icon(Icons.system.inbox, description: "", size: 21, color: tint)
             } else {
-                Icon(system: "person", description: "", size: 21, color: tint)
+                Icon(Icons.system.person, description: "", size: 21, color: tint)
             }
             if active {
                 Text(label, color: "#FFFFFF", fontSize: 9, fontWeight: Semibold)

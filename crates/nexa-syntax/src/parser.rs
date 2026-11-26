@@ -2374,19 +2374,11 @@ impl Parser {
                 ParensModel::None => {}
                 ParensModel::Optional => {
                     if self.check(&Kind::LParen) {
-                        arguments = if schema.name == "Icon" {
-                            self.named_args_any()?
-                        } else {
-                            self.named_args(&catalog::schema_option_names(schema))?
-                        };
+                        arguments = self.named_args(&catalog::schema_option_names(schema))?;
                     }
                 }
                 ParensModel::Required => {
-                    arguments = if schema.name == "Icon" {
-                        self.named_args_any()?
-                    } else {
-                        self.named_args(&catalog::schema_option_names(schema))?
-                    };
+                    arguments = self.named_args(&catalog::schema_option_names(schema))?;
                 }
                 ParensModel::Empty => {
                     self.expect(Kind::LParen, &format!("expected `(` after {}", schema.name))?;
@@ -3635,6 +3627,7 @@ impl Parser {
                 Ok(Expr::CallNamed {
                     name: "Regex".to_owned(),
                     type_arguments: Vec::new(),
+                    positional: Vec::new(),
                     arguments: BTreeMap::from([(
                         "pattern".to_owned(),
                         Expr::String(pattern, token.span),
@@ -3690,6 +3683,7 @@ impl Parser {
                         return Ok(Expr::CallNamed {
                             name: value,
                             type_arguments,
+                            positional: arguments,
                             arguments: named_arguments,
                             span: token.span,
                         });
@@ -3968,6 +3962,7 @@ impl Parser {
             Ok(Expr::CallNamed {
                 name,
                 type_arguments,
+                positional: arguments,
                 arguments: named_arguments,
                 span,
             })
@@ -4094,18 +4089,22 @@ impl Parser {
     fn call_arguments_after_open_with_names(
         &mut self,
     ) -> Result<(Vec<Expr>, BTreeMap<String, Expr>), CompileError> {
-        let named = matches!(
-            (
-                &self.peek().kind,
-                self.tokens.get(self.cursor + 1).map(|token| &token.kind)
-            ),
-            (Kind::Ident(_), Some(Kind::Colon))
-        );
-        if !named {
-            return Ok((self.call_arguments_after_open()?, BTreeMap::new()));
-        }
+        let mut positional = Vec::new();
         let mut arguments = BTreeMap::new();
         while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            if self.next_is_named_argument() {
+                break;
+            }
+            positional.push(self.call_argument_expression()?);
+            if !self.take(&Kind::Comma) {
+                self.expect(Kind::RParen, "expected `)` after function arguments")?;
+                return Ok((positional, arguments));
+            }
+        }
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            if !self.next_is_named_argument() {
+                return self.error_here("positional arguments cannot follow named arguments");
+            }
             let (name, span) = self.ident()?;
             if arguments.contains_key(&name) {
                 return Err(CompileError::new(
@@ -4120,7 +4119,7 @@ impl Parser {
             }
         }
         self.expect(Kind::RParen, "expected `)` after call arguments")?;
-        Ok((Vec::new(), arguments))
+        Ok((positional, arguments))
     }
 
     fn closure_expression(&mut self) -> Result<Expr, CompileError> {

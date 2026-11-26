@@ -87,7 +87,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.Icons
 __NEXA_SHARED_ICON_AUTO_MIRRORED_IMPORTS__
-__NEXA_SPECIFIC_MATERIAL_ICON_IMPORTS__
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
@@ -352,24 +351,49 @@ private fun nexaDevIconAccessibilityLabel(name: String): String = name
     .joinToString(" ") { part -> part.replaceFirstChar(Char::uppercase) }
     .ifBlank { "Icon" }
 
-private fun nexaDevSfAliasMaterialIcon(name: String) = when (name) {
-__NEXA_SHARED_ICON_SF_ALIAS_CASES__
-    else -> null
-}
-
-private fun nexaDevSpecificMaterialIcon(name: String) = when (name) {
-__NEXA_SPECIFIC_MATERIAL_ICON_CASES__
-    else -> null
-}
-
 @Composable
 private fun nexaDevIconSpec(
-    selection: JSONObject,
+    rawSelection: Any?,
     store: NexaDevStateStore,
     locals: Map<String, Any>,
     scope: String,
     defaultSize: androidx.compose.ui.unit.Dp? = null,
 ): NexaIconSpec? {
+    if (rawSelection == null || rawSelection == JSONObject.NULL) return null
+    val initial = rawSelection as? JSONObject ?: return null
+    val unwrapped = if (
+        !initial.has("source") &&
+        !initial.has("shared") &&
+        !initial.has("FontGlyph") &&
+        !initial.has("font_glyph") &&
+        !initial.has("System") &&
+        !initial.has("system") &&
+        !initial.has("Icon") &&
+        !initial.has("IconWith")
+    ) {
+        store.evaluatePresented(initial, locals, scope) as? JSONObject ?: return null
+    } else {
+        initial
+    }
+    if (unwrapped.has("IconWith")) {
+        val withSpec = unwrapped.optJSONObject("IconWith") ?: return null
+        val base = nexaDevIconSpec(withSpec.opt("base"), store, locals, scope, defaultSize) ?: return null
+        val description = withSpec.optString("description").takeIf { withSpec.has("description") && !withSpec.isNull("description") }
+        val size = if (withSpec.has("size") && !withSpec.isNull("size")) withSpec.optDouble("size").dp else null
+        val colorValue = withSpec.optJSONObject("color")
+        val dynamicColor = colorValue?.opt("Dynamic")
+        val tint = if (dynamicColor != null && dynamicColor != JSONObject.NULL) {
+            nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicColor, locals, scope)))
+        } else {
+            nexaDevColor(colorValue, isSystemInDarkTheme())
+        }
+        return base.copy(
+            description = description ?: base.description,
+            size = size ?: base.size,
+            tint = tint ?: base.tint,
+        )
+    }
+    val selection = unwrapped.optJSONObject("Icon") ?: unwrapped
     val description = selection.optString("description").takeIf { selection.has("description") && it != "null" }
     val size = if (selection.has("size") && !selection.isNull("size")) {
         selection.optDouble("size").dp
@@ -402,11 +426,10 @@ private fun nexaDevIconSpec(
         return null
     }
     val system = source.optJSONObject("System") ?: source.optJSONObject("system") ?: source
-    val vector = when {
-        system.has("shared") -> nexaDevSharedMaterialIcon(system.optString("shared"))
-        system.has("sf_symbol") -> nexaDevSfAliasMaterialIcon(system.optString("sf_symbol"))
-        system.has("material_symbol") -> nexaDevSpecificMaterialIcon(system.optString("material_symbol"))
-        else -> null
+    val vector = if (system.has("shared")) {
+        nexaDevSharedMaterialIcon(system.optString("shared"))
+    } else {
+        null
     } ?: return null
     return if (system.optString("shared") == "search") {
         NexaIconSpec(vector = vector, description = description, size = size, tint = tint, symbolScale = __NEXA_MATERIAL_SEARCH_SIZE_SCALE__f)
@@ -1530,7 +1553,7 @@ internal fun NexaDevNode(
                 background = color("background"),
             )
         }
-        "Text", "Spacer", "Divider", "SystemIcon", "FontIcon", "LinearGradient", NexaDevNodeKind.SHAPE ->
+        "Text", "Spacer", "Divider", "Icon", "SystemIcon", "FontIcon", "LinearGradient", NexaDevNodeKind.SHAPE ->
             NexaDevRenderTextNode(kind, fields, module, store, locals, scope, modifier)
         "Button", "Pressable", "TextInput", "FastList", "Switch", "Slider",
         "ProgressBar", "ProgressRing", "SegmentedControl", "Picker", "PickerDate" ->
@@ -1868,6 +1891,17 @@ private fun NexaDevRenderTextNode(
                         .background(fill, shape = shape),
                 )
             }
+        }
+        "Icon" -> {
+            val icon = nexaDevIconSpec(fields.opt("icon"), store, locals, scope)
+                ?: NexaIconSpec(vector = nexaDevSharedMaterialIcon("help"))
+            NexaIconContent(
+                icon = icon,
+                description = null,
+                size = null,
+                tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                modifier = modifier,
+            )
         }
         "SystemIcon" -> {
             val selection = fields.optJSONObject("icon") ?: JSONObject()
@@ -2224,11 +2258,18 @@ private fun NexaDevRenderControlNode(
             }
             val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
             val pickerIcon = nexaDevIconSpec(iconSelection, store, locals, scope)
-            val itemIconEntries = fields.optJSONArray("item_icons") ?: JSONArray()
+            val itemIconsRaw = fields.opt("item_icons")
+            val evaluatedItemIcons = if (itemIconsRaw != null && itemIconsRaw != JSONObject.NULL) {
+                store.evaluatePresented(itemIconsRaw, locals, scope)
+            } else {
+                null
+            }
             val pickerItemIcons = buildList<NexaIconSpec?> {
-                for (index in 0 until itemIconEntries.length()) {
-                    val selection = itemIconEntries.optJSONObject(index) ?: JSONObject()
-                    add(nexaDevIconSpec(selection, store, locals, scope))
+                when (evaluatedItemIcons) {
+                    is List<*> -> evaluatedItemIcons.forEach { add(nexaDevIconSpec(it, store, locals, scope)) }
+                    is JSONArray -> for (index in 0 until evaluatedItemIcons.length()) {
+                        add(nexaDevIconSpec(evaluatedItemIcons.opt(index), store, locals, scope))
+                    }
                 }
             }
             NexaPickerPrimitive(

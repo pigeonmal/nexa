@@ -816,6 +816,14 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::ScreenHeight
         | Expr::SystemInset(_)
         | Expr::This(_)
+        | Expr::Icon(_) => true,
+        Expr::IconWith { base, color, .. } => {
+            is_pure_expression(base)
+                && !matches!(
+                    color,
+                    Some(nexa_ir::ColorExpression::Dynamic(expr)) if !is_pure_expression(expr)
+                )
+        }
         | Expr::TimeCall {
             method:
                 nexa_ir::TimeMethod::Now
@@ -1422,7 +1430,8 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
         | nexa_ir::Type::Plugin { .. }
         | nexa_ir::Type::TaskHandle
         | nexa_ir::Type::ComponentRef { .. }
-        | nexa_ir::Type::NetworkResponse => {}
+        | nexa_ir::Type::NetworkResponse
+        | nexa_ir::Type::Icon => {}
     }
 }
 
@@ -1541,6 +1550,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
             collect_type_struct_names(value_type, used);
             collect_type_struct_names(error_type, used);
         }
+        Expr::Icon(_) | Expr::IconWith { .. } => {}
     }
 }
 

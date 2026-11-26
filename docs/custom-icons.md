@@ -21,14 +21,14 @@ app SavedItems {
     state saved: Bool = false
 
     body {
-        Button("Save item", icon: Icon(Brand: "heart")) {
+        Button("Save item", icon: Icon(Icons.Brand.heart)) {
             saved = !saved
         }
     }
 }
 ```
 
-No `nexa.config.nx` registration is needed. Add files to a set folder and refer to them as `Icon(SetName: "file-name")`.
+No `nexa.config.nx` registration is needed. Add files to a set folder and refer to them as `Icons.<Set>.<name>`.
 
 ## 1. Sets and names
 
@@ -46,7 +46,7 @@ assets/
 |---|---|---|
 | Set folder | A Nexa identifier: ASCII letters, digits, and `_`; starts with a letter or `_` | `Brand`, `commerce_icons` |
 | SVG filename | The filename without `.svg` is the icon name; names cannot contain whitespace | `heart.svg` becomes `"heart"` |
-| Duplicate names | Allowed in different sets; the set selector disambiguates them | `Icon(Brand: "heart")`, `Icon(Commerce: "heart")` |
+| Duplicate names | Allowed in different sets; the set selector disambiguates them | `Icon(Icons.Brand.heart)`, `Icon(Icons.Commerce.heart)` |
 | Source per set | A set uses either `assets/icons/<Set>/` or `assets/fonts/<Set>.ttf` / `.otf` with a sidecar | Do not define both `Brand` sources |
 
 Set and icon names are checked during compilation. An unknown set reports the
@@ -55,42 +55,39 @@ selector never falls back to a similarly named system icon.
 
 ## 2. System and custom icons
 
-`Icon(system:)` selects only Nexa's shared system catalog. `sfsymbol:` and
-`materialsymbol:` are explicit platform selectors. A custom folder or font
-selector names a project set:
+`Icons.system.<name>` selects Nexa's shared system catalog. A custom folder or font
+set is accessed under `Icons.<Set>.<name>`:
 
 ```nx
 Column(gap: 12) {
-    Icon(system: "search")
-    Icon(sfsymbol: "sparkles")
-    Icon(materialsymbol: "outlined:shopping_bag")
-    Icon(Brand: "heart")
+    Icon(Icons.system.search)
+    Icon(Icons.Brand.heart)
 }
 ```
 
-An icon slot accepts either a shared system name or an `Icon(...)` value.
-Strings in slots are system names; use the explicit value for project icons:
+An icon slot accepts any `Icon` expression (`Icons.system.<name>`, `Icons.<Set>.<name>`, `Icon(...)`, or an `Icon` variable/array element):
 
 ```nx
 app ShopIcons {
     state selectedTab: Int32 = 0
     state sortOrder: String = "Newest"
+    state rowIcons: Array<Icon> = [Icons.system.calendar, Icons.Brand.heart]
 
     body {
-        Button("Save", icon: Icon(Brand: "heart", color: "#E11D48")) { }
+        Button("Save", icon: Icon(Icons.Brand.heart, color: "#E11D48")) { }
         Picker(
             items: ["Newest", "Price"],
             selected: sortOrder,
-            icon: Icon(Commerce: "heart"),
-            itemIcons: ["calendar", Icon(Brand: "heart")]
+            icon: Icons.Commerce.heart,
+            itemIcons: rowIcons
         )
         ContentUnavailable(
             title: "No saved products",
-            icon: Icon(Brand: "heart"),
+            icon: Icons.Brand.heart,
             description: "Save a product and it will appear here."
         )
         AppBottomBar(selected: selectedTab) {
-            Tab(index: 0, label: "Saved", icon: Icon(Brand: "heart")) {
+            Tab(index: 0, label: "Saved", icon: Icons.Brand.heart) {
                 Text("Your saved products")
             }
         }
@@ -170,7 +167,7 @@ font file, set name, icon name, and that every mapped codepoint exists in the
 font. Nexa uses the font's PostScript name for iOS rendering; the set stem
 continues to identify the asset and Android resource.
 
-Use the font set exactly like an SVG set: `Icon(Brand: "heart")`. The font is
+Use the font set exactly like an SVG set: `Icon(Icons.Brand.heart)`. The font is
 packaged statically with generated iOS and Android apps; no configuration table
 or runtime alias lookup is involved.
 
@@ -194,18 +191,3 @@ time. It renders in one native text view, while multi-layer art keeps a
 stack of glyphs. Project glyphs are tracked separately from system icons, so a
 custom-only Android app does not acquire Nexa's Material system-icon imports.
 Explicit system icon usage still enables the required native icon dependency.
-
-## 7. Migration from the old icon tables
-
-| Old form | New form |
-|---|---|
-| `assets.iconFonts` plus `assets.icons` in `nexa.config.nx` | Put SVGs in `assets/icons/<Set>/` or pair a font with `<Set>.icons.json` |
-| `Icon(fontFamily: "Brand", glyph: 61696)` | `Icon(Brand: "heart")` |
-| `Button("Save", icon: "brand_heart")` using a configured alias | `Button("Save", icon: Icon(Brand: "heart"))` |
-| `Icon(system: "brand_heart")` | Use `Icon(Brand: "heart")`; `system:` accepts shared system names only |
-| `Icon(system: "search", tint: "#2563EB")` | `Icon(system: "search", color: "#2563EB")` |
-
-The compiler gives a migration diagnostic for removed `iconFonts` and `icons`
-config entries, `fontFamily` / `glyph` arguments, and `Icon(tint:)`. Component
-parameters such as `Button(tint:)` and `Picker(tint:)` keep their existing
-meaning.

@@ -14,7 +14,7 @@ app OnboardingExample {
                 Tab(index: 0) {
                     Column(gap: 32, padding: 16, alignment: Center) {
                         Spacer()
-                        Icon(system: "checklist", size: 80, color: "#007AFF", description: "")
+                        Icon(Icons.system.checklist, size: 80, color: "#007AFF", description: "")
                         Column(gap: 12, alignment: Center) {
                             Text("Welcome to ToDoList", alignment: Center, fontSize: 32, fontWeight: Bold)
                             Text("A simple, beautiful way to manage your tasks and stay organized.", alignment: Center, fontSize: 17, color: "#8E8E93")
@@ -30,7 +30,7 @@ app OnboardingExample {
                 Tab(index: 1) {
                     Column(gap: 32, padding: 16, alignment: Center) {
                         Spacer()
-                        Icon(system: "notifications_active", size: 80, color: "#007AFF", description: "")
+                        Icon(Icons.system.notifications_active, size: 80, color: "#007AFF", description: "")
                         Column(gap: 12, alignment: Center) {
                             Text("Stay on Track", alignment: Center, fontSize: 32, fontWeight: Bold)
                             Text("Enable notifications to get reminded about your tasks and never miss a deadline.", alignment: Center, fontSize: 17, color: "#8E8E93")
@@ -54,7 +54,7 @@ app OnboardingExample {
                 Tab(index: 2) {
                     Column(gap: 32, padding: 16, alignment: Center) {
                         Spacer()
-                        Icon(system: "check_circle", size: 80, color: "#007AFF", description: "")
+                        Icon(Icons.system.check_circle, size: 80, color: "#007AFF", description: "")
                         Column(gap: 12, alignment: Center) {
                             Text("You're All Set!", alignment: Center, fontSize: 32, fontWeight: Bold)
                             Text("Start adding tasks and take control of your day.", alignment: Center, fontSize: 17, color: "#8E8E93")

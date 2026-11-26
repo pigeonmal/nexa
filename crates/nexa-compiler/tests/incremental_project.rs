@@ -59,8 +59,8 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
     let entry = project.write_app(
         r##"component PlayButton() {
             body {
-                Button("Play", icon: Icon(mazicon: "play")) {}
-                Button("Save", icon: Icon(Brand: "heart")) {}
+                Button("Play", icon: Icon(Icons.mazicon.play)) {}
+                Button("Save", icon: Icon(Icons.Brand.heart)) {}
             }
         }
         app Demo {
@@ -68,18 +68,18 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
             state selectedTab: Int32 = 0
             body {
                 PlayButton()
-                Button("Search", icon: Icon(system: "search")) {}
-                Button("Save", icon: Icon(Brand: "heart")) {}
-                Picker(items: ["First", "Play", "Saved"], selected: selected, icon: Icon(system: "search"), itemIcons: ["search", Icon(mazicon: "play"), Icon(Brand: "heart")])
-                ContentUnavailable(title: "Empty", icon: Icon(Brand: "heart"))
-                Icon(system: "search", description: "Search", size: 24)
-                Icon(mazicon: "play", description: "Play", size: 24, color: "#FFFFFF")
-                Icon(Brand: "heart", description: "Heart", size: 24)
+                Button("Search", icon: Icon(Icons.system.search)) {}
+                Button("Save", icon: Icon(Icons.Brand.heart)) {}
+                Picker(items: ["First", "Play", "Saved"], selected: selected, icon: Icon(Icons.system.search), itemIcons: [Icon(Icons.system.search), Icon(Icons.mazicon.play), Icon(Icons.Brand.heart)])
+                ContentUnavailable(title: "Empty", icon: Icon(Icons.Brand.heart))
+                Icon(Icons.system.search, description: "Search", size: 24)
+                Icon(Icons.mazicon.play, description: "Play", size: 24, color: "#FFFFFF")
+                Icon(Icons.Brand.heart, description: "Heart", size: 24)
                 Pressable() { Text("Row") }
                     .onTap { }
-                    .contextMenu { Button("Play", icon: Icon(mazicon: "play")) {} }
+                    .contextMenu { Button("Play", icon: Icon(Icons.mazicon.play)) {} }
                 AppBottomBar(selected: selectedTab) {
-                    Tab(index: 0, label: "Saved", icon: Icon(Brand: "heart")) { Text("Main") }
+                    Tab(index: 0, label: "Saved", icon: Icon(Icons.Brand.heart)) { Text("Main") }
                 }
             }
         }"##,
@@ -118,19 +118,27 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
                 _ => None,
             })
             .expect("SVG icon should resolve to a content-versioned generated font");
-        let is_brand_icon = |icon: &nexa_ir::IconSpec| {
+        let is_brand_icon = |expr: &nexa_ir::Expr| {
             matches!(
-                &icon.source,
-                nexa_ir::IconSource::FontGlyph { font_family, layers, .. }
-                    if font_family.starts_with("Brand_") && layers.is_empty()
+                expr,
+                nexa_ir::Expr::Icon(icon) if matches!(
+                    &icon.source,
+                    nexa_ir::IconSource::FontGlyph { font_family, layers, .. }
+                        if font_family.starts_with("Brand_") && layers.is_empty()
+                )
             )
         };
-        let is_mazicon = |icon: &nexa_ir::IconSpec| icon == &expected;
-        let is_system_search = |icon: &nexa_ir::IconSpec| {
+        let is_mazicon = |expr: &nexa_ir::Expr| {
+            matches!(expr, nexa_ir::Expr::Icon(icon) if icon.as_ref() == &expected)
+        };
+        let is_system_search = |expr: &nexa_ir::Expr| {
             matches!(
-                &icon.source,
-                nexa_ir::IconSource::System(nexa_ir::SystemIcon::Shared(name))
-                    if name == "search"
+                expr,
+                nexa_ir::Expr::Icon(icon) if matches!(
+                    &icon.source,
+                    nexa_ir::IconSource::System(nexa_ir::SystemIcon::Shared(name))
+                        if name == "search"
+                )
             )
         };
         let play_button = module
@@ -160,9 +168,9 @@ fn named_icon_sets_resolve_in_standalone_and_component_icon_slots_on_both_target
                 icon: Some(icon),
                 item_icons,
                 ..
-            } if is_system_search(icon) && matches!(item_icons.as_slice(), [
+            } if is_system_search(icon) && matches!(item_icons.as_ref(), Some(nexa_ir::Expr::Array(items)) if matches!(items.as_slice(), [
                 system, font, svg,
-            ] if is_system_search(system) && is_mazicon(font) && is_brand_icon(svg))
+            ] if is_system_search(system) && is_mazicon(font) && is_brand_icon(svg)))
         )));
         assert!(module.body.iter().any(|node| matches!(
             node,
@@ -234,26 +242,26 @@ fn unknown_custom_icon_sets_and_names_report_available_choices_without_system_fa
         "assets/icons/Brand/heart.svg",
         br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#e11d48" d="M12 21 3 12a5 5 0 0 1 9-5 5 5 0 0 1 9 5z"/></svg>"##,
     );
-    let entry = project.write_app(r#"app Demo { body { Icon(Missing: "heart") } }"#);
+    let entry = project.write_app(r#"app Demo { body { Icon(Icons.Missing.heart) } }"#);
 
     let unknown_set = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
         .expect_err("unknown custom sets fail during compilation")
         .to_string();
-    assert!(unknown_set.contains("unknown custom icon set `Missing`"));
+    assert!(unknown_set.contains("unknown custom icon set `Icons.Missing`"));
     assert!(unknown_set.contains("available sets: Brand"));
 
-    project.write_app(r#"app Demo { body { Icon(Brand: "ghost") } }"#);
+    project.write_app(r#"app Demo { body { Icon(Icons.Brand.ghost) } }"#);
     let unknown_icon = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
         .expect_err("unknown custom icon names fail during compilation")
         .to_string();
-    assert!(unknown_icon.contains("unknown custom icon `Brand:ghost`"));
+    assert!(unknown_icon.contains("unknown custom icon `Icons.Brand.ghost`"));
     assert!(unknown_icon.contains("available icons in `Brand`: heart"));
 
-    project.write_app(r#"app Demo { body { Icon(system: "brand_heart") } }"#);
+    project.write_app(r#"app Demo { body { Icon(Icons.system.brand_heart) } }"#);
     let system_only = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
         .expect_err("system selectors never resolve through project icon sets")
         .to_string();
-    assert!(system_only.contains("custom names never resolve through `system:`"));
+    assert!(system_only.contains("custom icons use `Icons.<Set>.<name>`"));
 }
 
 #[test]

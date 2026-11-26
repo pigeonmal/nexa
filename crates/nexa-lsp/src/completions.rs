@@ -92,28 +92,12 @@ fn get_document_completions_with_icons(
     if facts.in_string {
         if region == Region::Config {
             add_config_value_completions(source, &facts, &mut items);
-        } else if let Some((call, open_index)) = active_call(&facts)
-            && call == "Icon"
-            && let Some(selector) = parameter_before_cursor(&facts, open_index)
-            && !matches!(selector.as_str(), "system" | "sfsymbol" | "materialsymbol")
-            && let Some(names) = icon_sets.and_then(|sets| sets.get(&selector))
-        {
-            for name in names.iter().filter(|name| name.starts_with(&facts.prefix)) {
-                push_item(
-                    &mut items,
-                    name.clone(),
-                    Some(CompletionItemKind::Value),
-                    Some(format!("Custom icon in {selector}")),
-                    None,
-                    name,
-                );
-            }
         }
         return finish(items, source, &facts, &index);
     }
 
     if facts.after_dot {
-        add_member_completions(source, &facts, &mut items);
+        add_member_completions(source, &facts, icon_sets, &mut items);
         return finish(items, source, &facts, &index);
     }
 
@@ -127,11 +111,7 @@ fn get_document_completions_with_icons(
             add_enum_values(&parameter, source, &facts, &mut items);
             add_expression_values(source, &facts, &mut items);
         } else {
-            if call == "Icon" {
-                add_icon_selector_completions(&facts, icon_sets, &mut items);
-            } else {
-                add_call_argument_completions(call, &facts, open_index, &mut items);
-            }
+            add_call_argument_completions(call, &facts, open_index, &mut items);
             add_expression_values(source, &facts, &mut items);
         }
         return finish(items, source, &facts, &index);
@@ -164,30 +144,20 @@ fn get_document_completions_with_icons(
     finish(items, source, &facts, &index)
 }
 
-fn add_icon_selector_completions(
+fn add_icon_set_completions(
     facts: &CursorFacts,
     icon_sets: Option<&std::collections::BTreeMap<String, Vec<String>>>,
     items: &mut Vec<CompletionItem>,
 ) {
-    for (selector, detail, snippet) in [
-        ("system", "Shared system icon", "system: \"${1:search}\""),
-        ("sfsymbol", "iOS SF Symbol", "sfsymbol: \"${1:heart.fill}\""),
-        (
-            "materialsymbol",
-            "Android Material icon",
-            "materialsymbol: \"${1:Favorite}\"",
-        ),
-    ] {
-        if selector.starts_with(&facts.prefix) {
-            push_item(
-                items,
-                selector.to_owned(),
-                Some(CompletionItemKind::Field),
-                Some(detail.to_owned()),
-                None,
-                snippet,
-            );
-        }
+    if "system".starts_with(&facts.prefix) {
+        push_item(
+            items,
+            "system".to_owned(),
+            Some(CompletionItemKind::Module),
+            Some("Shared system icon catalog".to_owned()),
+            None,
+            "system",
+        );
     }
     if let Some(icon_sets) = icon_sets {
         for set in icon_sets
@@ -197,10 +167,10 @@ fn add_icon_selector_completions(
             push_item(
                 items,
                 set.clone(),
-                Some(CompletionItemKind::Field),
-                Some("Project custom icon set".to_owned()),
+                Some(CompletionItemKind::Module),
+                Some(format!("Custom icon set `{set}`")),
                 None,
-                &format!("{set}: \"${{1:icon-name}}\""),
+                set,
             );
         }
     }
@@ -520,7 +490,52 @@ fn api_parameters(call: &str) -> Vec<&'static str> {
     }
 }
 
-fn add_member_completions(source: &str, facts: &CursorFacts, items: &mut Vec<CompletionItem>) {
+fn add_member_completions(
+    source: &str,
+    facts: &CursorFacts,
+    icon_sets: Option<&std::collections::BTreeMap<String, Vec<String>>>,
+    items: &mut Vec<CompletionItem>,
+) {
+    let words_before: Vec<&str> = facts
+        .words
+        .iter()
+        .filter(|word| !word.string && word.end <= facts.prefix_start && is_identifier(&word.text))
+        .map(|word| word.text.as_str())
+        .collect();
+    if let Some((&"Icons", &set_name)) = words_before
+        .windows(2)
+        .last()
+        .map(|pair| (&pair[0], &pair[1]))
+        && is_identifier(set_name)
+    {
+        if set_name == "system" {
+            for icon in nexa_ir::system_icons::SHARED_ICONS
+                .iter()
+                .filter(|icon| icon.name.starts_with(&facts.prefix))
+            {
+                push_item(
+                    items,
+                    icon.name.to_owned(),
+                    Some(CompletionItemKind::EnumMember),
+                    Some(format!("SF: {}, Material: {}", icon.sf_symbol, icon.material_name)),
+                    None,
+                    icon.name,
+                );
+            }
+        } else if let Some(names) = icon_sets.and_then(|sets| sets.get(set_name)) {
+            for name in names.iter().filter(|name| name.starts_with(&facts.prefix)) {
+                push_item(
+                    items,
+                    name.clone(),
+                    Some(CompletionItemKind::EnumMember),
+                    Some(format!("Custom icon in `{set_name}`")),
+                    None,
+                    name,
+                );
+            }
+        }
+        return;
+    }
     let Some(receiver) = facts
         .words
         .iter()
@@ -531,6 +546,10 @@ fn add_member_completions(source: &str, facts: &CursorFacts, items: &mut Vec<Com
         add_modifiers(&facts.prefix, items);
         return;
     };
+    if receiver == "Icons" {
+        add_icon_set_completions(facts, icon_sets, items);
+        return;
+    }
     let members: &[(&str, &str)] = match receiver {
         "Locale" => &[
             ("currentLanguageCode", "Current device language code"),
@@ -1433,7 +1452,7 @@ mod tests {
         std::fs::write(icons.join("heart.svg"), "<svg/>").expect("write heart icon");
         std::fs::write(icons.join("heart_filled.svg"), "<svg/>").expect("write filled heart icon");
 
-        let selector = "app P { body { Icon(Br) } }";
+        let selector = "app P { body { Icon(Icons.Br) } }";
         let selector_index = crate::line_index::LineIndex::new(selector);
         let selector_items = get_project_document_completions(
             selector,
@@ -1443,7 +1462,7 @@ mod tests {
         );
         assert!(selector_items.iter().any(|item| item.label == "Brand"));
 
-        let name = r#"app P { body { Icon(Brand: "heart) } }"#;
+        let name = "app P { body { Icon(Icons.Brand.heart) } }";
         let name_index = crate::line_index::LineIndex::new(name);
         let name_items = get_project_document_completions(
             name,

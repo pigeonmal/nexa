@@ -1838,10 +1838,10 @@ mod tests {
             Node::Picker {
                 items: Expr::Array(vec![Expr::String("10 minutes before".to_owned())]),
                 state: "reminderChoice".to_owned(),
-                icon: Some(IconSpec::system(SystemIcon::Shared(
+                icon: Some(Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared(
                     "notifications".to_owned(),
-                ))),
-                item_icons: Vec::new(),
+                ))))),
+                item_icons: None,
                 label: Some(Expr::String("Automatic\nReminders".to_owned())),
                 tint: None,
             },

@@ -1149,6 +1149,15 @@ internal class NexaDevStateStore(internal val context: Context) {
         val kind = iterator.next()
         val payload = expression.opt(kind)
         return when (kind) {
+            "Icon" -> expression
+            "IconWith" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val copy = JSONObject(fields.toString())
+                if (fields.has("base")) {
+                    copy.put("base", evaluate(fields.opt("base"), locals, scope))
+                }
+                JSONObject().put("IconWith", copy)
+            }
             "SystemInset" -> when (payload as? String) {
                 "Top" -> locals["__nexa_system_inset_top"] ?: 0.0
                 "Bottom" -> locals["__nexa_system_inset_bottom"] ?: 0.0

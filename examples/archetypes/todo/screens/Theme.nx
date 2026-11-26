@@ -3,11 +3,11 @@ screen Theme {
         FastList(TodoOptions.themeOptions) { theme, index in
             Pressable(accessibilityLabel: theme, accessibilityValue: selectedTheme == theme ? "Selected" : "Not selected", accessibilityRole: Button) {
                 Row(gap: 16, padding: 8) {
-                    Icon(system: "circle_filled", size: 32, color: themeTint(theme), description: "")
+                    Icon(Icons.system.circle_filled, size: 32, color: themeTint(theme), description: "")
                     Text(theme)
                     Spacer()
                     if selectedTheme == theme {
-                        Icon(system: "check", size: 18, color: themeTint(theme), description: "")
+                        Icon(Icons.system.check, size: 18, color: themeTint(theme), description: "")
                     }
                 }
             }

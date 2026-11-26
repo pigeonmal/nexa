@@ -6,10 +6,10 @@ screen Home {
         }
 
         AppBottomBar(selected: currentTab) {
-            Tab(index: 0, label: "Home", icon: "house") {
+            Tab(index: 0, label: "Home", icon: Icons.system.house) {
                 HomeTab()
             }
-            Tab(index: 1, label: "Profile", icon: "person") {
+            Tab(index: 1, label: "Profile", icon: Icons.system.person) {
                 ProfileTab()
             }
         }

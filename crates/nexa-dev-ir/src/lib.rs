@@ -759,6 +759,7 @@ fn node_kind(node: &Node) -> &'static str {
         Node::Image { .. } => "Image",
         Node::SystemIcon { .. } => "SystemIcon",
         Node::FontIcon { .. } => "FontIcon",
+        Node::Icon { .. } => "Icon",
         Node::LinearGradient { .. } => "LinearGradient",
         Node::Pressable { .. } => "Pressable",
         Node::NavigationStack { .. } => "NavigationStack",

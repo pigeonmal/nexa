@@ -6622,7 +6622,7 @@ mod tests {
                 long_press_actions: Vec::new(),
                 context_menu: vec![Node::Button {
                     label: Expr::String("Edit".to_owned()),
-                    icon: Some(IconSpec::system(SystemIcon::Shared("edit".to_owned()))),
+                    icon: Some(Expr::Icon(Box::new(IconSpec::system(SystemIcon::Shared("edit".to_owned()))))),
                     loading: None,
                     disabled: None,
                     style: None,
@@ -6758,9 +6758,9 @@ mod tests {
                     children: vec![
                         Node::ContentUnavailable {
                             title: Expr::String("Inbox is empty".to_owned()),
-                            icon: IconSpec::system(
+                            icon: Expr::Icon(Box::new(IconSpec::system(
                                 SystemIcon::shared("inbox").expect("shared inbox icon"),
-                            ),
+                            ))),
                             description: Some(Expr::String(
                                 "Tasks you add will appear here.".to_owned(),
                             )),
@@ -6771,9 +6771,9 @@ mod tests {
                         },
                         Node::ContentUnavailable {
                             title: Expr::String("No search results".to_owned()),
-                            icon: IconSpec::system(
+                            icon: Expr::Icon(Box::new(IconSpec::system(
                                 SystemIcon::shared("search").expect("shared search icon"),
-                            ),
+                            ))),
                             description: Some(Expr::String("Try a different keyword.".to_owned())),
                             title_color: None,
                             description_color: None,
@@ -6782,7 +6782,7 @@ mod tests {
                         },
                         Node::ContentUnavailable {
                             title: Expr::String("No reminders".to_owned()),
-                            icon: IconSpec::font_glyph("Mazicon", "Mazicon", 61696),
+                            icon: Expr::Icon(Box::new(IconSpec::font_glyph("Mazicon", "Mazicon", 61696))),
                             description: None,
                             title_color: None,
                             description_color: None,

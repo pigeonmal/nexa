@@ -32,7 +32,7 @@ app RenderParityCatalog {
         Appearance(mode: "dark") {
             Column {
                 AppBottomBar(selected: selectedTab, tint: "#E11D48") {
-                Tab(index: 0, label: "Controls", icon: "tune", title: "Controls") {
+                Tab(index: 0, label: "Controls", icon: Icons.system.tune, title: "Controls") {
                     Toolbar(placement: Trailing) {
                         Button("Toolbar action", accessibilityLabel: "Toolbar action") {
                             count = count + 1
@@ -49,7 +49,7 @@ app RenderParityCatalog {
                             }
                             Row(gap: 8, alignment: Center) {
                                 Text("Row layout")
-                                Icon(system: "check_circle", size: 24, color: "#E11D48", description: "Completed")
+                                Icon(Icons.system.check_circle, size: 24, color: "#E11D48", description: "Completed")
                             }
                             Stack(alignment: Center, width: 120, height: 44, background: "#303030", cornerRadius: 8) {
                                 Text("Stack layout")
@@ -63,7 +63,7 @@ app RenderParityCatalog {
                                 Text("Flexible row")
                                 Spacer()
                             }
-                            ContentUnavailable(title: "No archived tasks", icon: "inbox", description: "Archived tasks appear here.", titleColor: "#222222", descriptionColor: "#666666", iconTint: "#0088FF", background: "#F4F4F8")
+                            ContentUnavailable(title: "No archived tasks", icon: Icons.system.inbox, description: "Archived tasks appear here.", titleColor: "#222222", descriptionColor: "#666666", iconTint: "#0088FF", background: "#F4F4F8")
                             Text("Conditional content", fontSize: 12)
                             if enabled {
                                 Text("If branch enabled", accessibilityLabel: "If branch enabled")
@@ -91,7 +91,7 @@ app RenderParityCatalog {
                             ProgressRing(progress: progress, tint: "#2563EB", trackColor: "#DBEAFE", size: 48, thickness: 5, androidWave: true, accessibilityLabel: "Circular task progress")
                             ProgressRing()
                             SegmentedControl(items: periods, selected: period, accessibilityLabel: "Period")
-                            Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", accessibilityLabel: "Sort tasks")
+                            Picker(items: sortOptions, selected: sort, icon: Icons.system.sort, label: "Sort tasks", accessibilityLabel: "Sort tasks")
                             Pressable(accessibilityLabel: "Pressable action", accessibilityRole: Button) {
                                 Text("Pressable region")
                             }.onTap {
@@ -101,7 +101,7 @@ app RenderParityCatalog {
                         }
                         Section(title: "Images and links") {
                             Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, maxHeight: 64)
-                            Icon(system: "star", size: 24, color: "#E11D48", description: "Favorite")
+                            Icon(Icons.system.star, size: 24, color: "#E11D48", description: "Favorite")
                             LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: TopToBottom, height: 32)
                             Link(url: "https://example.com") {
                                 Text("External documentation link")
@@ -115,7 +115,7 @@ app RenderParityCatalog {
                     }
                 }
 
-                Tab(index: 1, label: "Lists", icon: "list", title: "Lists") {
+                Tab(index: 1, label: "Lists", icon: Icons.system.list, title: "Lists") {
                     Column(gap: 8) {
                         Text("Virtualized list", fontSize: 20, fontWeight: Semibold)
                         Text("Refresh count: $refreshCount", accessibilityLabel: "Refresh count")
@@ -130,7 +130,7 @@ app RenderParityCatalog {
                         }
                         FastList(count: 24, rowHeight: 56, accessibilityLabel: "Parity task list") { index in
                             Row(gap: 8, padding: 8) {
-                                Icon(system: "check_circle", size: 20, color: "#E11D48", description: "Task")
+                                Icon(Icons.system.check_circle, size: 20, color: "#E11D48", description: "Task")
                                 Text("Virtual row \(index)")
                             }
                         }.onScroll {
@@ -139,7 +139,7 @@ app RenderParityCatalog {
                     }
                 }
 
-                Tab(index: 2, label: "Workspace", icon: "folder", title: "Workspace") {
+                Tab(index: 2, label: "Workspace", icon: Icons.system.folder, title: "Workspace") {
                     NavigationSplitView(detailVisible: detailVisible) {
                         Sidebar {
                             Column(gap: 12, padding: 16) {
@@ -157,7 +157,7 @@ app RenderParityCatalog {
                     }
                 }
 
-                Tab(index: 3, label: "Pages", icon: "calendar", title: "Pages") {
+                Tab(index: 3, label: "Pages", icon: Icons.system.calendar, title: "Pages") {
                     PagePager(selected: selectedPage) {
                         Tab(index: 0) {
                             Column(gap: 16, padding: 24) {

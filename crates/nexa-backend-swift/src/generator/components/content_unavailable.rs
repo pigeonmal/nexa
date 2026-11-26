@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{ColorExpression, Expr, IconSpec};
+use nexa_ir::{ColorExpression, Expr};
 
 use crate::generator::{colors, engine::expressions::localized_text_view};
 
@@ -13,7 +13,7 @@ pub(crate) struct ColorOverrides<'a> {
 
 pub(crate) fn render(
     title: &Expr,
-    icon: &IconSpec,
+    icon: &Expr,
     description: Option<&Expr>,
     overrides: ColorOverrides<'_>,
     depth: usize,
@@ -24,7 +24,7 @@ pub(crate) fn render(
         format_args!(
             "NexaContentUnavailablePrimitive(title: {}, icon: {}, description: {}, titleColor: {}, descriptionColor: {}, iconTint: {}, background: {})",
             localized_text_view(title, None),
-            super::system_icons::spec(icon),
+            crate::generator::engine::expressions::expression(icon),
             description
                 .map(|value| localized_text_view(value, None))
                 .unwrap_or_else(|| "nil".to_owned()),
@@ -48,7 +48,7 @@ mod tests {
         let mut out = SourceWriter::new();
         render(
             &Expr::String("Nothing here".to_owned()),
-            &IconSpec::system(SystemIcon::shared("inbox").expect("catalog icon")),
+            &Expr::Icon(Box::new(IconSpec::system(SystemIcon::shared("inbox").expect("catalog icon")))),
             Some(&Expr::String("Add an item to begin.".to_owned())),
             ColorOverrides::default(),
             0,
@@ -64,7 +64,7 @@ mod tests {
         let mut out = SourceWriter::new();
         render(
             &Expr::String("Nothing here".to_owned()),
-            &IconSpec::system(SystemIcon::shared("inbox").expect("catalog icon")),
+            &Expr::Icon(Box::new(IconSpec::system(SystemIcon::shared("inbox").expect("catalog icon")))),
             None,
             ColorOverrides::default(),
             0,
@@ -78,7 +78,7 @@ mod tests {
         let mut out = SourceWriter::new();
         render(
             &Expr::String("No songs".to_owned()),
-            &IconSpec::font_glyph("Mazicon", "Mazicon", 61696),
+            &Expr::Icon(Box::new(IconSpec::font_glyph("Mazicon", "Mazicon", 61696))),
             None,
             ColorOverrides::default(),
             0,

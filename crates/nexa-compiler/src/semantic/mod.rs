@@ -213,10 +213,10 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                         ));
                     }
                 }
-                Node::FontIcon { .. } => {
+                Node::FontIcon { .. } | Node::Icon { .. } => {
                     return Err(CompileError::new(
                         span,
-                        "custom font glyph icons are not supported in Android widgets",
+                        "custom font glyph and dynamic icons are not supported in Android widgets",
                     ));
                 }
                 Node::Layout {
@@ -1094,6 +1094,8 @@ fn lower_with_warnings_in_mode(
                         screen_ids: None,
                         allow_navigation_actions: false,
                         source_file: task.source_file.as_deref(),
+                        custom_icons,
+                        themes: None,
                     },
                 )?;
                 Ok(BackgroundTask {
@@ -1148,7 +1150,8 @@ fn lower_with_warnings_in_mode(
                 &owned_enum_names,
             )
             .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
-            .with_source_file(declaration.source_file.as_deref());
+            .with_source_file(declaration.source_file.as_deref())
+            .with_custom_icons(custom_icons);
             let initial = lower_expr(&declaration.initial, Some(&ty), &state_context)?;
             let mutable = declaration.mutable;
             if mutable && references_mutable_state(&declaration.initial, &symbols) {
@@ -1497,7 +1500,8 @@ fn lower_with_warnings_in_mode(
                 owned_enum_names,
             )
             .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
-            .with_source_file(screen_source_file);
+            .with_source_file(screen_source_file)
+            .with_custom_icons(custom_icons);
             let initial = screen_try!(lower_expr(&declaration.initial, Some(&ty), &state_context,));
             let mutable = declaration.mutable;
             if mutable && references_mutable_state(&declaration.initial, &screen_symbols) {
@@ -2641,6 +2645,7 @@ fn module_uses_json_error(module: &Module) -> bool {
             | Type::Plugin { .. }
             | Type::TaskHandle
             | Type::NetworkResponse
+            | Type::Icon
             | Type::ComponentRef { .. } => false,
         }
     }
@@ -3296,6 +3301,7 @@ fn validate_type_names(
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
+        | Type::Icon
         | Type::ComponentRef { .. } => Ok(()),
     }
 }
@@ -4171,6 +4177,8 @@ pub(in crate::semantic) fn lower_function_statements(
                         screen_ids: None,
                         allow_navigation_actions: false,
                         source_file,
+                        custom_icons: None,
+                        themes: None,
                     },
                     span,
                 )?;
@@ -4223,6 +4231,8 @@ pub(in crate::semantic) fn lower_function_statements(
                         screen_ids: None,
                         allow_navigation_actions: false,
                         source_file,
+                        custom_icons: None,
+                        themes: None,
                     },
                     span,
                 )?;

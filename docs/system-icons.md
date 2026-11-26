@@ -1,6 +1,6 @@
 # Shared System Icon Catalog
 
-Nexa provides a unified semantic icon system. By using `Icon(system: "<name>")`, your application automatically resolves the appropriate platform-native icon at compile time:
+Nexa provides a unified semantic icon system. By using `Icons.system.<name>`, your application automatically resolves the appropriate platform-native icon at compile time:
 - **iOS**: Apple SF Symbols such as `house.fill` and `magnifyingglass`.
 - **Android**: Jetpack Compose Material Icons such as `Filled.Home` and `Filled.Search`.
 
@@ -18,7 +18,7 @@ The mapping table is maintained as the single source of truth in `crates/nexa-ir
 app SearchHeader {
     body {
         Row(gap: 8) {
-            Icon(system: "search", description: "Search", size: 20, color: "#2563EB")
+            Icon(Icons.system.search, description: "Search", size: 20, color: "#2563EB")
             Text("Search products")
         }
     }
@@ -35,8 +35,11 @@ app SearchHeader {
 
     body {
         Column(gap: 8) {
-            Icon(system: "search", description: "Search", size: 24, color: "#007AFF")
-            Button("Search catalog", icon: Icon(system: "search")) {
+            Icon(Icons.system.search, description: "Search", size: 24, color: "#007AFF")
+            Button("Search catalog", icon: Icons.system.search) {
+                searchSubmitted = true
+            }
+            Button("Large search", icon: Icon(Icons.system.search, size: 20)) {
                 searchSubmitted = true
             }
         }
@@ -48,44 +51,38 @@ app SearchHeader {
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `system` | `String` | Exactly one icon name is required | Portable semantic name from the catalog below |
-| `sfsymbol` | `String` | Exactly one icon name is required | Explicit iOS SF Symbol, for example `"sparkles"` |
-| `materialsymbol` | `String` | Exactly one icon name is required | Explicit Android Material icon, for example `"auto_awesome"` |
+| positional icon | `Icon` | Required | Typed icon value: `Icons.system.<name>`, `Icons.<Set>.<name>`, or an `Icon` variable/expression |
 | `description` | `String` | Omitted | Accessible description; parent controls supply their own accessible context by default |
 | `size` | positive numeric literal, up to `512` | Omitted | Icon bounding-box size in platform logical units; standalone icons use native sizing |
 | `color` | color expression (`String`) | Omitted | Overrides the native system color or tints every custom glyph layer |
 
-Choose exactly one of `system`, `sfsymbol`, or `materialsymbol`. Nexa does not accept both platform-specific names on one `Icon` call.
-
-Custom sets use a set name as the selector, for example `Icon(Brand: "heart")`;
+Custom sets use the set name under `Icons`, for example `Icons.Brand.heart`;
 their SVG and prebuilt-font workflow is documented in the
-[custom icon guide](custom-icons.md). A string supplied to an icon slot resolves
-only as a shared system icon.
+[custom icon guide](custom-icons.md). Because `Icon` is a first-class type, you can
+store icons in state or collections such as `state icons: Array<Icon> = [Icons.system.search, Icons.Brand.heart]`
+and render them with `Icon(icons[0], size: 24)`.
 
 ---
 
-## 2. Platform-Specific Overrides
-
-When a screen requires a platform-exclusive icon that does not have a cross-platform equivalent, pass explicit platform overrides:
+## 2. Typed `Icon` Values and Collections
 
 ```nx
-app PlatformIcons {
+app IconGallery {
+    state icons: Array<Icon> = [Icons.system.search, Icons.system.favorite, Icons.system.settings]
+    state selectedIndex: Int32 = 0
+
     body {
         Column(gap: 12) {
-            platform ios {
-                Icon(sfsymbol: "apple.logo", description: "Apple", size: 28, color: "#1C1C1E")
-            }
-            platform android {
-                Icon(materialsymbol: "android", description: "Android", size: 28, color: "#1C1C1E")
+            Icon(icons[selectedIndex], size: 28, color: "#007AFF")
+            Button("Next icon", icon: icons[selectedIndex]) {
+                selectedIndex = (selectedIndex + 1) % 3
             }
         }
     }
 }
 ```
 
-Use `platform ios { ... }` and `platform android { ... }` when an app needs to render only the matching platform-specific icon.
-
-For your own scalable glyphs, register an icon font and map codepoints to aliases. See the [Custom Icons guide](custom-icons.md) for setup and examples.
+For your own scalable glyphs, add SVG files under `assets/icons/<Set>/` or register an icon font with a sidecar map. See the [Custom Icons guide](custom-icons.md) for setup and examples.
 
 ---
 

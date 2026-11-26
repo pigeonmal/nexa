@@ -68,7 +68,7 @@ app RenderParity {
         Appearance(mode: "dark") {
             Column {
                 AppBottomBar(selected: selectedTab, tint: "#E11D48") {
-                    Tab(index: 0, label: "Controls", icon: "tune", title: "Controls") {
+                    Tab(index: 0, label: "Controls", icon: Icons.system.tune, title: "Controls") {
                         Toolbar(placement: Trailing) {
                             Button("Toolbar action", accessibilityLabel: "Toolbar action") {
                                 toolbarActionCount = toolbarActionCount + 1
@@ -97,7 +97,7 @@ app RenderParity {
                                 }
                                 Row(gap: 8, margin: Insets(top: 0), alignment: Center) {
                                     Text("Row layout")
-                                    Icon(system: "check_circle", size: 24, color: "#E11D48", description: "Completed")
+                                    Icon(Icons.system.check_circle, size: 24, color: "#E11D48", description: "Completed")
                                 }
                                 Row(horizontalArrangement: Center) {
                                     Text("Horizontally centered row")
@@ -114,7 +114,7 @@ app RenderParity {
                                     Text("Flexible row")
                                     Spacer()
                                 }
-                                ContentUnavailable(title: "No archived tasks", icon: "inbox", description: "Archived tasks appear here.", titleColor: "#222222", descriptionColor: "#666666", iconTint: emptyStateIconTint, background: "#F4F4F8", comment: "Empty state sample")
+                                ContentUnavailable(title: "No archived tasks", icon: Icons.system.inbox, description: "Archived tasks appear here.", titleColor: "#222222", descriptionColor: "#666666", iconTint: emptyStateIconTint, background: "#F4F4F8", comment: "Empty state sample")
                                 Text("Conditional content", fontSize: 12)
                                 if enabled {
                                     Text("If branch enabled", accessibilityLabel: "If branch enabled")
@@ -149,7 +149,7 @@ app RenderParity {
                                 ProgressRing(progress: progress, tint: ringTint, trackColor: "#DBEAFE", size: 48, thickness: 5, androidWave: true, accessibilityLabel: "Circular task progress", accessibilityHint: "Shows task completion", accessibilityValue: "72 percent", accessibilityRole: None)
                                 ProgressRing()
                                 SegmentedControl(items: periods, selected: period, animation: Spring(response: 0.35, damping: 0.82), tint: segmentTint, background: "#E9EAF0", selectedTextColor: "#17171A", textColor: "#68686F", fontSize: 14, fontWeight: Medium, height: 36, cornerRadius: 18, borderColor: "#D2D3DA", borderWidth: 1, comment: "Task date range", accessibilityLabel: "Period")
-                                Picker(items: sortOptions, selected: sort, itemIcons: ["calendar", "flag_filled", "edit"], icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Sort tasks by", accessibilityLabel: "Sort tasks")
+                                Picker(items: sortOptions, selected: sort, itemIcons: [Icons.system.calendar, Icons.system.flag_filled, Icons.system.edit], icon: Icons.system.sort, label: "Sort tasks", tint: "#E11D48", comment: "Sort tasks by", accessibilityLabel: "Sort tasks")
                                 PickerDate(type: DateTime, style: Graphical, selection: Single, timestamp: timestamp, minimum: minimumTimestamp, maximum: maximumTimestamp, tint: segmentTint, textColor: "#FFFFFF", backgroundColor: "#202124", pickerBackgroundColor: "#303134", borderColor: "#60646C", borderWidth: 1, cornerRadius: 12, locale: pickerLocale, timeZone: pickerTimeZone, is24Hour: pickerUses24Hour, enabled: pickerEnabled, accessibilityLabel: "Task due date")
                                 PickerDate(type: Date, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: minimumTimestamp, maximum: maximumTimestamp)
                                 PickerDate(type: Date, style: Input, timestamp: timestamp)
@@ -181,10 +181,9 @@ app RenderParity {
                                 Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
                                 Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 64)
                                 Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
-                                Icon(system: "star", size: 24, color: "#E11D48", description: "Favorite")
-                                Icon(sfsymbol: "star.fill", size: 24, color: "#E11D48", description: "Native iOS symbol")
-                                Icon(materialsymbol: "star", size: 24, color: "#E11D48", description: "Native Android symbol")
-                                Icon(system: "favorite", size: 24, color: "#E11D48", description: "Favorite")
+                                Icon(Icons.system.star, size: 24, color: "#E11D48", description: "Favorite")
+                                Icon(Icons.system.star_filled, size: 24, color: "#E11D48", description: "Star filled")
+                                Icon(Icons.system.favorite, size: 24, color: "#E11D48", description: "Favorite")
                                 Text(
                                 "Style parameter coverage",
                                 comment: "All visual styling is provided as named component parameters.",
@@ -294,7 +293,7 @@ app RenderParity {
                         }
                     }
 
-                    Tab(index: 1, label: "Lists", icon: "list", title: "Lists") {
+                    Tab(index: 1, label: "Lists", icon: Icons.system.list, title: "Lists") {
                         Column(gap: 8) {
                             Text("Virtualized list", fontSize: 20, fontWeight: Semibold)
                             NavigationLink(destination: ListParameters) {
@@ -316,7 +315,7 @@ app RenderParity {
                                 FastList(count: 24, gap: 4, showDividers: false, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, ref: parityListRef, accessibilityLabel: "Parity task list") {
                                     index in
                                     Row(gap: 8, padding: 8) {
-                                        Icon(system: "check_circle", size: 20, color: "#E11D48", description: "Task")
+                                        Icon(Icons.system.check_circle, size: 20, color: "#E11D48", description: "Task")
                                         Text("Virtual row \(index)")
                                     }
                                 }.safeAreaInset(edge: Bottom) {
@@ -324,7 +323,7 @@ app RenderParity {
                                 }.scrollHeader(behavior: Pinned) {
                                     Text("Pinned parity header")
                                 }.swipeActions {
-                                    Button("Delete row", icon: "delete", style: Borderless) {
+                                    Button("Delete row", icon: Icons.system.delete, style: Borderless) {
                                         refreshCount = refreshCount + 1
                                     }
                                 }
@@ -370,7 +369,7 @@ app RenderParity {
                         }
                     }
 
-                    Tab(index: 2, label: "Workspace", icon: "folder", title: "Workspace") {
+                    Tab(index: 2, label: "Workspace", icon: Icons.system.folder, title: "Workspace") {
                         NavigationSplitView(detailVisible: detailVisible) {
                             Sidebar {
                                 Column(gap: 12, padding: 16) {
@@ -394,7 +393,7 @@ app RenderParity {
                         }
                     }
 
-                    Tab(index: 3, label: "Pages", icon: "calendar", title: "Pages") {
+                    Tab(index: 3, label: "Pages", icon: Icons.system.calendar, title: "Pages") {
                         PagePager(selected: selectedPage) {
                             Tab(index: 0) {
                                 Column(gap: 16, padding: 24) {
@@ -629,7 +628,7 @@ app RenderParity {
                 Button(
                 "Configured button",
                 comment: "Configured button localization coverage",
-                icon: "star",
+                icon: Icons.system.star,
                 loading: loading,
                 disabled: disabled,
                 style: Bordered,
@@ -710,10 +709,9 @@ app RenderParity {
                 Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
                 Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 64)
                 Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
-                Icon(system: "star", size: 24, color: "#E11D48", description: "Shared system icon")
-                Icon(sfsymbol: "star.fill", size: 24, color: "#E11D48", description: "Native iOS symbol")
-                Icon(materialsymbol: "star", size: 24, color: "#E11D48", description: "Native Android symbol")
-                Icon(system: "favorite", size: 24, color: "#E11D48", description: "Favorite")
+                Icon(Icons.system.star, size: 24, color: "#E11D48", description: "Shared system icon")
+                Icon(Icons.system.star_filled, size: 24, color: "#E11D48", description: "Filled star")
+                Icon(Icons.system.favorite, size: 24, color: "#E11D48", description: "Favorite")
             }
             Section(title: "Pressable parameters", comment: "Disabled state, haptics, and full-size layout") {
                 Text("Pressable result: tap=$pressableTapCount, long=$pressableLongPressCount")

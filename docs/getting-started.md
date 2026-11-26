@@ -112,7 +112,7 @@ config {
 ```
 
 Custom icon sets live directly in `assets/icons/<Set>/`; no app configuration
-is needed. Add SVG files, then use `Icon(Set: "name")` in an icon slot or on
+is needed. Add SVG files, then use `Icon(Icons.Set.name)` in an icon slot or on
 its own. See the [custom icon guide](custom-icons.md) for SVG authoring, font
 sidecars, rendering behavior, and migration from the removed config tables.
 
@@ -235,7 +235,7 @@ app PulseTasks {
             Text("Today's tasks", fontSize: 26, fontWeight: Bold)
             Row(gap: 8) {
                 TextInput(value: draftTitle, placeholder: "Add a task")
-                Button("Add task", icon: "add", disabled: draftTitle == "") {
+                Button("Add task", icon: Icons.system.add, disabled: draftTitle == "") {
                     if draftTitle != "" {
                         tasks.append(TaskItem(tasks.count + 1, draftTitle, "Normal", false, "Today"))
                         draftTitle = ""

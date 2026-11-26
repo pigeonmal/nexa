@@ -965,15 +965,15 @@ fn component_parity_app_exercises_every_catalog_component() {
                 .map(|(route, _)| route)
         })
         .expect("find the IconCases route source");
-    assert!(icon_route.contains("Icon(system: \"search\""));
-    assert!(icon_route.contains("Icon(mazicon: \"play\""));
-    assert!(icon_route.contains("Icon(Brand: \"heart\""));
-    assert!(icon_route.contains("Button(\"Search\", icon: Icon(system: \"search\"))"));
-    assert!(icon_route.contains("Button(\"Play audio\", icon: Icon(mazicon: \"play\"))"));
-    assert!(icon_route.contains("Button(\"Save favorite\", icon: Icon(Brand: \"heart\""));
+    assert!(icon_route.contains("Icon(Icons.system.search"));
+    assert!(icon_route.contains("Icon(Icons.mazicon.play"));
+    assert!(icon_route.contains("Icon(Icons.Brand.heart"));
+    assert!(icon_route.contains("Button(\"Search\", icon: Icons.system.search)"));
+    assert!(icon_route.contains("Button(\"Play audio\", icon: Icons.mazicon.play)"));
+    assert!(icon_route.contains("Button(\"Save favorite\", icon: Icon(Icons.Brand.heart"));
     assert!(
         icon_route
-            .contains("itemIcons: [\"search\", Icon(mazicon: \"play\"), Icon(Brand: \"heart\")")
+            .contains("itemIcons: [Icons.system.search, Icons.mazicon.play, Icons.Brand.heart]")
     );
     assert!(icon_route.contains("ContentUnavailable("));
     assert!(icon_route.contains("title: \"No saved favorites\""));
@@ -2553,9 +2553,9 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         },
         Node::Button {
             label: Expr::String(String::new()),
-            icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
+            icon: Some(nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
                 "add".to_owned(),
-            ))),
+            ))))),
             loading: None,
             disabled: None,
             style: Some(nexa_ir::ButtonStyle::BorderedProminent),
@@ -2773,28 +2773,28 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
                 Expr::String("Title".to_owned()),
             ]),
             state: "priority".to_owned(),
-            icon: Some(nexa_ir::IconSpec::system(
+            icon: Some(nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(
                 nexa_ir::SystemIcon::shared("flag").expect("catalog icon"),
-            )),
-            item_icons: vec![
-                nexa_ir::IconSpec::system(
+            )))),
+            item_icons: Some(nexa_ir::Expr::Array(vec![
+                nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(
                     nexa_ir::SystemIcon::shared("calendar").expect("catalog icon"),
-                ),
-                nexa_ir::IconSpec::system(
+                ))),
+                nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(
                     nexa_ir::SystemIcon::shared("flag_filled").expect("catalog icon"),
-                ),
-                nexa_ir::IconSpec::system(
+                ))),
+                nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(
                     nexa_ir::SystemIcon::shared("edit").expect("catalog icon"),
-                ),
-            ],
+                ))),
+            ])),
             label: Some(Expr::String("Priority".to_owned())),
             tint: None,
         },
         Node::ContentUnavailable {
             title: Expr::String("No tasks".to_owned()),
-            icon: nexa_ir::IconSpec::system(
+            icon: nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(
                 nexa_ir::SystemIcon::shared("inbox").expect("catalog icon"),
-            ),
+            ))),
             description: Some(Expr::String("Add a task to get started.".to_owned())),
             title_color: None,
             description_color: None,
@@ -3036,7 +3036,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         "itemIcons = listOf(NexaIconSpec(vector = Icons.Outlined.CalendarMonth, preservesColor = false), NexaIconSpec(vector = Icons.Filled.Flag, preservesColor = false), NexaIconSpec(vector = Icons.Filled.Edit, preservesColor = false))"
     ));
     assert!(kotlin.contains("itemIcons.getOrNull(index)?.let"));
-    assert!(kotlin_runtime.contains("fields.optJSONArray(\"item_icons\")"));
+    assert!(kotlin_runtime.contains("fields.opt(\"item_icons\")"));
     assert!(kotlin.contains("NexaTextPrimitive(text ="));
     for primitive in ["NexaAssetImagePrimitive(", "NexaRemoteImagePrimitive("] {
         assert!(
@@ -3625,7 +3625,7 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
     let swift_icons = section(
         &swift,
         "private func nexaDevIconSpec(",
-        "private func nexaDevMaterialIconSymbol(",
+        "private func nexaDevIconLayers(",
     );
     let kotlin_icons = section(
         &kotlin,
@@ -3634,28 +3634,14 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
     );
     let swift_font_icons = section(&swift, "case \"FontIcon\":", "case \"LinearGradient\":");
     let kotlin_font_icons = section(&kotlin, "\"FontIcon\" -> {", "\"LinearGradient\" -> {");
-    for (kind, swift_key, kotlin_key) in [
-        ("shared", "system[\"shared\"]", "system.has(\"shared\")"),
-        (
-            "SF Symbol",
-            "system[\"sf_symbol\"]",
-            "system.has(\"sf_symbol\")",
-        ),
-        (
-            "Material Symbol",
-            "system[\"material_symbol\"]",
-            "system.has(\"material_symbol\")",
-        ),
-    ] {
-        assert!(
-            swift_icons.contains(swift_key),
-            "iOS dev renderer has no {kind} system icon mapping"
-        );
-        assert!(
-            kotlin_icons.contains(kotlin_key),
-            "Android dev renderer has no {kind} system icon mapping"
-        );
-    }
+    assert!(
+        swift_icons.contains("system[\"shared\"]"),
+        "iOS dev renderer has no shared system icon mapping"
+    );
+    assert!(
+        kotlin_icons.contains("system.has(\"shared\")"),
+        "Android dev renderer has no shared system icon mapping"
+    );
     assert!(swift_font_icons.contains("guard let rawSize = fields[\"size\"]"));
     assert!(swift_font_icons.contains("NexaFontIconPrimitive("));
     assert!(kotlin_font_icons.contains("store.evaluatePresented(fields.opt(\"size\")"));
@@ -4947,7 +4933,7 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
         "lineHeight: 20,",
         "Button(\n                \"Configured button\"",
         "searchable: true",
-        "materialsymbol: \"star\"",
+        "Icon(Icons.system.star",
         "reverseLayout: true",
         "pageSnap: true",
         "screen ListParameters {",
@@ -5135,7 +5121,7 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
         "italic = style.optBoolean(\"italic\")",
         "underline = style.optBoolean(\"underline\")",
         "fontFamily = fontFamily",
-        "nexaDevSpecificMaterialIcon",
+        "nexaDevSharedMaterialIcon",
     ] {
         assert!(
             kotlin.contains(marker),
@@ -5309,9 +5295,9 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                     allows_full_swipe: true,
                     children: vec![Node::Button {
                         label: Expr::String("Delete".to_owned()),
-                        icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
+                        icon: Some(nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
                             "delete".to_owned(),
-                        ))),
+                        ))))),
                         loading: None,
                         disabled: None,
                         style: None,
@@ -5811,9 +5797,9 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                     allows_full_swipe: true,
                     children: vec![Node::Button {
                         label: Expr::String("Delete".to_owned()),
-                        icon: Some(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
+                        icon: Some(nexa_ir::Expr::Icon(Box::new(nexa_ir::IconSpec::system(nexa_ir::SystemIcon::Shared(
                             "delete".to_owned(),
-                        ))),
+                        ))))),
                         loading: None,
                         disabled: None,
                         style: None,

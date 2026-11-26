@@ -1264,6 +1264,7 @@ fn node_name(node: &Node) -> &'static str {
         | Node::Divider { .. }
         | Node::Shape { .. }
         | Node::Button { .. }
+        | Node::Icon { .. }
         | Node::If { .. }
         | Node::When { .. }
         | Node::Content

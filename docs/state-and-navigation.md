@@ -39,7 +39,7 @@ app Storefront {
     screen ProductDetail(productID: Int32) {
         Column(gap: 12, padding: 20) {
             Text("Product #\(productID)", fontSize: 24, fontWeight: Bold)
-            Button("Add to cart", icon: "shopping_cart") {
+            Button("Add to cart", icon: Icons.system.shopping_cart) {
                 cartCount = cartCount + 1
             }
             NavigationBack(label: "Back to products")
@@ -78,13 +78,13 @@ app ShopTabs {
 
     body {
         AppBottomBar(selected: selectedTab) {
-            Tab(index: 0, label: "Home", icon: "home", title: "Home") {
+            Tab(index: 0, label: "Home", icon: Icons.system.home, title: "Home") {
                 Column(gap: 8, padding: 16) {
                     Text("New this week", fontSize: 22, fontWeight: Bold)
                     Text("Browse the latest products.")
                 }
             }
-            Tab(index: 1, label: "Cart", icon: "shopping_cart", badge: "2", title: "Your cart") {
+            Tab(index: 1, label: "Cart", icon: Icons.system.shopping_cart, badge: "2", title: "Your cart") {
                 Text("Your cart contains \(cartCount) items.")
             }
         }
@@ -117,13 +117,13 @@ app BrandedTabs {
 
     body {
         AppBottomBar(selected: selectedTab) {
-            Tab(index: 0, label: "Home", icon: "home") {
+            Tab(index: 0, label: "Home", icon: Icons.system.home) {
                 Column(gap: 8, padding: 16) {
                     Text("Your latest updates", fontSize: 22, fontWeight: Bold)
                     Text("Browse the latest products.")
                 }
             }
-            Tab(index: 1, label: "Profile", icon: "person") {
+            Tab(index: 1, label: "Profile", icon: Icons.system.person) {
                 Column(gap: 8, padding: 16) {
                     Text("Alex Morgan", fontSize: 22, fontWeight: Bold)
                     Text("Account preferences and saved addresses.")
@@ -134,13 +134,13 @@ app BrandedTabs {
                 Row(gap: 24, alignment: Center, padding: 12, background: "#09090B") {
                     Pressable(accessibilityLabel: "Home tab", accessibilityRole: Button) {
                         Column(gap: 4, alignment: Center) {
-                            Icon(system: "home", description: "Home", size: 20, color: "#FFFFFF")
+                            Icon(Icons.system.home, description: "Home", size: 20, color: "#FFFFFF")
                             Text("Home", color: "#FFFFFF")
                         }
                     }.onTap { selectedTab = 0 }
                     Pressable(accessibilityLabel: "Profile tab", accessibilityRole: Button) {
                         Column(gap: 4, alignment: Center) {
-                            Icon(system: "person", description: "Profile", size: 20, color: "#A1A1AA")
+                            Icon(Icons.system.person, description: "Profile", size: 20, color: "#A1A1AA")
                             Text("Profile", color: "#A1A1AA")
                         }
                     }.onTap { selectedTab = 1 }

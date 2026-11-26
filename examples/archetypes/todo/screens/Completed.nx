@@ -1,7 +1,7 @@
 screen Completed {
     Appearance(mode: appearanceMode) {
         if todoFilter(tasks, 3, "").isEmpty {
-            ContentUnavailable(title: "No completed tasks", icon: "party_popper", description: "Completed tasks will show up here.")
+            ContentUnavailable(title: "No completed tasks", icon: Icons.system.party_popper, description: "Completed tasks will show up here.")
         } else {
             FastList(todoSort(todoFilter(tasks, 3, ""), sortSelection), key:.id) {
             task, index in
@@ -9,7 +9,7 @@ screen Completed {
                 Row(gap: 12) {
                     Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                         Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
-                            Icon(system: "check_circle", size: 28, color: themeTint(selectedTheme), description: "")
+                            Icon(Icons.system.check_circle, size: 28, color: themeTint(selectedTheme), description: "")
                         }.onTap {
                             tasks = toggleTodo(tasks, task.id)
                             Haptics.notification(kind: Success)
@@ -34,7 +34,7 @@ screen Completed {
                         priority = task.priority
                         taskEditorSheetRef.present()
                     }.contextMenu {
-                        Button("Edit", icon: "edit") {
+                        Button("Edit", icon: Icons.system.edit) {
                             editingID = task.id
                             taskTitle = task.title
                             taskDescription = task.taskDescription
@@ -44,7 +44,7 @@ screen Completed {
                             priority = task.priority
                             taskEditorSheetRef.present()
                         }
-                        Button("Mark Incomplete", icon: "undo") {
+                        Button("Mark Incomplete", icon: Icons.system.undo) {
                             tasks = toggleTodo(tasks, task.id)
                             Haptics.notification(kind: Success)
                             cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
@@ -52,7 +52,7 @@ screen Completed {
                                 await persistTaskAndRefreshBadge(tasks, task.id, notifications)
                             }
                         }
-                        Button("Delete", icon: "delete") {
+                        Button("Delete", icon: Icons.system.delete) {
                             cancelTaskReminders(reminders, task.id, notifications)
                             reminders = deleteTaskReminders(reminders, task.id)
                             tasks = deleteTodo(tasks, task.id)
@@ -64,7 +64,7 @@ screen Completed {
                 }
             }
         }.swipeActions {
-            Button("Delete", icon: "delete", style: Borderless) {
+            Button("Delete", icon: Icons.system.delete, style: Borderless) {
                 cancelTaskReminders(reminders, task.id, notifications)
                 reminders = deleteTaskReminders(reminders, task.id)
                 tasks = deleteTodo(tasks, task.id)

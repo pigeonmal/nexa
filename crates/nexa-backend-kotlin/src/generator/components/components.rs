@@ -205,25 +205,26 @@ pub(crate) fn render_node_with_linear_parent(
             icon_tint,
             background,
         } => {
-            let icon_description = match &icon.source {
-                IconSource::System(SystemIcon::Shared(name)) => name
-                    .split('_')
-                    .filter(|part| !part.is_empty())
-                    .map(|part| {
-                        let mut chars = part.chars();
-                        chars
-                            .next()
-                            .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
-                            .unwrap_or_default()
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                IconSource::System(SystemIcon::SfSymbol(_))
-                | IconSource::System(SystemIcon::MaterialSymbol(_))
-                | IconSource::FontGlyph { .. } => icon
-                    .description
-                    .clone()
-                    .unwrap_or_else(|| "Icon".to_owned()),
+            let icon_description = match icon {
+                Expr::Icon(spec) => match &spec.source {
+                    IconSource::System(SystemIcon::Shared(name)) => name
+                        .split('_')
+                        .filter(|part| !part.is_empty())
+                        .map(|part| {
+                            let mut chars = part.chars();
+                            chars
+                                .next()
+                                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                                .unwrap_or_default()
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    IconSource::FontGlyph { .. } => spec
+                        .description
+                        .clone()
+                        .unwrap_or_else(|| "Icon".to_owned()),
+                },
+                _ => "Icon".to_owned(),
             };
             out.line_at(
                 depth,
@@ -231,7 +232,7 @@ pub(crate) fn render_node_with_linear_parent(
                     "NexaContentUnavailablePrimitive(title = {}, description = {}, icon = {}, iconDescription = {}, titleColor = {}, descriptionColor = {}, iconTint = {}, background = {})",
                     crate::generator::engine::expressions::text_expression(title),
                     description.as_ref().map(crate::generator::engine::expressions::text_expression).unwrap_or_else(|| "null".to_owned()),
-                    system_icons::spec(icon),
+                    crate::generator::engine::expressions::expression(icon),
                     crate::generator::utils::kotlin_string(&icon_description),
                     title_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
                     description_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
@@ -464,7 +465,7 @@ pub(crate) fn render_node_with_linear_parent(
             ..
         } => controls::render_picker_node(
             items,
-            item_icons,
+            item_icons.as_ref(),
             state,
             icon.as_ref(),
             label.as_ref(),
@@ -529,6 +530,7 @@ pub(crate) fn render_node_with_linear_parent(
             depth,
             out,
         ),
+        Node::Icon { icon } => system_icons::render_expr(icon, depth, out),
         Node::LinearGradient {
             start_color,
             end_color,
