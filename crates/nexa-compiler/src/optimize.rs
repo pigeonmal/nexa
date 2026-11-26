@@ -817,12 +817,23 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::SystemInset(_)
         | Expr::This(_)
         | Expr::Icon(_) => true,
-        Expr::IconWith { base, color, .. } => {
+        Expr::IconWith {
+            base,
+            color,
+            layer_colors,
+            ..
+        } => {
             is_pure_expression(base)
                 && !matches!(
                     color,
                     Some(nexa_ir::ColorExpression::Dynamic(expr)) if !is_pure_expression(expr)
                 )
+                && layer_colors.iter().all(|c| {
+                    !matches!(
+                        c,
+                        nexa_ir::ColorExpression::Dynamic(expr) if !is_pure_expression(expr)
+                    )
+                })
         }
         | Expr::TimeCall {
             method:

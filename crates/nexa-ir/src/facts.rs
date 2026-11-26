@@ -1311,12 +1311,16 @@ fn observe_node(
             glyph,
             layers,
             tint,
+            layer_colors,
             ..
         } => {
             ui.font_icons = true;
             record_icon_font(ui, font_resource, icon_codepoint(glyph), layers);
-            ui.style.color |= tint.is_some();
-            ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
+            ui.style.color |= tint.is_some() || !layer_colors.is_empty();
+            ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)))
+                || layer_colors
+                    .iter()
+                    .any(|c| matches!(c, crate::ColorExpression::Dynamic(_)));
         }
         Node::Icon { icon } => {
             observe_icon_expr(icon, ui);
@@ -1535,12 +1539,20 @@ fn observe_node(
 fn observe_icon_expr(expr: &Expr, ui: &mut UiFacts) {
     match expr {
         Expr::Icon(spec) => observe_icon_spec(spec, ui),
-        Expr::IconWith { base, color, .. } => {
+        Expr::IconWith {
+            base,
+            color,
+            layer_colors,
+            ..
+        } => {
             observe_icon_expr(base, ui);
-            ui.style.color |= color.is_some();
+            ui.style.color |= color.is_some() || !layer_colors.is_empty();
             ui.style.dynamic_color |= color
                 .as_ref()
-                .is_some_and(|c| matches!(c, crate::ColorExpression::Dynamic(_)));
+                .is_some_and(|c| matches!(c, crate::ColorExpression::Dynamic(_)))
+                || layer_colors
+                    .iter()
+                    .any(|c| matches!(c, crate::ColorExpression::Dynamic(_)));
         }
         Expr::Array(elements) => {
             for element in elements {
@@ -1561,14 +1573,27 @@ fn observe_icon_expr(expr: &Expr, ui: &mut UiFacts) {
 
 fn icon_expr_has_dynamic_color(expr: &Expr) -> bool {
     match expr {
-        Expr::Icon(spec) => spec
-            .color
-            .as_ref()
-            .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_))),
-        Expr::IconWith { base, color, .. } => {
+        Expr::Icon(spec) => {
+            spec.color
+                .as_ref()
+                .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_)))
+                || spec
+                    .layer_colors
+                    .iter()
+                    .any(|color| matches!(color, crate::ColorExpression::Dynamic(_)))
+        }
+        Expr::IconWith {
+            base,
+            color,
+            layer_colors,
+            ..
+        } => {
             color
                 .as_ref()
                 .is_some_and(|c| matches!(c, crate::ColorExpression::Dynamic(_)))
+                || layer_colors
+                    .iter()
+                    .any(|c| matches!(c, crate::ColorExpression::Dynamic(_)))
                 || icon_expr_has_dynamic_color(base)
         }
         _ => false,

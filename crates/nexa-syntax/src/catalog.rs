@@ -209,7 +209,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "Icon",
         summary: "Displays a system icon or a project icon from a named set",
         snippet: "Icon(Icons.system.${1:favorite}, description: \"${2:Like}\", size: ${3:28}, color: \"#FFFFFF\")",
-        probe: "app P { body { Icon(Icons.system.favorite, description: \"Like\", size: 28, color: \"#FFFFFF\")\n Icon(Icons.Brand.heart, description: \"Activity\", size: 24, color: \"#FFFFFF\") } }",
+        probe: "app P { body { Icon(Icons.system.favorite, description: \"Like\", size: 28, color: \"#FFFFFF\")\n Icon(Icons.Brand.heart, description: \"Activity\", size: 24, color: [\"#10B981\", \"#FFFFFF\"]) } }",
     },
     ComponentEntry {
         name: "LinearGradient",

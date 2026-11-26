@@ -2860,6 +2860,7 @@ internal fun NexaFontIconPrimitive(
     size: androidx.compose.ui.unit.Dp?,
     tint: androidx.compose.ui.graphics.Color? = null,
     layers: List<NexaIconLayer> = emptyList(),
+    layerColors: List<androidx.compose.ui.graphics.Color> = emptyList(),
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
     fontResource: Int? = null,
     fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
@@ -2885,39 +2886,47 @@ internal fun NexaFontIconPrimitive(
     }
     if (layers.size <= 1) {
         val layer = layers.firstOrNull()
-        val codepoint = layer?.glyph ?: glyph
-        val glyphText = androidx.compose.runtime.remember(codepoint) {
-            if (java.lang.Character.isValidCodePoint(codepoint)) {
-                String(java.lang.Character.toChars(codepoint))
+        val glyphText = layer?.text ?: androidx.compose.runtime.remember(glyph) {
+            if (java.lang.Character.isValidCodePoint(glyph)) {
+                String(java.lang.Character.toChars(glyph))
             } else {
-                "�"
+                "\uFFFD"
             }
         }
         androidx.compose.material3.Text(
             text = glyphText,
             modifier = iconModifier.then(accessibilityModifier).wrapContentSize(),
-            color = tint ?: layer?.color ?: androidx.compose.material3.LocalContentColor.current,
+            color = layerColors.firstOrNull()
+                ?: tint
+                ?: layer?.takeIf { !it.tintable }?.color
+                ?: androidx.compose.material3.LocalContentColor.current,
             fontSize = fontSize,
             fontFamily = resolvedFontFamily,
             maxLines = 1,
             softWrap = false,
         )
     } else {
+        val hasTintableLayers = layerColors.isEmpty() && layers.any { it.tintable }
+        val fallbackContentColor = if (hasTintableLayers && tint == null) {
+            androidx.compose.material3.LocalContentColor.current
+        } else {
+            androidx.compose.ui.graphics.Color.Unspecified
+        }
         androidx.compose.foundation.layout.Box(
             modifier = iconModifier.then(accessibilityModifier),
             contentAlignment = androidx.compose.ui.Alignment.Center,
         ) {
-            layers.forEach { layer ->
-                val layerText = androidx.compose.runtime.remember(layer.glyph) {
-                    if (java.lang.Character.isValidCodePoint(layer.glyph)) {
-                        String(java.lang.Character.toChars(layer.glyph))
-                    } else {
-                        "�"
-                    }
+            layers.forEachIndexed { index, layer ->
+                val layerColor = when {
+                    index < layerColors.size -> layerColors[index]
+                    layerColors.isNotEmpty() -> layerColors.last()
+                    layer.tintable -> tint ?: fallbackContentColor
+                    hasTintableLayers -> layer.color
+                    else -> tint ?: layer.color
                 }
                 androidx.compose.material3.Text(
-                    text = layerText,
-                    color = tint ?: layer.color,
+                    text = layer.text,
+                    color = layerColor,
                     fontSize = fontSize,
                     fontFamily = resolvedFontFamily,
                     maxLines = 1,
@@ -2929,12 +2938,21 @@ internal fun NexaFontIconPrimitive(
 }
 
 // nexa-codegen: NexaIconLayer
+@androidx.compose.runtime.Immutable
 internal data class NexaIconLayer(
     val glyph: Int,
     val color: androidx.compose.ui.graphics.Color,
-)
+    val tintable: Boolean = false,
+) {
+    val text: String = if (java.lang.Character.isValidCodePoint(glyph)) {
+        String(java.lang.Character.toChars(glyph))
+    } else {
+        "\uFFFD"
+    }
+}
 
 // nexa-codegen: NexaIconSpec
+@androidx.compose.runtime.Immutable
 internal data class NexaIconSpec(
     val vector: androidx.compose.ui.graphics.vector.ImageVector? = null,
     val glyph: Int? = null,
@@ -2945,6 +2963,7 @@ internal data class NexaIconSpec(
     val tint: androidx.compose.ui.graphics.Color? = null,
     val preservesColor: Boolean = false,
     val layers: List<NexaIconLayer> = emptyList(),
+    val layerColors: List<androidx.compose.ui.graphics.Color> = emptyList(),
     val symbolScale: Float = __NEXA_MATERIAL_ICON_SIZE_SCALE__f,
 )
 
@@ -2973,6 +2992,7 @@ internal fun NexaIconContent(
             size = resolvedSize,
             tint = resolvedTint,
             layers = icon.layers,
+            layerColors = icon.layerColors,
             modifier = modifier,
         )
     } else {
@@ -5743,9 +5763,8 @@ mod tests {
             .unwrap_or_default();
 
         assert!(font_icon.contains("modifier.size(size)"));
-        assert!(font_icon.contains(
-            "tint ?: layer?.color ?: androidx.compose.material3.LocalContentColor.current"
-        ));
+        assert!(font_icon.contains("layerColors.firstOrNull()"));
+        assert!(font_icon.contains("androidx.compose.material3.LocalContentColor.current"));
         assert!(font_icon.contains("if (layers.size <= 1)"));
     }
 
@@ -6818,7 +6837,7 @@ mod tests {
         assert!(kotlin.contains("iconDescription = \"Inbox\""));
         assert!(kotlin.contains("iconDescription = \"Search\""));
         assert!(kotlin.contains("internal fun NexaIconContent("));
-        assert!(kotlin.contains("androidx.compose.runtime.remember(codepoint)"));
+        assert!(kotlin.contains("layer?.text ?: androidx.compose.runtime.remember(glyph)"));
         assert!(kotlin.contains("LocalDensity.current.fontScale).sp"));
         assert!(kotlin.contains("contentDescription = description?.takeIf(String::isNotEmpty)"));
         let empty_state_primitive = kotlin

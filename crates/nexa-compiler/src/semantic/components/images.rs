@@ -154,12 +154,13 @@ pub(super) fn lower_icon_component(
         let description = spec.description;
         let tint = spec.color;
         let size = spec.size;
+        let layer_colors = spec.layer_colors;
         return match spec.source {
             nexa_ir::IconSource::System(icon) => Ok(Node::SystemIcon {
                 icon,
                 description,
                 size,
-                tint,
+                tint: tint.or_else(|| layer_colors.into_iter().next()),
             }),
             nexa_ir::IconSource::FontGlyph {
                 font_family,
@@ -180,6 +181,7 @@ pub(super) fn lower_icon_component(
                     ty: NumericType::Float64,
                 }),
                 tint,
+                layer_colors,
             }),
         };
     }

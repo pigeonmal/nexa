@@ -96,8 +96,20 @@ pub(crate) fn spec(icon: &IconSpec) -> String {
     } else {
         format!(", layers = listOf({})", kotlin_layers(icon_layers))
     };
+    let layer_colors = if icon.layer_colors.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", layerColors = listOf({})",
+            icon.layer_colors
+                .iter()
+                .map(colors::expression_for_color)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     format!(
-        "NexaIconSpec({source}{description}{size}{tint}, preservesColor = {preserves_color}{layers})"
+        "NexaIconSpec({source}{description}{size}{tint}, preservesColor = {preserves_color}{layers}{layer_colors})"
     )
 }
 
@@ -106,8 +118,9 @@ fn kotlin_layers(layers: &[nexa_ir::IconGlyphLayer]) -> String {
         .iter()
         .map(|layer| {
             let [red, green, blue, alpha] = layer.rgba;
+            let tintable = if layer.tintable { ", tintable = true" } else { "" };
             format!(
-                "NexaIconLayer(glyph = {}, color = androidx.compose.ui.graphics.Color(red = {:.6}f, green = {:.6}f, blue = {:.6}f, alpha = {:.6}f))",
+                "NexaIconLayer(glyph = {}, color = androidx.compose.ui.graphics.Color(red = {:.6}f, green = {:.6}f, blue = {:.6}f, alpha = {:.6}f){tintable})",
                 layer.glyph,
                 f32::from(red) / 255.0,
                 f32::from(green) / 255.0,
@@ -161,14 +174,27 @@ pub(crate) struct FontIconRenderArgs<'a> {
     pub(crate) description: Option<&'a str>,
     pub(crate) size: Option<&'a nexa_ir::Expr>,
     pub(crate) tint: Option<&'a nexa_ir::ColorExpression>,
+    pub(crate) layer_colors: &'a [nexa_ir::ColorExpression],
 }
 
 pub(crate) fn render_font(icon: FontIconRenderArgs<'_>, depth: usize, out: &mut SourceWriter) {
     let resource_name = nexa_codegen::names::font_resource_name(icon.font_resource);
+    let layer_colors = if icon.layer_colors.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", layerColors = listOf({})",
+            icon.layer_colors
+                .iter()
+                .map(colors::expression_for_color)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     out.line_at(
         depth,
         format_args!(
-            "NexaFontIconPrimitive(glyph = {}, fontResource = R.font.{resource_name}, description = {}, size = {}, tint = {}, layers = listOf({}))",
+            "NexaFontIconPrimitive(glyph = {}, fontResource = R.font.{resource_name}, description = {}, size = {}, tint = {}, layers = listOf({}){layer_colors})",
             crate::generator::engine::expressions::expression(icon.glyph),
             icon.description.map(kotlin_string).unwrap_or_else(|| "null".to_owned()),
             icon.size.map(|value| format!("({}).toFloat().coerceIn(1f, 512f).dp", crate::generator::engine::expressions::expression(value))).unwrap_or_else(|| "null".to_owned()),

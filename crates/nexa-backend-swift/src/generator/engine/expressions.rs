@@ -565,6 +565,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             description,
             size,
             color,
+            layer_colors,
         } => {
             let mut args = Vec::new();
             if let Some(description) = description {
@@ -577,6 +578,16 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 args.push(format!(
                     "tint: {}",
                     crate::generator::colors::expression_for_color(color)
+                ));
+            }
+            if !layer_colors.is_empty() {
+                args.push(format!(
+                    "layerColors: [{}]",
+                    layer_colors
+                        .iter()
+                        .map(crate::generator::colors::expression_for_color)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
             if args.is_empty() {

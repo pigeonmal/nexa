@@ -43,8 +43,20 @@ pub(crate) fn spec(icon: &IconSpec) -> String {
     } else {
         format!(", layers: [{}]", swift_layers(layers))
     };
+    let layer_colors = if icon.layer_colors.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", layerColors: [{}]",
+            icon.layer_colors
+                .iter()
+                .map(colors::expression_for_color)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     format!(
-        "NexaIconSpec({constructor}{description}{size}{tint}{layers}, preservesColor: {preserves_color})"
+        "NexaIconSpec({constructor}{description}{size}{tint}{layers}{layer_colors}, preservesColor: {preserves_color})"
     )
 }
 
@@ -53,8 +65,9 @@ fn swift_layers(layers: &[nexa_ir::IconGlyphLayer]) -> String {
         .iter()
         .map(|layer| {
             let [red, green, blue, alpha] = layer.rgba;
+            let tintable = if layer.tintable { ", tintable: true" } else { "" };
             format!(
-                "NexaIconLayer(glyph: Int32({}), color: Color(.sRGB, red: {:.6}, green: {:.6}, blue: {:.6}, opacity: {:.6}))",
+                "NexaIconLayer(glyph: Int32({}), color: Color(.sRGB, red: {:.6}, green: {:.6}, blue: {:.6}, opacity: {:.6}){tintable})",
                 layer.glyph,
                 f64::from(red) / 255.0,
                 f64::from(green) / 255.0,
@@ -107,13 +120,26 @@ pub(crate) struct FontIconRenderArgs<'a> {
     pub(crate) description: Option<&'a str>,
     pub(crate) size: Option<&'a nexa_ir::Expr>,
     pub(crate) tint: Option<&'a nexa_ir::ColorExpression>,
+    pub(crate) layer_colors: &'a [nexa_ir::ColorExpression],
 }
 
 pub(crate) fn render_font(icon: FontIconRenderArgs<'_>, depth: usize, out: &mut SourceWriter) {
+    let layer_colors = if icon.layer_colors.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", layerColors: [{}]",
+            icon.layer_colors
+                .iter()
+                .map(colors::expression_for_color)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     out.line_at(
         depth,
         format_args!(
-            "NexaFontIconPrimitive(glyph: {}, fontFamily: {}, description: {}, size: {}, tint: {}, layers: [{}])",
+            "NexaFontIconPrimitive(glyph: {}, fontFamily: {}, description: {}, size: {}, tint: {}, layers: [{}]{layer_colors})",
             crate::generator::engine::expressions::expression(icon.glyph),
             swift_string(icon.font_family),
             icon.description

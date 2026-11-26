@@ -766,19 +766,20 @@ fn walk_invocation(
                     })
                     .is_some_and(|nodes| nodes_reference_name(nodes, name, target))
             };
-            if index_name != "_" && !nodes_reference_name(&rows.children, index_name, target) {
-                if !swipe_action_references(index_name) {
-                    push_warning(
-                        warnings,
-                        WarningCode::UNUSED_FAST_LIST_BINDING,
-                        inv.span,
-                        format!(
-                            "unused FastList index binding `{index_name}`{}",
-                            target_suffix(target)
-                        ),
-                        file,
-                    );
-                }
+            if index_name != "_"
+                && !nodes_reference_name(&rows.children, index_name, target)
+                && !swipe_action_references(index_name)
+            {
+                push_warning(
+                    warnings,
+                    WarningCode::UNUSED_FAST_LIST_BINDING,
+                    inv.span,
+                    format!(
+                        "unused FastList index binding `{index_name}`{}",
+                        target_suffix(target)
+                    ),
+                    file,
+                );
             }
             if let Some(item_name) = item_name
                 && rows.key.is_none()

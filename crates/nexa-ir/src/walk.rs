@@ -640,7 +640,11 @@ pub fn walk_ir(
                 }
             }
             Node::FontIcon {
-                glyph, size, tint, ..
+                glyph,
+                size,
+                tint,
+                layer_colors,
+                ..
             } => {
                 walk_expression(glyph, visit_expression);
                 if let Some(size) = size {
@@ -648,6 +652,11 @@ pub fn walk_ir(
                 }
                 if let Some(crate::ColorExpression::Dynamic(color)) = tint {
                     walk_expression(color, visit_expression);
+                }
+                for layer_color in layer_colors {
+                    if let crate::ColorExpression::Dynamic(color) = layer_color {
+                        walk_expression(color, visit_expression);
+                    }
                 }
             }
             Node::Icon { icon } => {
@@ -1027,11 +1036,26 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             if let Some(crate::ColorExpression::Dynamic(color)) = &spec.color {
                 walk_expression(color, visit);
             }
+            for layer_color in &spec.layer_colors {
+                if let crate::ColorExpression::Dynamic(color) = layer_color {
+                    walk_expression(color, visit);
+                }
+            }
         }
-        Expr::IconWith { base, color, .. } => {
+        Expr::IconWith {
+            base,
+            color,
+            layer_colors,
+            ..
+        } => {
             walk_expression(base, visit);
             if let Some(crate::ColorExpression::Dynamic(color)) = color {
                 walk_expression(color, visit);
+            }
+            for layer_color in layer_colors {
+                if let crate::ColorExpression::Dynamic(color) = layer_color {
+                    walk_expression(color, visit);
+                }
             }
         }
     }
@@ -3149,6 +3173,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             description,
             size,
             tint,
+            layer_colors,
         } => Some(Node::FontIcon {
             font_family,
             font_resource,
@@ -3156,12 +3181,11 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             layers,
             description,
             size: size.map(|size| folder.fold_expr(size)),
-            tint: tint.map(|tint| match tint {
-                crate::ColorExpression::Dynamic(color) => {
-                    crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
-                }
-                other => other,
-            }),
+            tint: tint.map(|tint| fold_color_expression(tint, folder)),
+            layer_colors: layer_colors
+                .into_iter()
+                .map(|color| fold_color_expression(color, folder))
+                .collect(),
         }),
         Node::Icon { icon } => Some(Node::Icon {
             icon: folder.fold_expr(icon),
@@ -3658,6 +3682,11 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
         | Expr::This(_) => expr,
         Expr::Icon(mut spec) => {
             spec.color = spec.color.map(|color| fold_color_expression(color, folder));
+            spec.layer_colors = spec
+                .layer_colors
+                .into_iter()
+                .map(|color| fold_color_expression(color, folder))
+                .collect();
             Expr::Icon(spec)
         }
         Expr::IconWith {
@@ -3665,11 +3694,16 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
             description,
             size,
             color,
+            layer_colors,
         } => Expr::IconWith {
             base: Box::new(folder.fold_expr(*base)),
             description,
             size,
             color: color.map(|color| fold_color_expression(color, folder)),
+            layer_colors: layer_colors
+                .into_iter()
+                .map(|color| fold_color_expression(color, folder))
+                .collect(),
         },
     }
 }

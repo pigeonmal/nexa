@@ -3626,11 +3626,13 @@ mod tests {
                 layers: vec![nexa_ir::IconGlyphLayer {
                     glyph: 0xF0000,
                     rgba: [225, 29, 72, 255],
+                    tintable: false,
                 }],
             },
             description: None,
             size: None,
             color: None,
+            layer_colors: Vec::new(),
         })
         .expect("serialize typed font icon with its SVG layer");
         assert_eq!(custom["source"]["FontGlyph"]["font_family"], "Brand_heart");

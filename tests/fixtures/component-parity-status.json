@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "current_agent_review": "IconCases",
+  "current_agent_review": "ImageCases",
   "agent_review_focus": [
     {
       "component": "Button",
@@ -80,7 +80,8 @@
     "FastListCases",
     "ScrollViewCases",
     "HapticCases",
-    "MarqueeCases"
+    "MarqueeCases",
+    "IconCases"
   ],
   "human_approved_components": [],
   "parameter_value_audit": {
@@ -297,7 +298,8 @@
       "Human verification approved (2026-11-22): the user approved TextCases (TextRoute) on iOS and Android after the font-family algorithm follow-up. Agent Review is approved; the next unapproved route in App.nx order is FastListCases.",
       "Human verification approved (2026-11-24): the user approved ScrollViewCases on iOS and Android. Agent Review is approved; active route advances to HapticCases.",
       "Human verification approved (2026-11-24): the user approved HapticCases. Agent Review is approved; active route advances to MarqueeCases.",
-      "Human verification approved (2026-11-24): the user approved MarqueeCases. Agent Review is approved; the next unapproved route in App.nx order is IconCases."
+      "Human verification approved (2026-11-24): the user approved MarqueeCases. Agent Review is approved; the next unapproved route in App.nx order is IconCases.",
+      "Human verification approved (2026-11-26): the user approved IconCases on iOS and Android after multilayer SVG color unification and font icon rendering optimizations. Agent Review is approved; active route advances to ImageCases."
     ]
   },
   "agent_review": {
@@ -325,8 +327,8 @@
     "FastListCases": "Approved",
     "RefreshCases": "Approved",
     "KeyboardCases": "Approved",
-    "IconCases": "In progress",
-    "ImageCases": "Pending",
+    "IconCases": "Approved",
+    "ImageCases": "In progress",
     "GradientCases": "Pending",
     "LinkCases": "Pending",
     "NavigationBackCases": "Pending",

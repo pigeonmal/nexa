@@ -395,7 +395,8 @@ private func nexaDevIconSpec(
             }
             return devColor(value, isDark: isDark)
         }()
-        return base.withOverrides(description: description, size: size, tint: tint)
+        let layerColors = nexaDevIconLayerColors(withSpec["layer_colors"], store: store, locals: locals, scope: scope, isDark: isDark)
+        return base.withOverrides(description: description, size: size, tint: tint, layerColors: layerColors)
     }
     let icon = (unwrapped["Icon"] as? [String: Any]) ?? unwrapped
     let source = icon["source"] as? [String: Any] ?? icon
@@ -408,6 +409,7 @@ private func nexaDevIconSpec(
         }
         return devColor(value, isDark: isDark)
     }()
+    let layerColors = nexaDevIconLayerColors(icon["layer_colors"], store: store, locals: locals, scope: scope, isDark: isDark)
     if let glyph = (source["FontGlyph"] as? [String: Any] ?? source["font_glyph"] as? [String: Any]),
        let family = glyph["font_family"] as? String,
        let codepoint = glyph["glyph"] as? NSNumber,
@@ -419,6 +421,7 @@ private func nexaDevIconSpec(
             size: size,
             tint: tint,
             layers: nexaDevIconLayers(glyph["layers"]),
+            layerColors: layerColors,
             preservesColor: true
         )
     }
@@ -427,9 +430,26 @@ private func nexaDevIconSpec(
         ?? source
     if let shared = system["shared"] as? String,
        let symbol = nexaDevSharedIconSymbol(shared) {
-        return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint)
+        return NexaIconSpec(symbol: symbol, description: description, size: size, tint: tint, layerColors: layerColors)
     }
     return nil
+}
+
+@MainActor
+private func nexaDevIconLayerColors(
+    _ raw: Any?,
+    store: NexaDevStateStore,
+    locals: [String: Any],
+    scope: String,
+    isDark: Bool
+) -> [Color] {
+    guard let list = raw as? [[String: Any]] else { return [] }
+    return list.compactMap { value in
+        if let dynamic = value["Dynamic"] {
+            return devHexColor(store.stringify(store.evaluate(dynamic, locals: locals, scope: scope)))
+        }
+        return devColor(value, isDark: isDark)
+    }
 }
 
 private func nexaDevIconLayers(_ raw: Any?) -> [NexaIconLayer] {
@@ -446,7 +466,8 @@ private func nexaDevIconLayers(_ raw: Any?) -> [NexaIconLayer] {
                 green: Double(rgba[1].intValue) / 255,
                 blue: Double(rgba[2].intValue) / 255,
                 opacity: Double(rgba[3].intValue) / 255
-            )
+            ),
+            tintable: layer["tintable"] as? Bool ?? false
         )
     }
 }
@@ -3055,7 +3076,8 @@ struct NexaDevNodeList: View {
                 description: description,
                 size: size,
                 tint: tint,
-                layers: nexaDevIconLayers(fields["layers"])
+                layers: nexaDevIconLayers(fields["layers"]),
+                layerColors: nexaDevIconLayerColors(fields["layer_colors"], store: store, locals: locals, scope: scope, isDark: colorScheme == .dark)
             ))
         case "LinearGradient":
             let start = devColor(fields["start_color"], isDark: colorScheme == .dark) ?? .clear

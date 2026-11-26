@@ -3231,21 +3231,24 @@ fn lower_icon_member(
         .map(|layer| nexa_ir::IconGlyphLayer {
             glyph: layer.glyph,
             rgba: layer.rgba,
+            tintable: layer.tintable,
         })
         .collect();
     let mut final_glyph = glyph;
     let mut color = None;
     if let [layer] = layers.as_slice() {
         final_glyph = layer.glyph;
-        let [red, green, blue, alpha] = layer.rgba;
-        color = Some(nexa_ir::ColorExpression::Static(
-            nexa_ir::ColorValue::Static(nexa_ir::Color {
-                red,
-                green,
-                blue,
-                alpha,
-            }),
-        ));
+        if !layer.tintable {
+            let [red, green, blue, alpha] = layer.rgba;
+            color = Some(nexa_ir::ColorExpression::Static(
+                nexa_ir::ColorValue::Static(nexa_ir::Color {
+                    red,
+                    green,
+                    blue,
+                    alpha,
+                }),
+            ));
+        }
         layers.clear();
     }
     Ok(Expr::Icon(Box::new(nexa_ir::IconSpec {
@@ -3258,6 +3261,7 @@ fn lower_icon_member(
         description: None,
         size: None,
         color,
+        layer_colors: Vec::new(),
     })))
 }
 
@@ -3297,6 +3301,18 @@ pub(super) fn lower_icon_constructor(
     let mut description = None;
     let mut size = None;
     let mut color = None;
+    let mut layer_colors = Vec::new();
+    let parse_icon_color = |expr: &ast::Expr| -> Result<nexa_ir::ColorExpression, CompileError> {
+        if matches!(expr, ast::Expr::String(_, _) | ast::Expr::ThemeToken(_, _)) {
+            let empty_themes = super::themes::ThemeSymbols::default();
+            let themes = ctx.themes.unwrap_or(&empty_themes);
+            super::styles::parse_color(expr.clone(), themes, "Icon color")
+                .map(nexa_ir::ColorExpression::Static)
+        } else {
+            lower_expr(expr, Some(&Type::String), ctx)
+                .map(|lowered| nexa_ir::ColorExpression::Dynamic(Box::new(lowered)))
+        }
+    };
     if let Some(arguments) = named_arguments {
         for (key, value) in arguments {
             match key.as_str() {
@@ -3329,19 +3345,19 @@ pub(super) fn lower_icon_constructor(
                     size = Some(parsed);
                 }
                 "color" => {
-                    let parsed_color = if matches!(
-                        value,
-                        ast::Expr::String(_, _) | ast::Expr::ThemeToken(_, _)
-                    ) {
-                        let empty_themes = super::themes::ThemeSymbols::default();
-                        let themes = ctx.themes.unwrap_or(&empty_themes);
-                        super::styles::parse_color(value.clone(), themes, "Icon color")
-                            .map(nexa_ir::ColorExpression::Static)?
+                    if let ast::Expr::Array(items, array_span) = value {
+                        if items.is_empty() {
+                            return Err(CompileError::new(
+                                *array_span,
+                                "Icon color array cannot be empty",
+                            ));
+                        }
+                        for item in items {
+                            layer_colors.push(parse_icon_color(item)?);
+                        }
                     } else {
-                        lower_expr(value, Some(&Type::String), ctx)
-                            .map(|expr| nexa_ir::ColorExpression::Dynamic(Box::new(expr)))?
-                    };
-                    color = Some(parsed_color);
+                        color = Some(parse_icon_color(value)?);
+                    }
                 }
                 _ => {
                     return Err(CompileError::new(
@@ -3363,10 +3379,14 @@ pub(super) fn lower_icon_constructor(
         }
         if let Some(color) = color {
             spec.color = Some(color);
+            spec.layer_colors.clear();
+        } else if !layer_colors.is_empty() {
+            spec.layer_colors = layer_colors;
+            spec.color = None;
         }
         return Ok(Expr::Icon(spec));
     }
-    if description.is_none() && size.is_none() && color.is_none() {
+    if description.is_none() && size.is_none() && color.is_none() && layer_colors.is_empty() {
         return Ok(base_expr);
     }
     Ok(Expr::IconWith {
@@ -3374,6 +3394,7 @@ pub(super) fn lower_icon_constructor(
         description,
         size,
         color,
+        layer_colors,
     })
 }
 

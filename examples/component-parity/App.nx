@@ -35,8 +35,8 @@ app ComponentParity {
     screen Catalog {
         Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
-                NavigationLink(destination: IconCases) {
-                    Text("Icon sizes and tint")
+                NavigationLink(destination: ImageCases) {
+                    Text("Image asset rendering")
                 }
             }
             Section(title: "Layout") {
@@ -2383,9 +2383,11 @@ app ComponentParity {
             ParityCard(title: "Prebuilt font and SVG-converted font") {
                 Row(gap: 16, alignment: Center) {
                     Icon(Icons.mazicon.play, size: 28, description: "Mazicon prebuilt font glyph")
-                    Icon(Icons.Brand.heart, size: 28, description: "Brand icon generated from SVG")
+                    Icon(Icons.Brand.heart, size: 28, description: "Brand icon generated from single-layer SVG")
+                    Icon(Icons.Brand.badge, size: 28, description: "Brand badge multilayer SVG")
+                    Icon(Icons.Brand.badge, size: 28, color: ["#10B981", "#FFFFFF"], description: "Brand badge per-layer colors")
                 }
-                Text("Mazicon uses a named TTF sidecar; Brand is generated from SVG.", fontSize: 14)
+                Text("Mazicon uses a named TTF sidecar; Brand heart is single-layer, badge is multilayer with original or per-layer colors.", fontSize: 14)
             }
             ParityCard(title: "System and custom icon component slots") {
                 Column(gap: 8) {

@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct IconGlyphLayer {
     pub glyph: u32,
     pub rgba: [u8; 4],
+    #[serde(default)]
+    pub tintable: bool,
 }
 
 /// The compile-time source for an icon value. Platform icons and project
@@ -41,6 +43,9 @@ pub struct IconSpec {
     /// tint and custom fonts retain their original glyph paint.
     #[serde(default)]
     pub color: Option<ColorExpression>,
+    /// Per-layer color overrides for multilayer SVG icons (`colors: [...]`).
+    #[serde(default)]
+    pub layer_colors: Vec<ColorExpression>,
 }
 
 impl IconSpec {
@@ -50,6 +55,7 @@ impl IconSpec {
             description: None,
             size: None,
             color: None,
+            layer_colors: Vec::new(),
         }
     }
 
@@ -68,6 +74,7 @@ impl IconSpec {
             description: None,
             size: None,
             color: None,
+            layer_colors: Vec::new(),
         }
     }
 }

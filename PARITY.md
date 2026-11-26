@@ -1,6 +1,6 @@
 # Nexa Agent Review
 
-> **In progress** · 27 reviewed · 1 in progress · 16 pending · iOS + Android · native AOT + DevRuntime
+> **In progress** · 28 reviewed · 1 in progress · 15 pending · iOS + Android · native AOT + DevRuntime
 
 Review shared behavior and appearance across iOS and Android. Build success and sampled device checks do not establish exhaustive parity.
 
@@ -52,10 +52,11 @@ python3 tests/render_component_parity_report.py --check
 - Human verification approved (2026-11-24): the user approved ScrollViewCases on iOS and Android. Agent Review is approved; active route advances to HapticCases.
 - Human verification approved (2026-11-24): the user approved HapticCases. Agent Review is approved; active route advances to MarqueeCases.
 - Human verification approved (2026-11-24): the user approved MarqueeCases. Agent Review is approved; the next unapproved route in App.nx order is IconCases.
+- Human verification approved (2026-11-26): the user approved IconCases on iOS and Android after multilayer SVG color unification and font icon rendering optimizations. Agent Review is approved; active route advances to ImageCases.
 
 ## Route review
 
-Active route: **IconCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
+Active route: **ImageCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
 
 | Route | Human review | Agent Review |
 |---|---|---|
@@ -86,8 +87,8 @@ Active route: **IconCases**. Human approval also approves Agent Review; Agent Re
 | MarqueeCases | Approved | Approved |
 | RefreshCases | Approved | Approved |
 | KeyboardCases | Approved | Approved |
-| IconCases | Pending | In progress |
-| ImageCases | Pending | Pending |
+| IconCases | Approved | Approved |
+| ImageCases | Pending | In progress |
 | GradientCases | Pending | Pending |
 | LinkCases | Pending | Pending |
 | NavigationBackCases | Pending | Pending |

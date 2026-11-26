@@ -30,6 +30,8 @@ type IconLayers = BTreeMap<String, Vec<IconGlyphLayer>>;
 pub struct IconGlyphLayer {
     pub glyph: u32,
     pub rgba: [u8; 4],
+    #[serde(default)]
+    pub tintable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -641,14 +643,22 @@ fn generate_svg_font(
     let source_root = source_cache.join(set_name);
     fs::create_dir_all(&source_root)
         .map_err(|error| format!("{}: {error}", source_root.display()))?;
+    let mut current_color_sentinels: BTreeMap<String, [u8; 3]> = BTreeMap::new();
     let normalized_files = files
         .iter()
         .map(|file| {
             let filename = file
                 .file_name()
                 .ok_or_else(|| format!("invalid icon filename: {}", file.display()))?;
+            let stem = file
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| format!("invalid icon filename: {}", file.display()))?
+                .to_owned();
             let normalized = source_root.join(filename);
-            normalize_svg_for_font(file, &normalized)?;
+            if let Some(sentinel) = normalize_svg_for_font(file, &normalized)? {
+                current_color_sentinels.insert(stem, sentinel);
+            }
             Ok(normalized)
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -690,7 +700,8 @@ fn generate_svg_font(
     let bytes = generated
         .ttf_bytes()
         .ok_or_else(|| format!("font generator produced no TTF for set `{set_name}`"))?;
-    let (bytes, layers) = add_color_layer_codepoints(bytes.to_vec(), &icons, set_name)?;
+    let (bytes, layers) =
+        add_color_layer_codepoints(bytes.to_vec(), &icons, &current_color_sentinels, set_name)?;
     fs::create_dir_all(output_path.parent().unwrap_or_else(|| Path::new(".")))
         .map_err(|error| format!("{}: {error}", output_path.display()))?;
     write_generated_file(output_path, &bytes)?;
@@ -700,6 +711,7 @@ fn generate_svg_font(
 fn add_color_layer_codepoints(
     bytes: Vec<u8>,
     icons: &BTreeMap<String, u32>,
+    current_color_sentinels: &BTreeMap<String, [u8; 3]>,
     set_name: &str,
 ) -> Result<(Vec<u8>, IconLayers), String> {
     use ttf_parser::colr::{Paint, Painter};
@@ -778,6 +790,7 @@ fn add_color_layer_codepoints(
             if collector.layers.is_empty() {
                 continue;
             }
+            let sentinel = current_color_sentinels.get(name).copied();
             let mut icon_layers = Vec::with_capacity(collector.layers.len());
             for (layer_glyph, rgba) in collector.layers {
                 if next_layer_codepoint > LAST_LAYER_PRIVATE_USE {
@@ -787,9 +800,11 @@ fn add_color_layer_codepoints(
                 }
                 mappings.push((next_layer_codepoint, layer_glyph));
                 metric_overrides.push((layer_glyph, base_advance));
+                let tintable = sentinel.is_some_and(|rgb| rgba[..3] == rgb);
                 icon_layers.push(IconGlyphLayer {
                     glyph: next_layer_codepoint,
-                    rgba,
+                    rgba: if tintable { [0, 0, 0, rgba[3]] } else { rgba },
+                    tintable,
                 });
                 next_layer_codepoint += 1;
             }
@@ -1072,7 +1087,10 @@ fn validate_svg(file: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn normalize_svg_for_font(source_path: &Path, output_path: &Path) -> Result<(), String> {
+fn normalize_svg_for_font(
+    source_path: &Path,
+    output_path: &Path,
+) -> Result<Option<[u8; 3]>, String> {
     use std::fmt::Write as _;
 
     fn paint_color(paint: &usvg::Paint, file: &Path) -> Result<usvg::Color, String> {
@@ -1220,8 +1238,9 @@ fn normalize_svg_for_font(source_path: &Path, output_path: &Path) -> Result<(), 
         Ok(())
     }
 
-    let source = fs::read_to_string(source_path)
+    let raw_source = fs::read_to_string(source_path)
         .map_err(|error| format!("{}: {error}", source_path.display()))?;
+    let (source, current_color_sentinel) = replace_current_color_with_sentinel(&raw_source);
     let tree = usvg::Tree::from_str(&source, &usvg::Options::default()).map_err(|error| {
         format!(
             "{}: invalid or unsupported SVG: {error}",
@@ -1239,7 +1258,37 @@ fn normalize_svg_for_font(source_path: &Path, output_path: &Path) -> Result<(), 
         size.height(),
     );
     fs::write(output_path, normalized)
-        .map_err(|error| format!("{}: {error}", output_path.display()))
+        .map_err(|error| format!("{}: {error}", output_path.display()))?;
+    Ok(current_color_sentinel)
+}
+
+fn replace_current_color_with_sentinel(source: &str) -> (String, Option<[u8; 3]>) {
+    let lower = source.to_ascii_lowercase();
+    if !lower.contains("currentcolor") {
+        return (source.to_owned(), None);
+    }
+    let candidates: [([u8; 3], &str); 4] = [
+        ([0x01, 0x02, 0x03], "#010203"),
+        ([0xFE, 0x02, 0x03], "#fe0203"),
+        ([0x01, 0xFE, 0x03], "#01fe03"),
+        ([0x01, 0x02, 0xFE], "#0102fe"),
+    ];
+    let Some((rgb, hex)) = candidates
+        .into_iter()
+        .find(|(_, hex)| !lower.contains(hex))
+    else {
+        return (source.to_owned(), None);
+    };
+    let mut out = String::with_capacity(source.len());
+    let mut cursor = 0;
+    while let Some(pos) = lower[cursor..].find("currentcolor") {
+        let abs = cursor + pos;
+        out.push_str(&source[cursor..abs]);
+        out.push_str(hex);
+        cursor = abs + "currentcolor".len();
+    }
+    out.push_str(&source[cursor..]);
+    (out, Some(rgb))
 }
 
 fn read_icon_map(path: &Path) -> Result<BTreeMap<String, u32>, String> {

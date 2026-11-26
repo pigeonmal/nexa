@@ -518,6 +518,7 @@ pub(crate) fn render_node_with_linear_parent(
             description,
             size,
             tint,
+            layer_colors,
         } => system_icons::render_font(
             system_icons::FontIconRenderArgs {
                 font_resource,
@@ -526,6 +527,7 @@ pub(crate) fn render_node_with_linear_parent(
                 description: description.as_deref(),
                 size: size.as_ref(),
                 tint: tint.as_ref(),
+                layer_colors,
             },
             depth,
             out,

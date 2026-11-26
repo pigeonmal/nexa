@@ -387,10 +387,18 @@ private fun nexaDevIconSpec(
         } else {
             nexaDevColor(colorValue, isSystemInDarkTheme())
         }
+        val layerColors = nexaDevIconLayerColors(withSpec.optJSONArray("layer_colors"), store, locals, scope)
+        val resolvedTint = if (layerColors.isNotEmpty()) null else (tint ?: base.tint)
+        val resolvedLayerColors = when {
+            layerColors.isNotEmpty() -> layerColors
+            tint != null -> emptyList()
+            else -> base.layerColors
+        }
         return base.copy(
             description = description ?: base.description,
             size = size ?: base.size,
-            tint = tint ?: base.tint,
+            tint = resolvedTint,
+            layerColors = resolvedLayerColors,
         )
     }
     val selection = unwrapped.optJSONObject("Icon") ?: unwrapped
@@ -408,6 +416,7 @@ private fun nexaDevIconSpec(
     } else {
         nexaDevColor(colorValue, isSystemInDarkTheme())
     }
+    val layerColors = nexaDevIconLayerColors(selection.optJSONArray("layer_colors"), store, locals, scope)
     val fontGlyph = source.optJSONObject("FontGlyph") ?: source.optJSONObject("font_glyph")
     if (fontGlyph != null) {
         val family = fontGlyph.optString("font_family")
@@ -421,6 +430,7 @@ private fun nexaDevIconSpec(
                 tint = tint,
                 preservesColor = true,
                 layers = nexaDevIconLayers(fontGlyph.optJSONArray("layers")),
+                layerColors = layerColors,
             )
         }
         return null
@@ -432,9 +442,33 @@ private fun nexaDevIconSpec(
         null
     } ?: return null
     return if (system.optString("shared") == "search") {
-        NexaIconSpec(vector = vector, description = description, size = size, tint = tint, symbolScale = __NEXA_MATERIAL_SEARCH_SIZE_SCALE__f)
+        NexaIconSpec(vector = vector, description = description, size = size, tint = tint, layerColors = layerColors, symbolScale = __NEXA_MATERIAL_SEARCH_SIZE_SCALE__f)
     } else {
-        NexaIconSpec(vector = vector, description = description, size = size, tint = tint)
+        NexaIconSpec(vector = vector, description = description, size = size, tint = tint, layerColors = layerColors)
+    }
+}
+
+@Composable
+private fun nexaDevIconLayerColors(
+    values: JSONArray?,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+): List<Color> {
+    values ?: return emptyList()
+    return buildList {
+        for (index in 0 until values.length()) {
+            val colorValue = values.optJSONObject(index) ?: continue
+            val dynamicColor = colorValue.opt("Dynamic")
+            val resolved = if (dynamicColor != null && dynamicColor != JSONObject.NULL) {
+                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicColor, locals, scope)))
+            } else {
+                nexaDevColor(colorValue, isSystemInDarkTheme())
+            }
+            if (resolved != null) {
+                add(resolved)
+            }
+        }
     }
 }
 
@@ -454,6 +488,7 @@ private fun nexaDevIconLayers(values: JSONArray?): List<NexaIconLayer> {
                         blue = rgba.optInt(2, 0) / 255f,
                         alpha = rgba.optInt(3, 255) / 255f,
                     ),
+                    tintable = layer.optBoolean("tintable", false),
                 ),
             )
         }
@@ -1942,6 +1977,7 @@ private fun NexaDevRenderTextNode(
                 },
                 tint = tint,
                 layers = nexaDevIconLayers(fields.optJSONArray("layers")),
+                layerColors = nexaDevIconLayerColors(fields.optJSONArray("layer_colors"), store, locals, scope),
                 modifier = modifier,
                 fontFamily = nexaDevIconFontFamily(fields.optString("font_family")),
             )

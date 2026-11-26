@@ -692,12 +692,14 @@ pub enum Expr {
     TryAwait(Box<Expr>),
     /// A compile-time resolved icon literal or configured icon value.
     Icon(Box<IconSpec>),
-    /// A dynamic `Icon` expression with local overrides (`Icon(expr, size: ..., color: ..., description: ...)`).
+    /// A dynamic `Icon` expression with local overrides (`Icon(expr, size: ..., color: ..., colors: ..., description: ...)`).
     IconWith {
         base: Box<Expr>,
         description: Option<String>,
         size: Option<f32>,
         color: Option<ColorExpression>,
+        #[serde(default)]
+        layer_colors: Vec<ColorExpression>,
     },
     ResultOk {
         value: Box<Expr>,
@@ -1125,6 +1127,8 @@ pub enum Node {
         size: Option<Expr>,
         #[serde(default)]
         tint: Option<ColorExpression>,
+        #[serde(default)]
+        layer_colors: Vec<ColorExpression>,
     },
     /// A dynamically evaluated `Icon(...)` node in a layout body.
     Icon {

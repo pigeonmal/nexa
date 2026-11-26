@@ -2124,6 +2124,15 @@ struct NexaSystemIconPrimitive: View {
 struct NexaIconLayer: Equatable, Hashable {
     let glyph: Int32
     let color: Color
+    let tintable: Bool
+    let text: String
+
+    init(glyph: Int32, color: Color, tintable: Bool = false) {
+        self.glyph = glyph
+        self.color = color
+        self.tintable = tintable
+        self.text = UnicodeScalar(Int(glyph)).map { String($0) } ?? "\u{FFFD}"
+    }
 }
 
 // nexa-codegen: NexaIconSpec
@@ -2136,8 +2145,9 @@ struct NexaIconSpec: Equatable, Hashable {
     let tint: Color?
     let preservesColor: Bool
     let layers: [NexaIconLayer]
+    let layerColors: [Color]
 
-    init(symbol: String, description: String? = nil, size: CGFloat? = nil, tint: Color? = nil, preservesColor: Bool = false) {
+    init(symbol: String, description: String? = nil, size: CGFloat? = nil, tint: Color? = nil, preservesColor: Bool = false, layerColors: [Color] = []) {
         self.symbol = symbol
         self.glyph = nil
         self.fontFamily = nil
@@ -2146,9 +2156,10 @@ struct NexaIconSpec: Equatable, Hashable {
         self.tint = tint
         self.preservesColor = preservesColor
         self.layers = []
+        self.layerColors = layerColors
     }
 
-    init(glyph: Int32, fontFamily: String, description: String? = nil, size: CGFloat? = nil, tint: Color? = nil, layers: [NexaIconLayer] = [], preservesColor: Bool = true) {
+    init(glyph: Int32, fontFamily: String, description: String? = nil, size: CGFloat? = nil, tint: Color? = nil, layers: [NexaIconLayer] = [], layerColors: [Color] = [], preservesColor: Bool = true) {
         self.symbol = nil
         self.glyph = glyph
         self.fontFamily = fontFamily
@@ -2157,17 +2168,27 @@ struct NexaIconSpec: Equatable, Hashable {
         self.tint = tint
         self.preservesColor = preservesColor
         self.layers = layers
+        self.layerColors = layerColors
     }
 
-    func withOverrides(description: String? = nil, size: CGFloat? = nil, tint: Color? = nil) -> NexaIconSpec {
+    func withOverrides(description: String? = nil, size: CGFloat? = nil, tint: Color? = nil, layerColors: [Color] = []) -> NexaIconSpec {
+        let resolvedTint: Color? = layerColors.isEmpty ? (tint ?? self.tint) : nil
+        let resolvedLayerColors: [Color] = if !layerColors.isEmpty {
+            layerColors
+        } else if tint != nil {
+            []
+        } else {
+            self.layerColors
+        }
         if let glyph, let fontFamily {
             return NexaIconSpec(
                 glyph: glyph,
                 fontFamily: fontFamily,
                 description: description ?? self.description,
                 size: size ?? self.size,
-                tint: tint ?? self.tint,
+                tint: resolvedTint,
                 layers: layers,
+                layerColors: resolvedLayerColors,
                 preservesColor: preservesColor
             )
         }
@@ -2175,8 +2196,9 @@ struct NexaIconSpec: Equatable, Hashable {
             symbol: symbol ?? "questionmark",
             description: description ?? self.description,
             size: size ?? self.size,
-            tint: tint ?? self.tint,
-            preservesColor: preservesColor
+            tint: resolvedTint,
+            preservesColor: preservesColor,
+            layerColors: resolvedLayerColors
         )
     }
 }
@@ -2198,7 +2220,8 @@ struct NexaIconView: View {
                 description: icon.description ?? description,
                 size: displaySize,
                 tint: displayTint,
-                layers: icon.layers
+                layers: icon.layers,
+                layerColors: icon.layerColors
             )
         } else if let symbol = icon.symbol {
             let image = Image(systemName: symbol)
@@ -2240,28 +2263,63 @@ struct NexaFontIconPrimitive: View {
     let description: String?
     let size: CGFloat?
     let tint: Color?
-    var layers: [NexaIconLayer] = []
+    let layers: [NexaIconLayer]
+    let layerColors: [Color]
+    private let glyphText: String
+
+    init(
+        glyph: Int32,
+        fontFamily: String,
+        description: String?,
+        size: CGFloat?,
+        tint: Color?,
+        layers: [NexaIconLayer] = [],
+        layerColors: [Color] = []
+    ) {
+        self.glyph = glyph
+        self.fontFamily = fontFamily
+        self.description = description
+        self.size = size
+        self.tint = tint
+        self.layers = layers
+        self.layerColors = layerColors
+        self.glyphText = layers.first?.text ?? (UnicodeScalar(Int(glyph)).map { String($0) } ?? "\u{FFFD}")
+    }
 
     @ViewBuilder var body: some View {
         if layers.count <= 1 {
             let layer = layers.first
-            let glyphText = UnicodeScalar(Int(layer?.glyph ?? glyph)).map { String($0) } ?? "�"
             let text = Text(glyphText).font(.custom(fontFamily, size: size ?? 17))
-            if let tint = tint ?? layer?.color {
-                accessible(text.foregroundStyle(tint))
+            let resolvedTint = layerColors.first ?? tint ?? (layer?.tintable == true ? nil : layer?.color)
+            if let resolvedTint {
+                accessible(text.foregroundStyle(resolvedTint))
             } else {
                 accessible(text)
             }
         } else {
+            let hasTintableLayers = layers.contains(where: { $0.tintable })
             accessible(ZStack {
                 ForEach(layers.indices, id: \.self) { index in
                     let layer = layers[index]
-                    let glyphText = UnicodeScalar(Int(layer.glyph)).map { String($0) } ?? "�"
-                    Text(glyphText)
-                        .font(.custom(fontFamily, size: size ?? 17))
-                        .foregroundStyle(tint ?? layer.color)
+                    let text = Text(layer.text)
+                    let layerColor: Color? = if index < layerColors.count {
+                        layerColors[index]
+                    } else if let last = layerColors.last {
+                        last
+                    } else if layer.tintable {
+                        tint
+                    } else if hasTintableLayers {
+                        layer.color
+                    } else {
+                        tint ?? layer.color
+                    }
+                    if let layerColor {
+                        text.foregroundStyle(layerColor)
+                    } else {
+                        text
+                    }
                 }
-            })
+            }.font(.custom(fontFamily, size: size ?? 17)))
         }
     }
 

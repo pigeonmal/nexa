@@ -616,6 +616,7 @@ pub(crate) fn render_node(
             description,
             size,
             tint,
+            layer_colors,
         } => system_icons::render_font(
             system_icons::FontIconRenderArgs {
                 font_family,
@@ -624,6 +625,7 @@ pub(crate) fn render_node(
                 description: description.as_deref(),
                 size: size.as_ref(),
                 tint: tint.as_ref(),
+                layer_colors,
             },
             depth,
             out,
