@@ -11,6 +11,7 @@ pub(crate) struct Features {
     pub(crate) uses_refresh_control: bool,
     pub(crate) uses_refresh_scroll: bool,
     pub(crate) uses_asset: bool,
+    pub(crate) uses_gif_asset: bool,
     pub(crate) uses_tab_badge: bool,
     pub(crate) uses_adaptive_tabs: bool,
     pub(crate) uses_page_pager: bool,
@@ -217,6 +218,7 @@ impl Features {
         self.uses_refresh_control = ui.refresh.present || ui.lists.refresh_fused;
         self.uses_refresh_scroll = ui.refresh.scroll_variant;
         self.uses_asset = ui.image.asset;
+        self.uses_gif_asset = ui.image.gif_asset;
         self.uses_placeholder = ui.image.placeholder;
 
         let lists = &ui.lists;
@@ -445,6 +447,7 @@ impl Features {
         self.uses_mutable_generic_state = types.mutable_generic;
         self.uses_navigation_uri = types.string_route_param;
         self.uses_native_library = self.uses_network_transport()
+            || self.uses_gif_asset
             || self.uses_network_connectivity
             || self.uses_path_api
             || self.uses_file_api;

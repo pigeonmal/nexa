@@ -41,9 +41,9 @@ fn android_project_images_use_resource_ids_and_only_dynamic_names_need_keep_rule
     fs::write(
         &entry,
         r#"app ImageAudit { body {
-    Image(asset: "hero_banner", description: "Hero")
-    Image(asset: "native_banner", description: "Native hero")
-    Image(url: "https://example.test/hero.png", placeholder: "when", description: "Remote hero")
+    Image(asset: "hero_banner.png", description: "Hero")
+    Image(asset: "native_banner.png", description: "Native hero")
+    Image(url: "https://example.test/hero.png", placeholder: "when.png", description: "Remote hero")
 } }"#,
     )
     .unwrap();
@@ -195,11 +195,17 @@ fn app_image_names_and_formats_are_validated_before_copying() {
     fs::remove_dir_all(project.path().join("assets/images")).unwrap();
     let image_dir = project.path().join("assets/images");
     fs::create_dir_all(&image_dir).unwrap();
-    fs::write(image_dir.join("unknown.gif"), b"GIF89a").unwrap();
+    fs::write(image_dir.join("unknown.bmp"), b"BM").unwrap();
     let error = assets::project_images(project.path())
         .err()
         .expect("unsupported source formats should fail");
     assert!(error.contains("unsupported app image asset format"));
+
+    fs::remove_file(image_dir.join("unknown.bmp")).unwrap();
+    fs::write(image_dir.join("spinner.gif"), b"GIF89a").unwrap();
+    let images = assets::project_images(project.path()).expect("gif assets should be discovered");
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].name, "spinner");
 }
 
 #[test]

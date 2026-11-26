@@ -769,7 +769,9 @@ pub(crate) fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut Source
     render_required_outer_width(style, depth, out);
     render_required_outer_height(style, depth, out);
     let effects = &style.effects;
-    if let Some(opacity) = style.opacity {
+    if let Some(opacity) = style.opacity
+        && opacity < 1.0
+    {
         out.push_str(&format!(
             "\n{}.graphicsLayer(alpha = {}f, compositingStrategy = CompositingStrategy.Offscreen)",
             spaces(depth),
@@ -786,7 +788,9 @@ pub(crate) fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut Source
     {
         super::graphics_layer::append_multiline(effects, depth, out);
     }
-    if let Some(blur) = effects.blur {
+    if let Some(blur) = effects.blur
+        && blur > 0.0
+    {
         out.push_str(&format!("\n{}.blur({}.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)", spaces(depth), number(blur)));
     }
     if let Some(shadow) = effects.shadow {
@@ -1297,10 +1301,11 @@ mod tests {
     fn dev_runtime_preserves_fixed_height_with_the_same_top_alignment() {
         let renderer = include_str!("../../../../../runtime/android/NexaDevRenderer.kt");
         let layout = renderer
-            .split("\"Layout\" -> {")
+            .split("private fun nexaDevApplyViewStyleModifier(")
             .nth(1)
-            .and_then(|source| source.split("\n        \"Text\" -> {").next())
-            .expect("find DevRuntime layout dispatch");
+            .and_then(|source| source.split("\n@Composable\n").next())
+            .expect("find DevRuntime view style modifier helper");
+        assert!(renderer.contains("nexaDevApplyViewStyleModifier(modifier, style, store, locals, scope)"));
 
         assert!(layout.contains(
             ".wrapContentHeight(LocalNexaLayoutOverflowAlignment.current, unbounded = true)"

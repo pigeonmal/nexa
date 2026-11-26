@@ -39,7 +39,7 @@ component CreateScreen() {
 
             if selectedUri == "" {
                 Stack(alignment: Center, height: 380, background: "#202024", cornerRadius: 10, clip: Rounded(10)) {
-                    Image(asset: "poster_city_pexels_20131950", description: "Video upload preview", scale: Fill, fillMaxSize: true)
+                    Image(asset: "poster_city_pexels_20131950.jpg", description: "Video upload preview", fit: Fill, width: Fill, height: Fill)
                     LinearGradient(startColor: "#00000020", endColor: "#000000D9", direction: TopToBottom, height: 380)
                     Column(gap: 10, alignment: Center, padding: 22) {
                         Icon(Icons.system.movie, description: "Video upload", size: 38, color: "#FFFFFF")

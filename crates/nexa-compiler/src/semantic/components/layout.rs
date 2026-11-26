@@ -1,6 +1,35 @@
 //! Typed layout component lowering. Keep recursive nodes in separate stack frames.
 use super::*;
 
+pub(super) fn take_view_style_args(args: &mut BTreeMap<String, ast::Expr>) -> ast::LayoutStyle {
+    ast::LayoutStyle {
+        alignment: args.remove("alignment"),
+        horizontal_arrangement: args.remove("horizontalArrangement"),
+        width: args.remove("width"),
+        height: args.remove("height"),
+        min_width: args.remove("minWidth"),
+        max_width: args.remove("maxWidth"),
+        min_height: args.remove("minHeight"),
+        max_height: args.remove("maxHeight"),
+        background: args.remove("background"),
+        corner_radius: args.remove("cornerRadius"),
+        corner_radius_bottom: args.remove("cornerRadiusBottom"),
+        border_color: args.remove("borderColor"),
+        border_width: args.remove("borderWidth"),
+        opacity: args.remove("opacity"),
+        scale: args.remove("scale"),
+        scale_y: args.remove("scaleY"),
+        rotation: args.remove("rotation"),
+        offset_y: args.remove("offsetY"),
+        shadow: args.remove("shadow"),
+        blur: args.remove("blur"),
+        clip: args.remove("clip"),
+        z_index: args.remove("zIndex"),
+        glass: args.remove("glass"),
+        animation: args.remove("animation"),
+    }
+}
+
 #[inline(never)]
 pub(super) fn lower_column_component(
     inv: ast::ComponentInvocation,
@@ -36,32 +65,7 @@ pub(super) fn lower_column_component(
         }
         _ => None,
     };
-    let style = ast::LayoutStyle {
-        alignment: args.remove("alignment"),
-        horizontal_arrangement: args.remove("horizontalArrangement"),
-        width: args.remove("width"),
-        height: args.remove("height"),
-        min_width: args.remove("minWidth"),
-        max_width: args.remove("maxWidth"),
-        min_height: args.remove("minHeight"),
-        max_height: args.remove("maxHeight"),
-        background: args.remove("background"),
-        corner_radius: args.remove("cornerRadius"),
-        corner_radius_bottom: args.remove("cornerRadiusBottom"),
-        border_color: args.remove("borderColor"),
-        border_width: args.remove("borderWidth"),
-        opacity: args.remove("opacity"),
-        scale: args.remove("scale"),
-        scale_y: args.remove("scaleY"),
-        rotation: args.remove("rotation"),
-        offset_y: args.remove("offsetY"),
-        shadow: args.remove("shadow"),
-        blur: args.remove("blur"),
-        clip: args.remove("clip"),
-        z_index: args.remove("zIndex"),
-        glass: args.remove("glass"),
-        animation: args.remove("animation"),
-    };
+    let style = take_view_style_args(&mut args);
     let children = match inv.children {
         ast::ChildBody::Nodes(children) => children,
         _ => return Err(child_mismatch(span)),

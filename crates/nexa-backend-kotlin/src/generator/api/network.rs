@@ -11,6 +11,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let uses_transport = features.uses_network_transport();
     imports.add(
         uses_transport
+            || features.uses_gif_asset
             || features.uses_network_connectivity
             || features.uses_path_api
             || features.uses_permissions,
@@ -132,10 +133,12 @@ const NETWORK_CONNECTIVITY_MEMBERS: &str = r#"    private val statusLock = Any()
 
 "#;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render(
     out: &mut SourceWriter,
     include_network: bool,
     include_image_support: bool,
+    include_gif_decoder: bool,
     include_path: bool,
     include_file: bool,
     include_file_async: bool,
@@ -835,34 +838,53 @@ private fun List<Pair<String, String>>.toNetworkHeaders(): NetworkHeaders {
     for ((name, value) in this) builder.add(name, value)
     return builder.build()
 }
-
+"#,
+        );
+    }
+    if include_image_support || include_gif_decoder {
+        let cronet_component = if include_image_support {
+            "\n                    add(NetworkFetcher.Factory(networkClient = { NexaCronetNetworkClient(NexaCronetRuntime.engine(applicationContext)) }))"
+        } else {
+            ""
+        };
+        out.push_str(&format!(
+            r#"
 @OptIn(coil3.annotation.ExperimentalCoilApi::class)
-private object NexaImageLoaderStore {
+private object NexaImageLoaderStore {{
     @Volatile private var loader: ImageLoader? = null
 
-    fun get(applicationContext: Context): ImageLoader {
-        loader?.let { return it }
-        return synchronized(this) {
-            loader?.let { return@synchronized it }
+    fun get(applicationContext: Context): ImageLoader {{
+        loader?.let {{ return it }}
+        return synchronized(this) {{
+            loader?.let {{ return@synchronized it }}
             ImageLoader.Builder(applicationContext)
-                .components {
-                    add(NetworkFetcher.Factory(networkClient = { NexaCronetNetworkClient(NexaCronetRuntime.engine(applicationContext)) }))
-                }
+                .memoryCache {{
+                    MemoryCache.Builder()
+                        .maxSizePercent(applicationContext, 0.20)
+                        .build()
+                }}
+                .components {{{cronet_component}
+                    if (android.os.Build.VERSION.SDK_INT >= 28) {{
+                        add(AnimatedImageDecoder.Factory())
+                    }} else {{
+                        add(GifDecoder.Factory())
+                    }}
+                }}
                 .build()
-                .also {
+                .also {{
                     loader = it
-                }
-        }
-    }
-}
+                }}
+        }}
+    }}
+}}
 
 @OptIn(coil3.annotation.ExperimentalCoilApi::class)
 @Composable
-internal fun nexaImageLoader(): ImageLoader {
+internal fun nexaImageLoader(): ImageLoader {{
     return NexaImageLoaderStore.get(LocalContext.current.applicationContext)
-}
+}}
 "#,
-        );
+        ));
     }
 }
 
@@ -875,7 +897,7 @@ mod tests {
     #[test]
     fn path_helpers_match_the_single_component_language_api() {
         let mut output = SourceWriter::new();
-        render(&mut output, false, false, true, false, false, false);
+        render(&mut output, false, false, false, true, false, false, false);
 
         assert!(output.contains("public fun documents(context: Context): String"));
         assert!(output.contains("public fun caches(context: Context): String"));
@@ -889,7 +911,7 @@ mod tests {
     #[test]
     fn outgoing_requests_accept_string_maps() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false, false);
 
         assert!(output.contains("headers: Map<String, String> = emptyMap()"));
         assert!(output.contains("internal val headers: List<Pair<String, String>>"));
@@ -912,7 +934,7 @@ mod tests {
     #[test]
     fn network_pins_require_64_character_sha256_spki_hex_values() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false, false);
 
         assert!(output.contains("value.length == 64"));
         assert!(output.contains("it in '0'..'9'"));
@@ -926,7 +948,7 @@ mod tests {
     #[test]
     fn downloads_stream_to_a_temporary_sibling_before_replacing_the_destination() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false, false);
         let download = output
             .as_str()
             .split_once("public suspend fun download(")
@@ -959,7 +981,7 @@ mod tests {
     #[test]
     fn network_cache_uses_the_generated_project_cronet_configuration() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false, false);
 
         assert!(output.contains("NexaCronetConfig.DISK_CACHE_SIZE_BYTES"));
         assert!(output.contains("CronetEngine.Builder.HTTP_CACHE_DISABLED"));
@@ -971,7 +993,7 @@ mod tests {
     #[test]
     fn native_plugins_can_reuse_the_generated_cronet_engine() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false, false);
 
         assert!(output.contains("public fun cronetEngine(context: Context): CronetEngine"));
         assert!(output.contains("public fun cronetExecutor(): Executor"));
@@ -990,6 +1012,7 @@ mod tests {
             false,
             false,
             false,
+            false,
             true,
         );
         assert!(!without_network.contains("cronetEngine(context"));
@@ -998,7 +1021,7 @@ mod tests {
     #[test]
     fn cronet_image_adapter_preserves_each_response_header_value() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, true, false, false, false, false);
+        render(&mut output, true, true, true, false, false, false, false);
 
         assert!(output.contains("headers = response.headers.toNetworkHeaders()"));
         assert!(output.contains("private fun List<Pair<String, String>>.toNetworkHeaders()"));
@@ -1008,7 +1031,7 @@ mod tests {
     #[test]
     fn cronet_image_body_flows_into_coil_without_byte_array_copies() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, true, false, false, false, false);
+        render(&mut output, true, true, true, false, false, false, false);
         let image_client = output
             .as_str()
             .split_once("private class NexaCronetImageRequestClient")
@@ -1037,7 +1060,7 @@ mod tests {
     #[test]
     fn cronet_network_reuses_transfer_storage_and_bounds_body_before_writes() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false, false);
         let client = output
             .as_str()
             .split_once("private class NexaCronetRequestClient")
@@ -1066,7 +1089,7 @@ mod tests {
     #[test]
     fn network_status_uses_connectivity_manager_without_cronet_requests() {
         let mut output = SourceWriter::new();
-        render(&mut output, false, false, false, false, false, true);
+        render(&mut output, false, false, false, false, false, false, true);
 
         assert!(output.contains("public fun isOnline(context: Context): Boolean"));
         assert!(output.contains("manager.activeNetwork"));
@@ -1079,7 +1102,7 @@ mod tests {
     #[test]
     fn multipart_upload_streams_file_and_multipart_parts_through_cronet() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false, false);
 
         assert!(output.contains("private fun requireSuccessful(response: NexaNetworkResponse)"));
         assert_eq!(
@@ -1129,7 +1152,7 @@ mod tests {
     #[test]
     fn fixed_length_cronet_uploads_never_mark_a_final_chunk() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false, false);
 
         assert_eq!(
             output
@@ -1146,7 +1169,7 @@ mod tests {
     #[test]
     fn file_writes_are_atomic_and_delete_missing_paths_returns_false() {
         let mut output = SourceWriter::new();
-        render(&mut output, false, false, false, true, true, false);
+        render(&mut output, false, false, false, false, true, true, false);
 
         assert!(output.contains("android.util.AtomicFile(file)"));
         assert!(output.contains("val output = atomicFile.startWrite()"));

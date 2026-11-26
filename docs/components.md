@@ -87,7 +87,7 @@ Use `Column` for vertical flow, `Row` for horizontal flow, and `Stack` for overl
 app ReleaseSummary {
     body {
         Stack(alignment: Center, width: 320, height: 180, background: "#0F172A", cornerRadius: 16) {
-            Image(asset: "release_banner", description: "Abstract blue release banner", scale: Fill, maxHeight: 180)
+            Image(asset: "release_banner.png", description: "Abstract blue release banner", fit: Fill, maxHeight: 180)
             Column(gap: 8, padding: 16, alignment: Center) {
                 Text("Version 2.4 is ready", fontSize: 22, fontWeight: Bold, color: "#FFFFFF")
                 Text("Includes offline search and faster sync.", fontSize: 14, color: "#E2E8F0")
@@ -320,7 +320,7 @@ Keep full-bleed artwork outside the padded foreground subtree:
 app StoryViewer {
     body {
         Stack {
-            Image(asset: "story_cover", description: "Mountain landscape", scale: Fill)
+            Image(asset: "story_cover.png", description: "Mountain landscape", fit: Fill)
             Column(
                 gap: 12,
                 padding: Insets(top: SystemInsets.top + 16, leading: 20, trailing: 20),
@@ -902,7 +902,7 @@ Use `AutoGrid` for responsive media galleries so the same source adapts to phone
 
 ```nx
 FastList(videos, key: .id, axis: AutoGrid(168), rowHeight: 240) { video, index in
-    Image(url: video.coverUrl, description: "Video thumbnail", scale: Fill, maxHeight: 240)
+    Image(url: video.coverUrl, description: "Video thumbnail", fit: Fill, maxHeight: 240)
 }
 ```
 
@@ -1365,22 +1365,23 @@ precedence over the loading indicator.
 
 | Parameter | Type | Required/default | Behavior |
 |---|---|---|---|
-| `asset` | `String` | Exactly one of `asset`, `url`, or `file` | Android drawable and iOS asset catalog name. |
-| `url` | `String` or `Signal<String>` | Exactly one of `asset`, `url`, or `file` | Absolute HTTPS image URL. |
-| `file` | `String` or `Signal<String>` | Exactly one of `asset`, `url`, or `file` | Local `file://` URL. |
-| `description` | `String` | Required | Accessible image description. |
-| `scale` | `Fit` or `Fill` | `Fit` | Preserve the full image or crop it to fill. |
-| `placeholder` | `String` | Omitted | URL-only drawable/asset name shown during loading and on failure. |
+| `asset` | `String` | Exactly one of `asset`, `url`, or `file` | Bundled image filename with extension (`png`, `jpg`, `jpeg`, `webp`, or `gif`) in `assets/images/`. |
+| `url` | `String` or `Signal<String>` | Exactly one of `asset`, `url`, or `file` | Absolute HTTPS image URL (including animated `.gif`). |
+| `file` | `String` or `Signal<String>` | Exactly one of `asset`, `url`, or `file` | Local `file://` URL (including animated `.gif`). |
+| `description` | `String` | `""` | Accessible image description. |
+| `fit` | `Fit` or `Fill` | `Fit` | Preserve the full image or crop it to fill. |
+| `placeholder` | `String` | Omitted | URL-only bundled image filename with extension (e.g. `"product_image.png"`) shown during loading and on failure. |
 | `showLoadingIndicator` | `Bool` | `false` | URL/file-only; shows a small native indicator while loading when no placeholder is supplied. |
-| `maxHeight` | `Float64` | Omitted | Optional maximum rendered height; must be greater than 0 and at most 4096. |
-| `fillMaxSize` | `Bool` | `false` | Expands the image to the available width and height of its parent, cropping when `scale: Fill`; useful for media backgrounds and full-page posters. |
+| `autoReplay` | `Bool` | `true` | Controls whether animated GIFs loop continuously (`true`) or play once and stop on the last frame (`false`). |
+| `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight` | `Dimension` | Omitted | Uniform layout sizing (numbers, `Fill`, fractions, or theme tokens). |
+| `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `clip`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `zIndex`, `animation` | `ViewStyle` | Omitted | Uniform surface, rounded clipping (`cornerRadius` auto-clips `Image`), and visual effects. |
 | `.sharedElement(id:)` | `String` | Omitted | Joins the image to a matching shared-element transition. |
 
 ```nx
 Image(
     url: "https://cdn.example.com/products/summer-jacket.png",
     description: "Navy summer jacket",
-    placeholder: "product_image",
+    placeholder: "product_image.png",
     maxHeight: 260
 )
 ```

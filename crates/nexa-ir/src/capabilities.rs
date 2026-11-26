@@ -143,11 +143,11 @@ mod tests {
                 "https://example.test/image.png".to_owned(),
             )),
             description: "Example image".to_owned(),
-            scale: ImageScale::Fit,
+            fit: ImageScale::Fit,
             placeholder: None,
             show_loading_indicator: false,
-            max_height: None,
-            fill_max_size: false,
+            auto_replay: true,
+            style: ViewStyle::default(),
             shared_element: None,
         }]);
 

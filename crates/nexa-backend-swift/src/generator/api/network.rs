@@ -19,7 +19,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_network_api, "CryptoKit");
     imports.add(features.uses_network_api, "Security");
     imports.add(features.uses_network_connectivity, "Network");
-    imports.add(features.uses_remote_image, "ImageIO");
+    imports.add(
+        features.uses_remote_image || features.facts.ui.image.gif_asset,
+        "ImageIO",
+    );
 }
 
 pub(crate) fn render(

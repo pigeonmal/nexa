@@ -64,6 +64,7 @@ fn project_features_from_analysis(
         uses_network_api: features.uses_network_api,
         uses_network_connectivity: features.uses_network_connectivity,
         uses_remote_image: features.uses_remote_image,
+        uses_gif_asset: features.facts.ui.image.gif_asset,
         uses_system_icons: !features.facts.ui.system_icons.is_empty()
             || features.uses_picker
             || features.uses_date_picker
@@ -205,6 +206,7 @@ pub(super) fn generate_for_dev_units_with_font_catalog_and_project_features(
     features.uses_remote_image = true;
     // Local image assets can also appear after the development host is built.
     features.uses_asset = true;
+    features.uses_gif_asset = true;
     features.uses_placeholder = true;
     // Shared-transition APIs can be introduced by hot reload without
     // rebuilding the development host.
@@ -4755,6 +4757,7 @@ public class NexaBottomSheetRef {
         units.write("image-primitives", |out| {
             components::images::render_primitives(
                 features.uses_asset,
+                features.uses_gif_asset,
                 features.uses_remote_image,
                 out,
             );
@@ -5006,6 +5009,7 @@ public class NexaBottomSheetRef {
                 out,
                 features.uses_network_api,
                 features.uses_remote_image,
+                features.uses_gif_asset,
                 features.uses_path_api,
                 features.uses_file_api,
                 features.uses_file_async,
@@ -7001,13 +7005,13 @@ mod tests {
     #[test]
     fn shared_image_elements_use_compose_scopes_across_navigation_screens() {
         let image = Node::Image {
-            source: ImageSource::Asset("hero".to_owned()),
+            source: ImageSource::Asset("hero.png".to_owned()),
             description: "Hero".to_owned(),
-            scale: ImageScale::Fit,
+            fit: ImageScale::Fit,
             placeholder: None,
             show_loading_indicator: false,
-            max_height: None,
-            fill_max_size: false,
+            auto_replay: true,
+            style: ViewStyle::default(),
             shared_element: Some(Expr::String("hero-image".to_owned())),
         };
         let module = Module {

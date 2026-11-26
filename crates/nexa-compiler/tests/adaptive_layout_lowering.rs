@@ -342,7 +342,7 @@ fn bottom_corner_radius_uses_matching_native_shapes_for_both_targets() {
     let source = r#"app ArtistArtwork {
         body {
             Stack(cornerRadiusBottom: 46.8) {
-                Image(asset: "artist", description: "Artist artwork")
+                Image(asset: "artist.png", description: "Artist artwork")
             }
         }
     }"#;

@@ -7,6 +7,7 @@ pub(super) fn lower_image_component(
     cx: &SemanticContext<'_>,
 ) -> Result<Node, CompileError> {
     let span = inv.span;
+    let themes = cx.themes;
     let mut args = inv.arguments;
     let mut modifiers = inv.modifiers;
     let asset = args.remove("asset");
@@ -23,28 +24,22 @@ pub(super) fn lower_image_component(
             ));
         }
     };
-    let description = take_required_arg(&mut args, &inv.name, "description", span)?;
-    let scale = args.remove("scale");
+    let description = args.remove("description");
+    let fit = args.remove("fit");
     let placeholder = args.remove("placeholder");
     let show_loading_indicator = optional_bool(
         args.remove("showLoadingIndicator"),
         false,
         "Image showLoadingIndicator",
     )?;
-    let fill_max_size = optional_bool(args.remove("fillMaxSize"), false, "Image fillMaxSize")?;
-    let max_height = args
-        .remove("maxHeight")
-        .map(|value| {
-            let height = number_value(&value, "Image maxHeight")?;
-            if !height.is_finite() || height <= 0.0 || height > 4096.0 {
-                return Err(CompileError::new(
-                    value.span(),
-                    "Image maxHeight must be greater than 0 and no greater than 4096",
-                ));
-            }
-            Ok(height)
-        })
-        .transpose()?;
+    let auto_replay = optional_bool(args.remove("autoReplay"), true, "Image autoReplay")?;
+    let raw_style = super::layout::take_view_style_args(&mut args);
+    let mut style = lower_style(raw_style, cx.target, themes, &cx.exprs(false))?;
+    if style.effects.clip_rounded.is_none()
+        && let Some(radius) = style.corner_radius
+    {
+        style.effects.clip_rounded = Some(radius);
+    }
     let shared_element = take_modifier_decl(&mut modifiers, "sharedElement")
         .map(|modifier| {
             let id = modifier.arguments.get("id").ok_or_else(|| {
@@ -61,14 +56,9 @@ pub(super) fn lower_image_component(
         .transpose()?;
     let source = match source {
         ast::ImageSource::Asset(asset) => {
+            let asset_span = asset.span();
             let asset = require_string_literal(&asset, "Image asset")?;
-            if !is_resource_name(&asset) {
-                return Err(CompileError::new(
-                    span,
-                    "Image asset must be an identifier suitable for an Android drawable resource",
-                ));
-            }
-            ImageSource::Asset(asset)
+            ImageSource::Asset(validate_image_asset_filename(&asset, asset_span, "Image asset")?)
         }
         ast::ImageSource::Url(url) => {
             let lowered_url = lower_expr(&url, Some(&Type::String), &cx.exprs(false))?;
@@ -92,14 +82,17 @@ pub(super) fn lower_image_component(
             "Image `showLoadingIndicator` can only be used with a URL or file",
         ));
     }
-    let description = require_string_literal(&description, "Image description")?;
-    let scale = match scale {
+    let description = match description {
+        Some(expr) => require_string_literal(&expr, "Image description")?,
+        None => String::new(),
+    };
+    let fit = match fit {
         Some(ast::Expr::Name(name, _)) if name == "Fit" => ImageScale::Fit,
         Some(ast::Expr::Name(name, _)) if name == "Fill" => ImageScale::Fill,
         Some(expr) => {
             return Err(CompileError::new(
                 expr.span(),
-                "Image scale must be `Fit` or `Fill`",
+                "Image fit must be `Fit` or `Fill`",
             ));
         }
         None => ImageScale::Fit,
@@ -112,27 +105,56 @@ pub(super) fn lower_image_component(
                     "Image `placeholder` can only be used with a remote URL",
                 ));
             }
+            let expr_span = expr.span();
             let placeholder = require_string_literal(&expr, "Image placeholder")?;
-            if !is_resource_name(&placeholder) {
-                return Err(CompileError::new(
-                    expr.span(),
-                    "Image placeholder must be an identifier suitable for a drawable resource",
-                ));
-            }
-            Some(placeholder)
+            Some(validate_image_asset_filename(
+                &placeholder,
+                expr_span,
+                "Image placeholder",
+            )?)
         }
         None => None,
     };
     Ok(Node::Image {
         source,
         description,
-        scale,
+        fit,
         placeholder,
         show_loading_indicator,
-        max_height,
-        fill_max_size,
+        auto_replay,
+        style,
         shared_element,
     })
+}
+
+fn validate_image_asset_filename(
+    value: &str,
+    span: Span,
+    label: &str,
+) -> Result<String, CompileError> {
+    let Some((stem, ext)) = value.rsplit_once('.') else {
+        return Err(CompileError::new(
+            span,
+            format!("{label} must include a supported file extension (e.g. 'hero.png')"),
+        ));
+    };
+    if !is_resource_name(stem) {
+        return Err(CompileError::new(
+            span,
+            format!("{label} base name must be an identifier suitable for an Android resource"),
+        ));
+    }
+    let ext_lower = ext.to_ascii_lowercase();
+    if !matches!(
+        ext_lower.as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif"
+    ) {
+        return Err(CompileError::new(
+            span,
+            format!("{label} has unsupported extension `.{ext}`; use .png, .jpg, .jpeg, .webp, or .gif"),
+        ));
+    }
+    Ok(format!("{stem}.{ext_lower}"))
 }
 
 #[inline(never)]

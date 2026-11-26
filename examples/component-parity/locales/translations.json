@@ -311,6 +311,18 @@
       "source": "Article start",
       "translations": {}
     },
+    "Asset · Fill cropped (maxHeight: 80)": {
+      "source": "Asset · Fill cropped (maxHeight: 80)",
+      "translations": {}
+    },
+    "Asset · Fill width & height (maxHeight: 80)": {
+      "source": "Asset · Fill width & height (maxHeight: 80)",
+      "translations": {}
+    },
+    "Asset · Fit (maxHeight: 120)": {
+      "source": "Asset · Fit (maxHeight: 120)",
+      "translations": {}
+    },
     "At least 2 lines": {
       "source": "At least 2 lines",
       "translations": {}
@@ -806,6 +818,10 @@
     },
     "Dialog": {
       "source": "Dialog",
+      "translations": {}
+    },
+    "Direct styling · 100×100, cornerRadius: 20": {
+      "source": "Direct styling · 100×100, cornerRadius: 20",
       "translations": {}
     },
     "Direction": {
@@ -1318,6 +1334,14 @@
       "source": "Full-size pressable",
       "translations": {}
     },
+    "GIF · autoReplay: false (play once)": {
+      "source": "GIF · autoReplay: false (play once)",
+      "translations": {}
+    },
+    "GIF · autoReplay: true (default)": {
+      "source": "GIF · autoReplay: true (default)",
+      "translations": {}
+    },
     "Gilroy Bold request · Semibold fallback": {
       "source": "Gilroy Bold request · Semibold fallback",
       "translations": {}
@@ -1813,6 +1837,10 @@
     },
     "Minimum width: 180": {
       "source": "Minimum width: 180",
+      "translations": {}
+    },
+    "Missing local file · blank by default": {
+      "source": "Missing local file · blank by default",
       "translations": {}
     },
     "Missing selection": {
@@ -2342,6 +2370,18 @@
     },
     "Regular override": {
       "source": "Regular override",
+      "translations": {}
+    },
+    "Remote error · blank by default": {
+      "source": "Remote error · blank by default",
+      "translations": {}
+    },
+    "Remote error · placeholder fallback": {
+      "source": "Remote error · placeholder fallback",
+      "translations": {}
+    },
+    "Remote error · showLoadingIndicator: true": {
+      "source": "Remote error · showLoadingIndicator: true",
       "translations": {}
     },
     "Reorderable masonry cards": {

@@ -247,6 +247,7 @@ pub struct RefreshFacts {
 #[derive(Clone, Debug, Default)]
 pub struct ImageFacts {
     pub asset: bool,
+    pub gif_asset: bool,
     pub placeholder: bool,
     pub shared_element: bool,
 }
@@ -1291,16 +1292,22 @@ fn observe_node(
         Node::Image {
             source,
             placeholder,
+            style,
             shared_element,
             ..
         } => {
             ui.image.asset |= matches!(source, ImageSource::Asset(_));
+            ui.image.gif_asset |= matches!(
+                source,
+                ImageSource::Asset(name) if name.to_ascii_lowercase().ends_with(".gif")
+            );
             ui.image.shared_element |= shared_element.is_some();
             *remote_hit |= matches!(
                 source,
                 ImageSource::RemoteUrl(_) | ImageSource::LocalFile(_)
             );
             ui.image.placeholder |= placeholder.is_some();
+            observe_style(style, &mut ui.style);
         }
         Node::SystemIcon { icon, tint, .. } => {
             ui.system_icons.insert(icon.clone());
@@ -2426,11 +2433,11 @@ mod tests {
                 "https://example.test/image.png".to_owned(),
             )),
             description: "Example image".to_owned(),
-            scale: ImageScale::Fit,
+            fit: ImageScale::Fit,
             placeholder: None,
             show_loading_indicator: false,
-            max_height: None,
-            fill_max_size: false,
+            auto_replay: true,
+            style: ViewStyle::default(),
             shared_element: None,
         }]);
         let facts = ModuleFacts::analyze(&module);

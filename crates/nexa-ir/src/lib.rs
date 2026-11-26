@@ -1097,14 +1097,16 @@ pub enum Node {
     },
     Image {
         source: ImageSource,
+        #[serde(default)]
         description: String,
-        scale: ImageScale,
+        fit: ImageScale,
         placeholder: Option<String>,
         #[serde(default)]
         show_loading_indicator: bool,
-        max_height: Option<f32>,
+        #[serde(default = "default_true")]
+        auto_replay: bool,
         #[serde(default)]
-        fill_max_size: bool,
+        style: ViewStyle,
         shared_element: Option<Expr>,
     },
     SystemIcon {

@@ -100,7 +100,7 @@ app RenderParityCatalog {
                             Text("Accessible header", accessibilityLabel: "Parity section", accessibilityRole: Header)
                         }
                         Section(title: "Images and links") {
-                            Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, maxHeight: 64)
+                            Image(asset: "parity_sample.png", description: "Parity sample image", fit: Fit, maxHeight: 64)
                             Icon(Icons.system.star, size: 24, color: "#E11D48", description: "Favorite")
                             LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: TopToBottom, height: 32)
                             Link(url: "https://example.com") {

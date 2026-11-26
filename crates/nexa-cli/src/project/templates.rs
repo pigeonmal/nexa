@@ -2293,9 +2293,14 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
             "    implementation(\"androidx.lifecycle:lifecycle-runtime-compose:2.11.0\")\n",
         );
     }
+    if dev_runtime || features.uses_remote_image || features.uses_gif_asset {
+        dependencies.push_str(
+            "    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-gif:3.6.3\")\n",
+        );
+    }
     if dev_runtime || features.uses_remote_image {
         dependencies.push_str(
-            "    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n",
+            "    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n",
         );
     }
     if dev_runtime || features.uses_system_icons {

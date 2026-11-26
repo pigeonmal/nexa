@@ -755,7 +755,7 @@ fn collect_parity_components(
                             && ["style", "size", "shape"].contains(&name.as_str()))
                         || (invocation.name == "Toolbar" && name == "placement")
                         || (invocation.name == "LinearGradient" && name == "direction")
-                        || (invocation.name == "Image" && name == "scale")
+                        || (invocation.name == "Image" && name == "fit")
                         || (invocation.name == "StatusBar" && name == "style")
                         || (invocation.name == "KeyboardAware"
                             && ["dismiss", "behavior"].contains(&name.as_str()))
@@ -1088,7 +1088,7 @@ fn component_parity_app_exercises_every_catalog_component() {
             ]
             .as_slice(),
         ),
-        ("scale", ["Fit", "Fill"].as_slice()),
+        ("fit", ["Fit", "Fill"].as_slice()),
         ("dismiss", ["Interactive", "Never"].as_slice()),
         ("behavior", ["Stay", "Avoid"].as_slice()),
     ] {
@@ -1807,8 +1807,8 @@ fn ios_dev_runtime_keeps_fixed_dimensions_outside_flexible_bounds() {
     let renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
         .expect("read iOS DevRuntime renderer");
     let layout = renderer
-        .split_once("case \"Layout\":")
-        .expect("find iOS layout renderer")
+        .split_once("private func applyViewSize(")
+        .expect("find iOS style helper")
         .1;
     let size_styles = layout
         .split_once("let widthDimension = nexaDevDimension(style[\"width\"])")
@@ -1978,11 +1978,11 @@ fn android_dev_runtime_animates_content_before_size_modifiers() {
     let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime renderer");
     let layout = renderer
-        .split_once("\"Layout\" -> {")
-        .expect("find Android DevRuntime layout rendering")
+        .split_once("private fun nexaDevApplyViewStyleModifier(")
+        .expect("find Android DevRuntime view style modifier")
         .1
-        .split_once("\"ContentUnavailable\" -> {")
-        .expect("find end of Android DevRuntime layout rendering")
+        .split_once("@Composable\n")
+        .expect("find end of Android DevRuntime view style modifier")
         .0;
     let animation = layout
         .find("if (!style.isNull(\"animation\"))")
@@ -2086,11 +2086,11 @@ fn android_dev_runtime_maps_glass_effect_to_material_surface() {
     let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime renderer");
     let layout = renderer
-        .split_once("\"Layout\" -> {")
-        .expect("find Android DevRuntime layout rendering")
+        .split_once("private fun nexaDevApplyViewStyleModifier(")
+        .expect("find Android DevRuntime view style modifier")
         .1
-        .split_once("\"ContentUnavailable\" -> {")
-        .expect("find end of Android DevRuntime layout rendering")
+        .split_once("@Composable\n")
+        .expect("find end of Android DevRuntime view style modifier")
         .0;
 
     assert!(layout.contains("effects.optJSONObject(\"glass\")"));
@@ -2467,13 +2467,16 @@ fn android_dev_runtime_treats_null_optional_strings_as_absent() {
 fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     let module = empty_module(vec![
         Node::Image {
-            source: nexa_ir::ImageSource::Asset("task_avatar".to_owned()),
+            source: nexa_ir::ImageSource::Asset("task_avatar.png".to_owned()),
             description: "Task owner".to_owned(),
-            scale: nexa_ir::ImageScale::Fit,
+            fit: nexa_ir::ImageScale::Fit,
             placeholder: None,
             show_loading_indicator: false,
-            max_height: Some(96.0),
-            fill_max_size: false,
+            auto_replay: true,
+            style: nexa_ir::ViewStyle {
+                max_height: Some(nexa_ir::Dimension::Fixed(96.0)),
+                ..nexa_ir::ViewStyle::default()
+            },
             shared_element: None,
         },
         Node::Image {
@@ -2481,11 +2484,14 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
                 "https://example.test/task.png".to_owned(),
             )),
             description: "Task attachment".to_owned(),
-            scale: nexa_ir::ImageScale::Fill,
-            placeholder: Some("task_placeholder".to_owned()),
+            fit: nexa_ir::ImageScale::Fill,
+            placeholder: Some("task_placeholder.png".to_owned()),
             show_loading_indicator: false,
-            max_height: Some(144.0),
-            fill_max_size: false,
+            auto_replay: true,
+            style: nexa_ir::ViewStyle {
+                max_height: Some(nexa_ir::Dimension::Fixed(144.0)),
+                ..nexa_ir::ViewStyle::default()
+            },
             shared_element: None,
         },
         Node::Image {
@@ -2493,11 +2499,11 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
                 "file:///tmp/task.png".to_owned(),
             )),
             description: "Local task photo".to_owned(),
-            scale: nexa_ir::ImageScale::Fit,
+            fit: nexa_ir::ImageScale::Fit,
             placeholder: None,
             show_loading_indicator: false,
-            max_height: None,
-            fill_max_size: false,
+            auto_replay: true,
+            style: nexa_ir::ViewStyle::default(),
             shared_element: None,
         },
         Node::PagePager {

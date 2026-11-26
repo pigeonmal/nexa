@@ -5036,6 +5036,7 @@ fn generate_with_analysis_mode(
         units.write("image-primitives", |out| {
             components::images::render_primitives(
                 features.facts.ui.image.asset,
+                features.facts.ui.image.gif_asset,
                 features.uses_remote_image,
                 out,
             );
@@ -5405,6 +5406,7 @@ pub(super) fn generate_for_dev_units_with_font_catalog_and_project_features(
     // Image nodes can be introduced by a hot reload after the development
     // host is built, so preload both local and network image primitives.
     features.facts.ui.image.asset = true;
+    features.facts.ui.image.gif_asset = true;
     features.uses_remote_image = true;
     // Calls to Nexa's async native APIs can appear after the dev host has been
     // built. Keep the same URLSession adapter as release output in that host.
@@ -7265,13 +7267,13 @@ mod tests {
     #[test]
     fn navigation_screens_fill_content_and_share_image_namespace() {
         let image = Node::Image {
-            source: ImageSource::Asset("hero".to_owned()),
+            source: ImageSource::Asset("hero.png".to_owned()),
             description: "Hero".to_owned(),
-            scale: ImageScale::Fit,
+            fit: ImageScale::Fit,
             placeholder: None,
             show_loading_indicator: false,
-            max_height: None,
-            fill_max_size: false,
+            auto_replay: true,
+            style: ViewStyle::default(),
             shared_element: Some(Expr::String("hero-image".to_owned())),
         };
         let module = Module {

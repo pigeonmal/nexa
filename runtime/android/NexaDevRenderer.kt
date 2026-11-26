@@ -1332,175 +1332,7 @@ internal fun NexaDevNode(
             val style = fields.optJSONObject(NexaDevKeys.STYLE) ?: JSONObject()
             // Keep the parent sizing contract (notably a screen's fillMaxSize)
             // when applying this node's own visual modifiers.
-            var modifier: Modifier = modifier
-            val effects = style.optJSONObject("effects") ?: JSONObject()
-            // Compose modifier chains are outer-to-inner. Nexa's `clip` effect
-            // masks the completed view in SwiftUI, so wrap this layout before
-            // its size and transform modifiers to also contain overflowing
-            // fixed-size and transformed descendants.
-            if (!effects.isNull("clip_rounded")) {
-                modifier = modifier.clip(RoundedCornerShape(effects.optDouble("clip_rounded").dp))
-            }
-            val cornerRadius = if (!style.isNull("corner_radius_expression")) {
-                ((store.evaluatePresented(style.opt("corner_radius_expression"), locals, scope) as? Number)
-                    ?.toFloat() ?: style.optDouble("corner_radius", 0.0).toFloat()).dp
-            } else {
-                style.optDouble("corner_radius", 0.0).dp
-            }
-            val bottomCornerRadius = style.optDouble("corner_radius_bottom", cornerRadius.value.toDouble()).dp
-            val hasCornerRadius = !style.isNull("corner_radius")
-                || !style.isNull("corner_radius_expression")
-                || !style.isNull("corner_radius_bottom")
-            val cornerShape = if (!style.isNull("corner_radius_bottom")) {
-                RoundedCornerShape(
-                    topStart = cornerRadius,
-                    topEnd = cornerRadius,
-                    bottomEnd = bottomCornerRadius,
-                    bottomStart = bottomCornerRadius,
-                )
-            } else {
-                RoundedCornerShape(cornerRadius)
-            }
-            val metrics = LocalNexaWindowMetrics.current
-            fun dimensionValue(name: String): NexaDevDimension? = nexaDevDimension(style.opt(name))
-            val width = dimensionValue("width")
-            val height = dimensionValue("height")
-            val minWidth = dimensionValue("min_width")
-            val maxWidth = dimensionValue("max_width")
-            val minHeight = dimensionValue("min_height")
-            val maxHeight = dimensionValue("max_height")
-            fun resolve(dimension: NexaDevDimension?): Dp? = when (dimension?.kind) {
-                "fixed" -> dimension.value.dp
-                "screen_width" -> (metrics.viewportWidthDp * dimension.value).dp
-                "screen_height" -> (metrics.viewportHeightDp * dimension.value).dp
-                else -> null
-            }
-            resolve(width)?.let { modifier = modifier.requiredWidth(it) }
-            resolve(height)?.let {
-                modifier = modifier
-                    .wrapContentHeight(LocalNexaLayoutOverflowAlignment.current, unbounded = true)
-                    .requiredHeight(it)
-            }
-            // Dev IR serializes unset Option fields as JSON null, and JSONObject.has()
-            // still returns true for a key mapped to null. Only apply optional styles
-            // when the value is present so absent animations do not animate every layout.
-            if (!style.isNull("opacity")) modifier = modifier.graphicsLayer(
-                alpha = style.optDouble("opacity").toFloat(),
-                compositingStrategy = CompositingStrategy.Offscreen,
-            )
-            if (!effects.isNull("scale") || !effects.isNull("scale_expression") || !effects.isNull("scale_y") || !effects.isNull("scale_y_expression") || !effects.isNull("opacity_expression") || !effects.isNull("offset_y_expression") || !effects.isNull("rotation")) {
-                val scaleX = if (!effects.isNull("scale_expression")) {
-                    (store.evaluatePresented(effects.opt("scale_expression"), locals, scope) as? Number)
-                        ?.toFloat() ?: 1f
-                } else {
-                    effects.optDouble("scale", 1.0).toFloat()
-                }
-                val scaleY = if (!effects.isNull("scale_y_expression")) {
-                    (store.evaluatePresented(effects.opt("scale_y_expression"), locals, scope) as? Number)
-                        ?.toFloat() ?: scaleX
-                } else if (!effects.isNull("scale_y")) {
-                    effects.optDouble("scale_y", scaleX.toDouble()).toFloat()
-                } else {
-                    scaleX
-                }
-                val rotation = effects.optDouble("rotation", 0.0).toFloat()
-                val alpha = if (!effects.isNull("opacity_expression")) {
-                    (store.evaluatePresented(effects.opt("opacity_expression"), locals, scope) as? Number)
-                        ?.toFloat()?.coerceIn(0f, 1f) ?: 1f
-                } else 1f
-                val translationY = if (!effects.isNull("offset_y_expression")) {
-                    val offsetY = (store.evaluatePresented(effects.opt("offset_y_expression"), locals, scope) as? Number)
-                        ?.toFloat() ?: 0f
-                    with(LocalDensity.current) { offsetY.dp.toPx() }
-                } else 0f
-                modifier = modifier.graphicsLayer(
-                    scaleX = scaleX,
-                    scaleY = scaleY,
-                    alpha = alpha,
-                    translationY = translationY,
-                    rotationZ = rotation,
-                )
-            }
-            if (!effects.isNull("blur")) modifier = modifier.blur(effects.optDouble("blur").dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)
-            effects.optJSONObject("shadow")?.let { shadow ->
-                val shadowShape = if (!effects.isNull("clip_rounded")) {
-                    RoundedCornerShape(effects.optDouble("clip_rounded").dp)
-                } else {
-                    cornerShape
-                }
-                val color = nexaDevColor(shadow.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Black
-                modifier = modifier.dropShadow(
-                    shadowShape,
-                    Shadow(
-                        radius = shadow.optDouble("radius", 0.0).dp,
-                        color = color,
-                        offset = DpOffset(shadow.optDouble("x", 0.0).dp, shadow.optDouble("y", 0.0).dp),
-                    ),
-                )
-            }
-            if (hasCornerRadius) modifier = modifier.clip(cornerShape)
-            nexaDevColor(style.optJSONObject("background"), isSystemInDarkTheme())?.let { modifier = modifier.background(it) }
-            if (!style.isNull("border_color") && !style.isNull("border_width")) {
-                nexaDevColor(style.optJSONObject("border_color"), isSystemInDarkTheme())?.let {
-                    modifier = modifier.border(style.optDouble("border_width").dp, it, cornerShape)
-                }
-            }
-            effects.optJSONObject("glass")?.let { glass ->
-                val shapeFields = glass.optJSONObject("shape") ?: JSONObject()
-                val glassShape: androidx.compose.ui.graphics.Shape = when {
-                    shapeFields.has("Circle") -> CircleShape
-                    shapeFields.has("Rounded") -> RoundedCornerShape(shapeFields.optDouble("Rounded").dp)
-                    shapeFields.has("Capsule") -> RoundedCornerShape(percent = 50)
-                    else -> RoundedCornerShape(percent = 50)
-                }
-                val surfaceColor = nexaDevColor(glass.optJSONObject("tint"), isSystemInDarkTheme())
-                    ?.copy(alpha = 1f)
-                    ?: nexaDevColor(style.optJSONObject("background"), isSystemInDarkTheme())
-                    ?: MaterialTheme.colorScheme.surface
-                modifier = modifier
-                    .clip(glassShape)
-                    .background(surfaceColor, glassShape)
-            }
-            // Animate the bounds underneath the surface, not just its child content.
-            if (!style.isNull("animation")) {
-                modifier = modifier.animateContentSize(
-                    animationSpec = store.devAnimationSpec(style.opt("animation")),
-                )
-            }
-            resolve(width)?.let { modifier = modifier.width(it) }
-            resolve(height)?.let { modifier = modifier.height(it) }
-            if (width?.kind == "fill") modifier = modifier.fillMaxWidth()
-            if (height?.kind == "fill") modifier = modifier.fillMaxHeight()
-            val widthMinimum = resolve(minWidth) ?: if (minWidth?.kind == "fill") 0.dp else Dp.Unspecified
-            val widthMaximum = resolve(maxWidth) ?: if (maxWidth?.kind == "fill") Dp.Infinity else Dp.Unspecified
-            val heightMinimum = resolve(minHeight) ?: if (minHeight?.kind == "fill") 0.dp else Dp.Unspecified
-            val heightMaximum = resolve(maxHeight) ?: if (maxHeight?.kind == "fill") Dp.Infinity else Dp.Unspecified
-            if (widthMinimum != Dp.Unspecified || widthMaximum != Dp.Unspecified) {
-                modifier = modifier.widthIn(min = widthMinimum, max = widthMaximum)
-            }
-            if (heightMinimum != Dp.Unspecified || heightMaximum != Dp.Unspecified) {
-                modifier = modifier.heightIn(min = heightMinimum, max = heightMaximum)
-            }
-            val parentDimensions = listOf(
-                "width" to width,
-                "height" to height,
-                "minWidth" to minWidth,
-                "maxWidth" to maxWidth,
-                "minHeight" to minHeight,
-                "maxHeight" to maxHeight,
-            ).filter { it.second?.kind == "parent" }
-            if (parentDimensions.isNotEmpty()) {
-                val values = parentDimensions.associate { (name, dimension) -> name to requireNotNull(dimension).value }
-                modifier = modifier.nexaParentRelativeDimension(
-                    width = values["width"],
-                    height = values["height"],
-                    minWidth = values["minWidth"],
-                    maxWidth = values["maxWidth"],
-                    minHeight = values["minHeight"],
-                    maxHeight = values["maxHeight"],
-                )
-            }
-            if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
+            val modifier = nexaDevApplyViewStyleModifier(modifier, style, store, locals, scope)
             val rawAlignment = fields.opt("alignment")
             val alignment = rawAlignment as? String
                 ?: (rawAlignment as? JSONObject)?.keys()?.asSequence()?.firstOrNull()
@@ -2385,6 +2217,191 @@ private fun NexaDevRenderControlNode(
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun nexaDevApplyViewStyleModifier(
+    initialModifier: Modifier,
+    style: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+): Modifier {
+    var modifier = initialModifier
+    val effects = style.optJSONObject("effects") ?: JSONObject()
+    if (!effects.isNull("clip_rounded")) {
+        modifier = modifier.clip(RoundedCornerShape(effects.optDouble("clip_rounded").dp))
+    }
+    val cornerRadius = if (!style.isNull("corner_radius_expression")) {
+        ((store.evaluatePresented(style.opt("corner_radius_expression"), locals, scope) as? Number)
+            ?.toFloat() ?: style.optDouble("corner_radius", 0.0).toFloat()).dp
+    } else {
+        style.optDouble("corner_radius", 0.0).dp
+    }
+    val bottomCornerRadius = style.optDouble("corner_radius_bottom", cornerRadius.value.toDouble()).dp
+    val hasCornerRadius = !style.isNull("corner_radius")
+        || !style.isNull("corner_radius_expression")
+        || !style.isNull("corner_radius_bottom")
+    val cornerShape = if (!style.isNull("corner_radius_bottom")) {
+        RoundedCornerShape(
+            topStart = cornerRadius,
+            topEnd = cornerRadius,
+            bottomEnd = bottomCornerRadius,
+            bottomStart = bottomCornerRadius,
+        )
+    } else {
+        RoundedCornerShape(cornerRadius)
+    }
+    val metrics = LocalNexaWindowMetrics.current
+    fun dimensionValue(name: String): NexaDevDimension? = nexaDevDimension(style.opt(name))
+    val width = dimensionValue("width")
+    val height = dimensionValue("height")
+    val minWidth = dimensionValue("min_width")
+    val maxWidth = dimensionValue("max_width")
+    val minHeight = dimensionValue("min_height")
+    val maxHeight = dimensionValue("max_height")
+    fun resolve(dimension: NexaDevDimension?): Dp? = when (dimension?.kind) {
+        "fixed" -> dimension.value.dp
+        "screen_width" -> (metrics.viewportWidthDp * dimension.value).dp
+        "screen_height" -> (metrics.viewportHeightDp * dimension.value).dp
+        else -> null
+    }
+    resolve(width)?.let { modifier = modifier.requiredWidth(it) }
+    resolve(height)?.let {
+        modifier = modifier
+            .wrapContentHeight(LocalNexaLayoutOverflowAlignment.current, unbounded = true)
+            .requiredHeight(it)
+    }
+    if (!style.isNull("opacity")) {
+        val opacityValue = style.optDouble("opacity").toFloat()
+        if (opacityValue < 1f) {
+            modifier = modifier.graphicsLayer(
+                alpha = opacityValue,
+                compositingStrategy = CompositingStrategy.Offscreen,
+            )
+        }
+    }
+    if (!effects.isNull("scale") || !effects.isNull("scale_expression") || !effects.isNull("scale_y") || !effects.isNull("scale_y_expression") || !effects.isNull("opacity_expression") || !effects.isNull("offset_y_expression") || !effects.isNull("rotation")) {
+        val scaleX = if (!effects.isNull("scale_expression")) {
+            (store.evaluatePresented(effects.opt("scale_expression"), locals, scope) as? Number)
+                ?.toFloat() ?: 1f
+        } else {
+            effects.optDouble("scale", 1.0).toFloat()
+        }
+        val scaleY = if (!effects.isNull("scale_y_expression")) {
+            (store.evaluatePresented(effects.opt("scale_y_expression"), locals, scope) as? Number)
+                ?.toFloat() ?: scaleX
+        } else if (!effects.isNull("scale_y")) {
+            effects.optDouble("scale_y", scaleX.toDouble()).toFloat()
+        } else {
+            scaleX
+        }
+        val rotation = effects.optDouble("rotation", 0.0).toFloat()
+        val alpha = if (!effects.isNull("opacity_expression")) {
+            (store.evaluatePresented(effects.opt("opacity_expression"), locals, scope) as? Number)
+                ?.toFloat()?.coerceIn(0f, 1f) ?: 1f
+        } else 1f
+        val translationY = if (!effects.isNull("offset_y_expression")) {
+            val offsetY = (store.evaluatePresented(effects.opt("offset_y_expression"), locals, scope) as? Number)
+                ?.toFloat() ?: 0f
+            with(LocalDensity.current) { offsetY.dp.toPx() }
+        } else 0f
+        if (scaleX != 1f || scaleY != 1f || alpha != 1f || translationY != 0f || rotation != 0f) {
+            modifier = modifier.graphicsLayer(
+                scaleX = scaleX,
+                scaleY = scaleY,
+                alpha = alpha,
+                translationY = translationY,
+                rotationZ = rotation,
+            )
+        }
+    }
+    if (!effects.isNull("blur")) {
+        val blurRadius = effects.optDouble("blur").dp
+        if (blurRadius > 0.dp) {
+            modifier = modifier.blur(blurRadius, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)
+        }
+    }
+    effects.optJSONObject("shadow")?.let { shadow ->
+        val shadowShape = if (!effects.isNull("clip_rounded")) {
+            RoundedCornerShape(effects.optDouble("clip_rounded").dp)
+        } else {
+            cornerShape
+        }
+        val color = nexaDevColor(shadow.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Black
+        modifier = modifier.dropShadow(
+            shadowShape,
+            Shadow(
+                radius = shadow.optDouble("radius", 0.0).dp,
+                color = color,
+                offset = DpOffset(shadow.optDouble("x", 0.0).dp, shadow.optDouble("y", 0.0).dp),
+            ),
+        )
+    }
+    if (hasCornerRadius) modifier = modifier.clip(cornerShape)
+    nexaDevColor(style.optJSONObject("background"), isSystemInDarkTheme())?.let { modifier = modifier.background(it) }
+    if (!style.isNull("border_color") && !style.isNull("border_width")) {
+        nexaDevColor(style.optJSONObject("border_color"), isSystemInDarkTheme())?.let {
+            modifier = modifier.border(style.optDouble("border_width").dp, it, cornerShape)
+        }
+    }
+    effects.optJSONObject("glass")?.let { glass ->
+        val shapeFields = glass.optJSONObject("shape") ?: JSONObject()
+        val glassShape: androidx.compose.ui.graphics.Shape = when {
+            shapeFields.has("Circle") -> CircleShape
+            shapeFields.has("Rounded") -> RoundedCornerShape(shapeFields.optDouble("Rounded").dp)
+            shapeFields.has("Capsule") -> RoundedCornerShape(percent = 50)
+            else -> RoundedCornerShape(percent = 50)
+        }
+        val surfaceColor = nexaDevColor(glass.optJSONObject("tint"), isSystemInDarkTheme())
+            ?.copy(alpha = 1f)
+            ?: nexaDevColor(style.optJSONObject("background"), isSystemInDarkTheme())
+            ?: MaterialTheme.colorScheme.surface
+        modifier = modifier
+            .clip(glassShape)
+            .background(surfaceColor, glassShape)
+    }
+    if (!style.isNull("animation")) {
+        modifier = modifier.animateContentSize(
+            animationSpec = store.devAnimationSpec(style.opt("animation")),
+        )
+    }
+    resolve(width)?.let { modifier = modifier.width(it) }
+    resolve(height)?.let { modifier = modifier.height(it) }
+    if (width?.kind == "fill") modifier = modifier.fillMaxWidth()
+    if (height?.kind == "fill") modifier = modifier.fillMaxHeight()
+    val widthMinimum = resolve(minWidth) ?: if (minWidth?.kind == "fill") 0.dp else Dp.Unspecified
+    val widthMaximum = resolve(maxWidth) ?: if (maxWidth?.kind == "fill") Dp.Infinity else Dp.Unspecified
+    val heightMinimum = resolve(minHeight) ?: if (minHeight?.kind == "fill") 0.dp else Dp.Unspecified
+    val heightMaximum = resolve(maxHeight) ?: if (maxHeight?.kind == "fill") Dp.Infinity else Dp.Unspecified
+    if (widthMinimum != Dp.Unspecified || widthMaximum != Dp.Unspecified) {
+        modifier = modifier.widthIn(min = widthMinimum, max = widthMaximum)
+    }
+    if (heightMinimum != Dp.Unspecified || heightMaximum != Dp.Unspecified) {
+        modifier = modifier.heightIn(min = heightMinimum, max = heightMaximum)
+    }
+    val parentDimensions = listOf(
+        "width" to width,
+        "height" to height,
+        "minWidth" to minWidth,
+        "maxWidth" to maxWidth,
+        "minHeight" to minHeight,
+        "maxHeight" to maxHeight,
+    ).filter { it.second?.kind == "parent" }
+    if (parentDimensions.isNotEmpty()) {
+        val values = parentDimensions.associate { (name, dimension) -> name to requireNotNull(dimension).value }
+        modifier = modifier.nexaParentRelativeDimension(
+            width = values["width"],
+            height = values["height"],
+            minWidth = values["minWidth"],
+            maxWidth = values["maxWidth"],
+            minHeight = values["minHeight"],
+            maxHeight = values["maxHeight"],
+        )
+    }
+    if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
+    return modifier
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 private fun NexaDevRenderListNode(
     kind: String,
     fields: JSONObject,
@@ -2398,40 +2415,62 @@ private fun NexaDevRenderListNode(
         "Image" -> {
             val source = fields.optJSONObject("source") ?: JSONObject()
             val description = fields.nexaDevOptionalString("description")?.takeIf(String::isNotEmpty)
-            val scale = if (fields.optString("scale") == "Fill") ContentScale.Crop else ContentScale.Fit
+            val fitName = fields.optString("fit").ifEmpty { fields.optString("scale") }
+            val scale = if (fitName == "Fill") ContentScale.Crop else ContentScale.Fit
             val placeholder = fields.nexaDevOptionalString("placeholder")?.takeIf(String::isNotEmpty)
             val sharedElementExpression = fields.opt("shared_element")
-            val renderedModifier = if (sharedElementExpression != null && sharedElementExpression != JSONObject.NULL) {
+            val style = fields.optJSONObject("style") ?: JSONObject()
+            var renderedModifier = if (sharedElementExpression != null && sharedElementExpression != JSONObject.NULL) {
                 modifier.then(nexaSharedElementModifier(store.evaluatePresented(sharedElementExpression, locals, scope)))
             } else {
                 modifier
             }
-            val maxHeight = if (fields.has("max_height")) fields.optDouble("max_height").dp else null
-            val fillMaxSize = fields.optBoolean("fill_max_size", false)
+            val widthDim = nexaDevDimension(style.opt("width"))
+            val heightDim = nexaDevDimension(style.opt("height"))
+            val maxWidthDim = nexaDevDimension(style.opt("max_width"))
+            if (scale == ContentScale.Crop && widthDim == null && maxWidthDim == null) {
+                renderedModifier = renderedModifier.fillMaxWidth()
+            }
+            renderedModifier = nexaDevApplyViewStyleModifier(renderedModifier, style, store, locals, scope)
+            val decodeWidthDp = if (widthDim?.kind == "fixed") widthDim.value.toFloat() else null
+            val decodeHeightDp = if (heightDim?.kind == "fixed") heightDim.value.toFloat() else null
             val showLoadingIndicator = fields.optBoolean("show_loading_indicator", false)
+            val autoReplay = fields.optBoolean("auto_replay", true)
             val asset = source.optString("Asset").takeIf(String::isNotEmpty)
             val remoteExpression = source.opt("RemoteUrl")
             val localFileExpression = source.opt("LocalFile")
             if (asset != null) {
-                NexaAssetImagePrimitive(
-                    resourceId = nexaDrawableId(asset),
-                    contentDescription = description,
-                    contentScale = scale,
-                    maxHeight = maxHeight,
-                    fillMaxSize = fillMaxSize,
-                    modifier = renderedModifier,
-                )
+                val stem = asset.substringBeforeLast('.')
+                if (asset.endsWith(".gif", ignoreCase = true)) {
+                    NexaGifAssetImagePrimitive(
+                        resourceId = nexaRawId(stem),
+                        contentDescription = description,
+                        contentScale = scale,
+                        autoReplay = autoReplay,
+                        decodeWidthDp = decodeWidthDp,
+                        decodeHeightDp = decodeHeightDp,
+                        modifier = renderedModifier,
+                    )
+                } else {
+                    NexaAssetImagePrimitive(
+                        resourceId = nexaDrawableId(stem),
+                        contentDescription = description,
+                        contentScale = scale,
+                        modifier = renderedModifier,
+                    )
+                }
             } else if (remoteExpression != null && remoteExpression != JSONObject.NULL) {
                 val url = store.stringify(store.evaluatePresented(remoteExpression, locals, scope))
                 NexaRemoteImagePrimitive(
                     url = url,
                     allowsFile = false,
-                    placeholderResourceId = placeholder?.let { nexaDrawableId(it) },
+                    placeholderResourceId = placeholder?.let { nexaDrawableId(it.substringBeforeLast('.')) },
                     showLoadingIndicator = showLoadingIndicator,
+                    autoReplay = autoReplay,
+                    decodeWidthDp = decodeWidthDp,
+                    decodeHeightDp = decodeHeightDp,
                     contentDescription = description,
                     contentScale = scale,
-                    maxHeight = maxHeight,
-                    fillMaxSize = fillMaxSize,
                     modifier = renderedModifier,
                 )
             } else if (localFileExpression != null && localFileExpression != JSONObject.NULL) {
@@ -2441,10 +2480,11 @@ private fun NexaDevRenderListNode(
                     allowsFile = true,
                     placeholderResourceId = null,
                     showLoadingIndicator = showLoadingIndicator,
+                    autoReplay = autoReplay,
+                    decodeWidthDp = decodeWidthDp,
+                    decodeHeightDp = decodeHeightDp,
                     contentDescription = description,
                     contentScale = scale,
-                    maxHeight = maxHeight,
-                    fillMaxSize = fillMaxSize,
                     modifier = renderedModifier,
                 )
             } else {

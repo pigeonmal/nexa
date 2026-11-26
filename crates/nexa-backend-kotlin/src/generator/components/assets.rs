@@ -17,17 +17,31 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(uses_assets, "androidx.compose.ui.graphics.painter.Painter");
     imports.add(uses_assets, "androidx.compose.ui.res.painterResource");
     imports.add(
-        features.uses_remote_image,
+        features.uses_remote_image || features.uses_gif_asset,
         "androidx.compose.ui.platform.LocalContext",
     );
 }
 
+pub(crate) fn asset_stem(name: &str) -> &str {
+    name.rsplit_once('.').map_or(name, |(stem, _)| stem)
+}
+
+pub(crate) fn is_gif_asset(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".gif")
+}
+
 pub(crate) fn drawable_id(name: &str, known_drawables: &BTreeSet<String>) -> String {
-    if known_drawables.contains(name) {
-        format!("R.drawable.`{name}`")
+    let stem = asset_stem(name);
+    if known_drawables.contains(stem) {
+        format!("R.drawable.`{stem}`")
     } else {
-        format!("nexaDrawableId({})", kotlin_string(name))
+        format!("nexaDrawableId({})", kotlin_string(stem))
     }
+}
+
+pub(crate) fn raw_id(name: &str) -> String {
+    let stem = asset_stem(name);
+    format!("nexaRawId({})", kotlin_string(stem))
 }
 
 pub(crate) const DRAWABLE_PRIMITIVES: &str = r#"
@@ -39,6 +53,19 @@ internal fun nexaDrawableId(name: String): Int {
         context.resources.getIdentifier(
             name,
             "drawable",
+            context.packageName,
+        )
+    }
+}
+
+// nexa-codegen: nexaRawId
+@Composable
+internal fun nexaRawId(name: String): Int {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(context, name) {
+        context.resources.getIdentifier(
+            name,
+            "raw",
             context.packageName,
         )
     }

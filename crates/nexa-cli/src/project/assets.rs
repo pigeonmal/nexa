@@ -33,15 +33,40 @@ pub(super) fn copy_ios_project_images(
     let generated = images
         .iter()
         .flat_map(|image| {
-            let extension = ios_asset_extension(image);
-            [
-                format!("{}.imageset", image.name),
-                format!("{}.imageset/{}.{}", image.name, image.name, extension),
-            ]
+            if image.extension == "gif" {
+                let asset_set = format!("{}_gif.dataset", image.name);
+                [
+                    asset_set.clone(),
+                    format!("{asset_set}/{}.gif", image.name),
+                ]
+            } else {
+                let extension = ios_asset_extension(image);
+                [
+                    format!("{}.imageset", image.name),
+                    format!("{}.imageset/{}.{}", image.name, image.name, extension),
+                ]
+            }
         })
         .collect::<BTreeSet<_>>();
     remove_stale_generated(&catalog, &marker, &generated, true)?;
     for image in &images {
+        if image.extension == "gif" {
+            let asset_set = format!("{}_gif.dataset", image.name);
+            let directory = catalog.join(&asset_set);
+            ensure_owned_destination(&directory, &marker, &asset_set)?;
+            fs::create_dir_all(&directory)
+                .map_err(|error| format!("{}: {error}", directory.display()))?;
+            let filename = format!("{}.gif", image.name);
+            let destination = directory.join(&filename);
+            copy_if_changed(&image.source, &destination)?;
+            write_if_changed(
+                &directory.join("Contents.json"),
+                &format!(
+                    "{{\"data\":[{{\"filename\":\"{filename}\",\"idiom\":\"universal\",\"universal-type-identifier\":\"com.compuserve.gif\"}}],\"info\":{{\"author\":\"xcode\",\"version\":1}}}}\n"
+                ),
+            )?;
+            continue;
+        }
         let asset_set = format!("{}.imageset", image.name);
         let directory = catalog.join(&asset_set);
         ensure_owned_destination(&directory, &marker, &asset_set)?;
@@ -85,8 +110,11 @@ pub(super) fn copy_android_project_images(
 ) -> Result<(), String> {
     let resources = output_root.join("android/app/src/main/res/drawable-nodpi");
     let marker = output_root.join("android/app/src/main/res/.nexa-project-images");
+    let raw_resources = output_root.join("android/app/src/main/res/raw");
+    let raw_marker = output_root.join("android/app/src/main/res/.nexa-project-raw-images");
     let generated = images
         .iter()
+        .filter(|image| image.extension != "gif")
         .map(|image| {
             let extension = if image.extension == "jpeg" {
                 "jpg"
@@ -96,8 +124,23 @@ pub(super) fn copy_android_project_images(
             format!("{}.{}", image.name, extension)
         })
         .collect::<BTreeSet<_>>();
+    let generated_raw = images
+        .iter()
+        .filter(|image| image.extension == "gif")
+        .map(|image| format!("{}.gif", image.name))
+        .collect::<BTreeSet<_>>();
     remove_stale_generated(&resources, &marker, &generated, false)?;
+    remove_stale_generated(&raw_resources, &raw_marker, &generated_raw, false)?;
     for image in images {
+        if image.extension == "gif" {
+            let filename = format!("{}.gif", image.name);
+            let destination = raw_resources.join(&filename);
+            ensure_owned_destination(&destination, &raw_marker, &filename)?;
+            fs::create_dir_all(&raw_resources)
+                .map_err(|error| format!("{}: {error}", raw_resources.display()))?;
+            copy_if_changed(&image.source, &destination)?;
+            continue;
+        }
         let filename = if image.extension == "jpeg" {
             format!("{}.jpg", image.name)
         } else {
@@ -109,7 +152,8 @@ pub(super) fn copy_android_project_images(
             .map_err(|error| format!("{}: {error}", resources.display()))?;
         copy_if_changed(&image.source, &destination)?;
     }
-    write_marker(&marker, &generated)
+    write_marker(&marker, &generated)?;
+    write_marker(&raw_marker, &generated_raw)
 }
 
 pub(super) fn write_android_image_keep_rules(
@@ -138,17 +182,25 @@ pub(super) fn write_android_image_keep_rules(
                     ..
                 } = node
                 {
-                    if let nexa_ir::ImageSource::Asset(name) = source
-                        && valid_image_asset_name(name)
-                        && !known_drawables.contains(name)
-                    {
-                        references.insert(format!("@drawable/{name}"));
+                    if let nexa_ir::ImageSource::Asset(name) = source {
+                        let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
+                        if valid_image_asset_name(stem) {
+                            if name.to_ascii_lowercase().ends_with(".gif") {
+                                references.insert(format!("@raw/{stem}"));
+                            } else if !known_drawables.contains(stem) {
+                                references.insert(format!("@drawable/{stem}"));
+                            }
+                        }
                     }
-                    if let Some(name) = placeholder
-                        && valid_image_asset_name(name)
-                        && !known_drawables.contains(name)
-                    {
-                        references.insert(format!("@drawable/{name}"));
+                    if let Some(name) = placeholder {
+                        let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
+                        if valid_image_asset_name(stem) {
+                            if name.to_ascii_lowercase().ends_with(".gif") {
+                                references.insert(format!("@raw/{stem}"));
+                            } else if !known_drawables.contains(stem) {
+                                references.insert(format!("@drawable/{stem}"));
+                            }
+                        }
                     }
                 }
             },
@@ -592,9 +644,12 @@ pub(super) fn project_images(root: &Path) -> Result<Vec<ProjectImage>, String> {
                     path.display()
                 )
             })?;
-        if !matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp") {
+        if !matches!(
+            extension.as_str(),
+            "png" | "jpg" | "jpeg" | "webp" | "gif"
+        ) {
             return Err(format!(
-                "unsupported app image asset format `{extension}`: {} (use png, jpg, jpeg, or webp)",
+                "unsupported app image asset format `{extension}`: {} (use png, jpg, jpeg, webp, or gif)",
                 path.display()
             ));
         }

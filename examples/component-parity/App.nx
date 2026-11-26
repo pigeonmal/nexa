@@ -2418,16 +2418,64 @@ app ComponentParity {
     }
 
     screen ImageCases {
-        Column(gap: 12, padding: 16) {
-            Text("Image", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Asset, fit, and crop") {
-                Image(asset: "parity_sample", description: "Parity sample", scale: Fit, maxHeight: 120)
-                Image(asset: "parity_sample", description: "Parity sample cropped", scale: Fill, fillMaxSize: false, maxHeight: 80)
-                Image(asset: "parity_sample", description: "Fill the available size", scale: Fill, fillMaxSize: true, maxHeight: 80)
-                Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 80)
-                Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 80)
-                Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 80)
-                Image(file: "/tmp/nexa-parity-missing-image.png", description: "Local file fallback", scale: Fit, maxHeight: 80)
+        ScrollView {
+            Column(gap: 12, padding: 16) {
+                Text("Image", fontSize: 28, fontWeight: Bold)
+                ParityCard(title: "Asset, fit, and crop") {
+                    Text("Asset · Fit (maxHeight: 120)", fontSize: 12, color: "#666670")
+                    Image(asset: "parity_sample.png", description: "Parity sample", fit: Fit, maxHeight: 120)
+                    Text("Asset · Fill cropped (maxHeight: 80)", fontSize: 12, color: "#666670")
+                    Image(asset: "parity_sample.png", description: "Parity sample cropped", fit: Fill, maxHeight: 80)
+                    Text("Asset · Fill width & height (maxHeight: 80)", fontSize: 12, color: "#666670")
+                    Image(asset: "parity_sample.png", description: "Fill the available size", fit: Fill, width: Fill, height: 80)
+                    Text("Direct styling · 100×100, cornerRadius: 20", fontSize: 12, color: "#666670")
+                    Image(asset: "parity_sample.png", description: "Styled square image", fit: Fill, width: 100, height: 100, background: "#384470", cornerRadius: 20)
+                    Image(
+                        asset: "parity_sample.png",
+                        description: "Full ViewStyle image",
+                        fit: Fill,
+                        margin: 2,
+                        padding: 0,
+                        width: 96,
+                        height: 64,
+                        minWidth: 48,
+                        maxWidth: 160,
+                        minHeight: 32,
+                        maxHeight: 96,
+                        background: "#384470",
+                        cornerRadius: 16,
+                        cornerRadiusBottom: 16,
+                        borderColor: "#E5E7EB",
+                        borderWidth: 1,
+                        opacity: 1.0,
+                        scale: 1.0,
+                        scaleY: 1.0,
+                        rotation: 0.0,
+                        offsetY: 0.0,
+                        shadow: Shadow(2, 0, 1, "#00000020"),
+                        blur: 0.0,
+                        clip: Rounded(16),
+                        zIndex: 0,
+                        glass: Glass(shape: "rounded(16)"),
+                        animation: Linear
+                    )
+                }
+                ParityCard(title: "Animated GIF and replay") {
+                    Text("GIF · autoReplay: true (default)", fontSize: 12, color: "#666670")
+                    Image(asset: "parity_anim.gif", description: "Looping GIF animation", fit: Fit, autoReplay: true, maxHeight: 80)
+                    Text("GIF · autoReplay: false (play once)", fontSize: 12, color: "#666670")
+                    Image(asset: "parity_anim.gif", description: "Single-play GIF animation", fit: Fit, autoReplay: false, maxHeight: 80)
+                }
+                ParityCard(title: "Remote and local fallbacks") {
+                    Text("Remote error · placeholder fallback", fontSize: 12, color: "#666670")
+                    Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", fit: Fit, placeholder: "parity_sample.png", maxHeight: 80)
+                    Text("Remote error · blank by default", fontSize: 12, color: "#666670")
+                    Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 80)
+                    Text("Remote error · showLoadingIndicator: true", fontSize: 12, color: "#666670")
+                    Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 80)
+                    Text("Missing local file · blank by default", fontSize: 12, color: "#666670")
+                    Image(file: "/tmp/nexa-parity-missing-image.png", description: "Local file fallback", fit: Fit, maxHeight: 80)
+                }
             }
         }
     }

@@ -670,6 +670,7 @@ pub fn walk_ir(
             Node::NavigationBack { label, .. } => walk_expression(label, visit_expression),
             Node::Image {
                 source,
+                style,
                 shared_element,
                 ..
             } => {
@@ -677,6 +678,21 @@ pub fn walk_ir(
                     source
                 {
                     walk_expression(url, visit_expression);
+                }
+                if let Some(radius) = &style.corner_radius_expression {
+                    walk_expression(radius, visit_expression);
+                }
+                if let Some(scale) = &style.effects.scale_expression {
+                    walk_expression(scale, visit_expression);
+                }
+                if let Some(scale_y) = &style.effects.scale_y_expression {
+                    walk_expression(scale_y, visit_expression);
+                }
+                if let Some(opacity) = &style.effects.opacity_expression {
+                    walk_expression(opacity, visit_expression);
+                }
+                if let Some(offset_y) = &style.effects.offset_y_expression {
+                    walk_expression(offset_y, visit_expression);
                 }
                 if let Some(id) = shared_element {
                     walk_expression(id, visit_expression);
@@ -2089,12 +2105,28 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         Node::NavigationBack { label, .. } => visitor.visit_expr(label),
         Node::Image {
             source,
+            style,
             shared_element,
             ..
         } => {
             if let crate::ImageSource::RemoteUrl(url) | crate::ImageSource::LocalFile(url) = source
             {
                 visitor.visit_expr(url);
+            }
+            if let Some(radius) = &style.corner_radius_expression {
+                visitor.visit_expr(radius);
+            }
+            if let Some(scale) = &style.effects.scale_expression {
+                visitor.visit_expr(scale);
+            }
+            if let Some(scale_y) = &style.effects.scale_y_expression {
+                visitor.visit_expr(scale_y);
+            }
+            if let Some(opacity) = &style.effects.opacity_expression {
+                visitor.visit_expr(opacity);
+            }
+            if let Some(offset_y) = &style.effects.offset_y_expression {
+                visitor.visit_expr(offset_y);
             }
             if let Some(id) = shared_element {
                 visitor.visit_expr(id);
@@ -3100,11 +3132,11 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::Image {
             source,
             description,
-            scale,
+            fit,
             placeholder,
             show_loading_indicator,
-            max_height,
-            fill_max_size,
+            auto_replay,
+            style,
             shared_element,
         } => Some(Node::Image {
             source: match source {
@@ -3117,11 +3149,11 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 other => other,
             },
             description,
-            scale,
+            fit,
             placeholder,
             show_loading_indicator,
-            max_height,
-            fill_max_size,
+            auto_replay,
+            style: folder.fold_view_style(style),
             shared_element: shared_element.map(|id| folder.fold_expr(id)),
         }),
         Node::Shape {

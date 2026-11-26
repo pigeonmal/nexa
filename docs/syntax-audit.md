@@ -511,11 +511,9 @@ Reference: components.md#icon
 
 Displays a native image from an asset, URL, or local file
 
-Signature: `Image(asset:, url:, file:, description, scale:, placeholder:, showLoadingIndicator:, maxHeight:, fillMaxSize:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Image(asset:, url:, file:, description:, fit:, placeholder:, showLoadingIndicator:, autoReplay:, margin:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `description`
-
-Optional options: `asset`, `url`, `file`, `scale`, `placeholder`, `showLoadingIndicator`, `maxHeight`, `fillMaxSize`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `asset`, `url`, `file`, `description`, `fit`, `placeholder`, `showLoadingIndicator`, `autoReplay`, `margin`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Exactly one of: `asset`, `url`, `file`
 

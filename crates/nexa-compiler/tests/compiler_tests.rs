@@ -6135,7 +6135,7 @@ fn accessibility_options_lower_on_builtins_and_custom_components() {
         app AccessibilityOptions {
             body {
                 Text("Continue", accessibilityLabel: "Continue action", accessibilityHint: "Opens the next screen", accessibilityValue: "Ready", accessibilityRole: Button)
-                Image(asset: "brand", description: "Brand", accessibilityLabel: "Brand mark", accessibilityRole: Image)
+                Image(asset: "brand.png", description: "Brand", accessibilityLabel: "Brand mark", accessibilityRole: Image)
                 Caption(title: "Profile", accessibilityLabel: "Profile heading", accessibilityRole: Header)
         }
         }
@@ -6216,7 +6216,7 @@ fn image_shared_element_modifier_lowers_a_typed_string_identifier() {
         r#"
         app SharedImage {
             body {
-                Image(asset: "hero", description: "Hero")
+                Image(asset: "hero.png", description: "Hero")
                     .sharedElement(id: "product-hero")
         }
         }
@@ -6249,9 +6249,9 @@ fn image_max_height_lowers_to_a_bounded_native_dimension() {
     assert!(matches!(
         module.body.as_slice(),
         [Node::Image {
-            max_height: Some(height),
+            style,
             ..
-        }] if (*height - 200.0).abs() < f32::EPSILON
+        }] if matches!(style.max_height, Some(nexa_ir::Dimension::Fixed(height)) if (height - 200.0).abs() < f32::EPSILON)
     ));
 }
 
@@ -6261,7 +6261,7 @@ fn image_fill_max_size_lowers_to_shared_image_sizing() {
         r#"
         app FullPagePoster {
             body {
-                Image(asset: "video_poster", description: "Video poster", scale: Fill, fillMaxSize: true)
+                Image(asset: "video_poster.png", description: "Video poster", fit: Fill, width: Fill, height: Fill)
         }
         }
         "#,
@@ -6271,10 +6271,11 @@ fn image_fill_max_size_lowers_to_shared_image_sizing() {
     assert!(matches!(
         module.body.as_slice(),
         [Node::Image {
-            fill_max_size: true,
-            scale: nexa_ir::ImageScale::Fill,
+            fit: nexa_ir::ImageScale::Fill,
+            style,
             ..
-        }]
+        }] if matches!(style.width, Some(nexa_ir::Dimension::Fill))
+            && matches!(style.height, Some(nexa_ir::Dimension::Fill))
     ));
 }
 
@@ -6320,7 +6321,7 @@ fn image_loading_indicator_is_opt_in_and_remote_or_file_only() {
         r#"
         app InvalidAssetLoading {
             body {
-                Image(asset: "logo", description: "Logo", showLoadingIndicator: true)
+                Image(asset: "logo.png", description: "Logo", showLoadingIndicator: true)
         }
         }
         "#,
@@ -6331,6 +6332,40 @@ fn image_loading_indicator_is_opt_in_and_remote_or_file_only() {
             .to_string()
             .contains("only be used with a URL or file")
     );
+}
+
+#[test]
+fn image_requires_extension_and_supports_gif_auto_replay() {
+    let missing_ext = compile(
+        r#"
+        app MissingExt {
+            body {
+                Image(asset: "hero", description: "Hero")
+            }
+        }
+        "#,
+    )
+    .expect_err("extensionless asset should fail");
+    assert!(missing_ext.to_string().contains("extension"));
+
+    let gif_module = compile(
+        r#"
+        app AnimatedGif {
+            body {
+                Image(asset: "loader.gif", description: "Loader", autoReplay: false)
+            }
+        }
+        "#,
+    )
+    .expect("gif asset with autoReplay: false should compile");
+    assert!(matches!(
+        gif_module.body.as_slice(),
+        [Node::Image {
+            source: nexa_ir::ImageSource::Asset(name),
+            auto_replay: false,
+            ..
+        }] if name == "loader.gif"
+    ));
 }
 
 #[test]

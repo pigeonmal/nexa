@@ -1152,6 +1152,182 @@ struct NexaDevNodeList: View {
         }
     }
 
+    private func applyViewSize(_ view: AnyView, style: [String: Any], frameAlignment: Alignment = .center) -> AnyView {
+        var styled = view
+        let widthDimension = nexaDevDimension(style["width"])
+        let heightDimension = nexaDevDimension(style["height"])
+        let minWidthDimension = nexaDevDimension(style["min_width"])
+        let maxWidthDimension = nexaDevDimension(style["max_width"])
+        let minHeightDimension = nexaDevDimension(style["min_height"])
+        let maxHeightDimension = nexaDevDimension(style["max_height"])
+        func boundValue(_ raw: NexaDevDimension?, widthAxis: Bool, minimum: Bool) -> CGFloat? {
+            guard let raw else { return nil }
+            switch raw {
+            case .fixed(let value): return value
+            case .fill: return minimum ? 0 : .infinity
+            case .screenWidthFraction(let fraction) where widthAxis: return windowMetrics.viewportSize.width * fraction
+            case .screenHeightFraction(let fraction) where !widthAxis: return windowMetrics.viewportSize.height * fraction
+            case .parentFraction, .screenWidthFraction, .screenHeightFraction: return nil
+            }
+        }
+        func fixedSize(_ raw: NexaDevDimension?, widthAxis: Bool) -> CGFloat? {
+            guard let raw else { return nil }
+            switch raw {
+            case .fixed(let value): return value
+            case .screenWidthFraction(let fraction) where widthAxis: return windowMetrics.viewportSize.width * fraction
+            case .screenHeightFraction(let fraction) where !widthAxis: return windowMetrics.viewportSize.height * fraction
+            case .parentFraction, .fill, .screenWidthFraction, .screenHeightFraction: return nil
+            }
+        }
+        let minWidth = boundValue(minWidthDimension, widthAxis: true, minimum: true)
+            ?? (widthDimension == .fill ? 0 : nil)
+        let maxWidth = boundValue(maxWidthDimension, widthAxis: true, minimum: false)
+            ?? (widthDimension == .fill ? .infinity : nil)
+        let minHeight = boundValue(minHeightDimension, widthAxis: false, minimum: true)
+            ?? (heightDimension == .fill ? 0 : nil)
+        let maxHeight = boundValue(maxHeightDimension, widthAxis: false, minimum: false)
+            ?? (heightDimension == .fill ? .infinity : nil)
+        if minWidth != nil || maxWidth != nil || minHeight != nil || maxHeight != nil {
+            styled = AnyView(styled.frame(minWidth: minWidth, maxWidth: maxWidth, minHeight: minHeight, maxHeight: maxHeight, alignment: frameAlignment))
+        }
+        let width = fixedSize(widthDimension, widthAxis: true)
+        let height = fixedSize(heightDimension, widthAxis: false)
+        if let width, let height {
+            styled = AnyView(styled.frame(width: width, height: height, alignment: frameAlignment))
+        } else if let width {
+            styled = AnyView(styled.frame(width: width, alignment: frameAlignment))
+        } else if let height {
+            styled = AnyView(styled.frame(height: height, alignment: frameAlignment))
+        }
+        func parentFraction(_ raw: NexaDevDimension?) -> CGFloat? {
+            guard let raw, case .parentFraction(let value) = raw else { return nil }
+            return value
+        }
+        let parentWidth = parentFraction(widthDimension)
+        let parentHeight = parentFraction(heightDimension)
+        let parentMinWidth = parentFraction(minWidthDimension)
+        let parentMaxWidth = parentFraction(maxWidthDimension)
+        let parentMinHeight = parentFraction(minHeightDimension)
+        let parentMaxHeight = parentFraction(maxHeightDimension)
+        if parentWidth != nil || parentHeight != nil || parentMinWidth != nil || parentMaxWidth != nil || parentMinHeight != nil || parentMaxHeight != nil {
+            styled = AnyView(styled.modifier(NexaParentRelativeDimensionModifier(width: parentWidth, height: parentHeight, minWidth: parentMinWidth, maxWidth: parentMaxWidth, minHeight: parentMinHeight, maxHeight: parentMaxHeight)))
+        }
+        if maxHeight != nil { styled = AnyView(styled.clipped()) }
+        return styled
+    }
+
+    private func applyViewSurfaceAndEffects(_ view: AnyView, style: [String: Any], locals: [String: Any], scope: String) -> AnyView {
+        var styled = view
+        if let rawAnimation = style["animation"],
+           !(rawAnimation is NSNull),
+           let value = nexaDevAnimation(rawAnimation) {
+            styled = AnyView(styled.modifier(NexaDevAnimateContentSizeModifier(animation: value)))
+        }
+        if let background = devColor(style["background"], isDark: colorScheme == .dark) {
+            styled = AnyView(styled.background(background))
+        }
+        let dynamicCornerRadius = style["corner_radius_expression"]
+            .flatMap { value -> Double? in
+                guard !(value is NSNull) else { return nil }
+                return (store.evaluate(value, locals: locals, scope: scope) as? NSNumber)?.doubleValue
+            }
+        let staticCornerRadius = (style["corner_radius"] as? NSNumber)?.doubleValue
+        let bottomCornerRadius = (style["corner_radius_bottom"] as? NSNumber)?.doubleValue
+        let cornerRadius = dynamicCornerRadius ?? staticCornerRadius ?? 0
+        let hasCornerRadius = dynamicCornerRadius != nil
+            || staticCornerRadius != nil
+            || bottomCornerRadius != nil
+        if hasCornerRadius {
+            if let bottomCornerRadius {
+                let shape = UnevenRoundedRectangle(cornerRadii: RectangleCornerRadii(
+                    topLeading: cornerRadius,
+                    bottomLeading: bottomCornerRadius,
+                    bottomTrailing: bottomCornerRadius,
+                    topTrailing: cornerRadius
+                ))
+                styled = AnyView(styled.clipShape(shape))
+                if let borderWidth = style["border_width"] as? Double,
+                   let border = devColor(style["border_color"], isDark: colorScheme == .dark) {
+                    styled = AnyView(styled.overlay(shape.stroke(border, lineWidth: borderWidth)))
+                }
+            } else {
+                let shape = RoundedRectangle(cornerRadius: cornerRadius)
+                styled = AnyView(styled.clipShape(shape))
+                if let borderWidth = style["border_width"] as? Double,
+                   let border = devColor(style["border_color"], isDark: colorScheme == .dark) {
+                    styled = AnyView(styled.overlay(shape.stroke(border, lineWidth: borderWidth)))
+                }
+            }
+        } else if let borderWidth = style["border_width"] as? Double,
+                  let border = devColor(style["border_color"], isDark: colorScheme == .dark) {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius)
+            styled = AnyView(styled.overlay(shape.stroke(border, lineWidth: borderWidth)))
+        }
+        if let opacity = style["opacity"] as? Double, opacity != 1 {
+            styled = AnyView(styled.compositingGroup().opacity(opacity))
+        }
+        let effects = style["effects"] as? [String: Any] ?? [:]
+        if let expression = effects["opacity_expression"], !(expression is NSNull),
+           let opacity = store.evaluate(expression, locals: locals, scope: scope) as? Double {
+            styled = AnyView(styled.compositingGroup().opacity(min(1, max(0, opacity))))
+        }
+        let scaleXExpression = effects["scale_expression"]
+        let scaleYExpression = effects["scale_y_expression"]
+        let hasScaleXExpression = scaleXExpression != nil && !(scaleXExpression is NSNull)
+        let scaleX: Double
+        if let expression = scaleXExpression, !(expression is NSNull) {
+            scaleX = store.evaluate(expression, locals: locals, scope: scope) as? Double ?? 1
+        } else {
+            scaleX = effects["scale"] as? Double ?? 1
+        }
+        if let expression = scaleYExpression, !(expression is NSNull) {
+            let scaleY = (store.evaluate(expression, locals: locals, scope: scope) as? Double)
+                ?? (effects["scale_y"] as? Double) ?? scaleX
+            styled = AnyView(styled.scaleEffect(x: scaleX, y: scaleY))
+        } else if let scaleY = effects["scale_y"] as? Double {
+            styled = AnyView(styled.scaleEffect(x: scaleX, y: scaleY))
+        } else if hasScaleXExpression || effects["scale"] as? Double != nil {
+            styled = AnyView(styled.scaleEffect(scaleX))
+        }
+        if let rawOffset = effects["offset_y_expression"], !(rawOffset is NSNull),
+           let offsetY = store.evaluate(rawOffset, locals: locals, scope: scope) as? Double {
+            styled = AnyView(styled.offset(y: CGFloat(offsetY)))
+        }
+        if let rotation = effects["rotation"] as? Double { styled = AnyView(styled.rotationEffect(.degrees(rotation))) }
+        if let shadow = effects["shadow"] as? [String: Any],
+           let radius = shadow["radius"] as? Double,
+           let color = devColor(shadow["color"], isDark: colorScheme == .dark) {
+            styled = AnyView(styled.shadow(
+                color: color,
+                radius: radius,
+                x: shadow["x"] as? Double ?? 0,
+                y: shadow["y"] as? Double ?? 0
+            ))
+        }
+        if let blur = effects["blur"] as? Double { styled = AnyView(styled.blur(radius: blur)) }
+        if let radius = effects["clip_rounded"] as? Double {
+            styled = AnyView(styled.clipShape(RoundedRectangle(cornerRadius: radius)))
+        }
+        if let zIndex = effects["z_index"] as? Int { styled = AnyView(styled.zIndex(Double(zIndex))) }
+        if let glass = effects["glass"] as? [String: Any] {
+            let shapeValue = glass["shape"] as? [String: Any] ?? [:]
+            let glassShape: NexaDevGlassShape
+            if shapeValue["Circle"] != nil { glassShape = .circle }
+            else if let radius = shapeValue["Rounded"] as? Double { glassShape = .rounded(radius) }
+            else { glassShape = .capsule }
+            styled = AnyView(styled.nexaDevGlass(
+                tint: devColor(glass["tint"], isDark: colorScheme == .dark),
+                shape: glassShape
+            ))
+        }
+        return styled
+    }
+
+    private func applyViewStyle(_ view: AnyView, style: [String: Any], frameAlignment: Alignment = .center, locals: [String: Any], scope: String) -> AnyView {
+        let sized = applyViewSize(view, style: style, frameAlignment: frameAlignment)
+        return applyViewSurfaceAndEffects(sized, style: style, locals: locals, scope: scope)
+    }
+
     private func renderNode(
         _ rawNode: Any,
         locals: [String: Any],
@@ -1689,167 +1865,7 @@ struct NexaDevNodeList: View {
                     })
                 }
             }
-            let widthDimension = nexaDevDimension(style["width"])
-            let heightDimension = nexaDevDimension(style["height"])
-            let minWidthDimension = nexaDevDimension(style["min_width"])
-            let maxWidthDimension = nexaDevDimension(style["max_width"])
-            let minHeightDimension = nexaDevDimension(style["min_height"])
-            let maxHeightDimension = nexaDevDimension(style["max_height"])
-            func boundValue(_ raw: NexaDevDimension?, widthAxis: Bool, minimum: Bool) -> CGFloat? {
-                guard let raw else { return nil }
-                switch raw {
-                case .fixed(let value): return value
-                case .fill: return minimum ? 0 : .infinity
-                case .screenWidthFraction(let fraction) where widthAxis: return windowMetrics.viewportSize.width * fraction
-                case .screenHeightFraction(let fraction) where !widthAxis: return windowMetrics.viewportSize.height * fraction
-                case .parentFraction, .screenWidthFraction, .screenHeightFraction: return nil
-                }
-            }
-            func fixedSize(_ raw: NexaDevDimension?, widthAxis: Bool) -> CGFloat? {
-                guard let raw else { return nil }
-                switch raw {
-                case .fixed(let value): return value
-                case .screenWidthFraction(let fraction) where widthAxis: return windowMetrics.viewportSize.width * fraction
-                case .screenHeightFraction(let fraction) where !widthAxis: return windowMetrics.viewportSize.height * fraction
-                case .parentFraction, .fill, .screenWidthFraction, .screenHeightFraction: return nil
-                }
-            }
-            let minWidth = boundValue(minWidthDimension, widthAxis: true, minimum: true)
-                ?? (widthDimension == .fill ? 0 : nil)
-            let maxWidth = boundValue(maxWidthDimension, widthAxis: true, minimum: false)
-                ?? (widthDimension == .fill ? .infinity : nil)
-            let minHeight = boundValue(minHeightDimension, widthAxis: false, minimum: true)
-                ?? (heightDimension == .fill ? 0 : nil)
-            let maxHeight = boundValue(maxHeightDimension, widthAxis: false, minimum: false)
-                ?? (heightDimension == .fill ? .infinity : nil)
-            if minWidth != nil || maxWidth != nil || minHeight != nil || maxHeight != nil {
-                styled = AnyView(styled.frame(minWidth: minWidth, maxWidth: maxWidth, minHeight: minHeight, maxHeight: maxHeight, alignment: frameAlignment))
-            }
-            let width = fixedSize(widthDimension, widthAxis: true)
-            let height = fixedSize(heightDimension, widthAxis: false)
-            if let width, let height {
-                styled = AnyView(styled.frame(width: width, height: height, alignment: frameAlignment))
-            } else if let width {
-                styled = AnyView(styled.frame(width: width, alignment: frameAlignment))
-            } else if let height {
-                styled = AnyView(styled.frame(height: height, alignment: frameAlignment))
-            }
-            func parentFraction(_ raw: NexaDevDimension?) -> CGFloat? {
-                guard let raw, case .parentFraction(let value) = raw else { return nil }
-                return value
-            }
-            let parentWidth = parentFraction(widthDimension)
-            let parentHeight = parentFraction(heightDimension)
-            let parentMinWidth = parentFraction(minWidthDimension)
-            let parentMaxWidth = parentFraction(maxWidthDimension)
-            let parentMinHeight = parentFraction(minHeightDimension)
-            let parentMaxHeight = parentFraction(maxHeightDimension)
-            if parentWidth != nil || parentHeight != nil || parentMinWidth != nil || parentMaxWidth != nil || parentMinHeight != nil || parentMaxHeight != nil {
-                styled = AnyView(styled.modifier(NexaParentRelativeDimensionModifier(width: parentWidth, height: parentHeight, minWidth: parentMinWidth, maxWidth: parentMaxWidth, minHeight: parentMinHeight, maxHeight: parentMaxHeight)))
-            }
-            if maxHeight != nil { styled = AnyView(styled.clipped()) }
-            if let rawAnimation = style["animation"],
-               !(rawAnimation is NSNull),
-               let value = nexaDevAnimation(rawAnimation) {
-                styled = AnyView(styled.modifier(NexaDevAnimateContentSizeModifier(animation: value)))
-            }
-            if let background = devColor(style["background"], isDark: colorScheme == .dark) {
-                styled = AnyView(styled.background(background))
-            }
-            let dynamicCornerRadius = style["corner_radius_expression"]
-                .flatMap { value -> Double? in
-                    guard !(value is NSNull) else { return nil }
-                    return (store.evaluate(value, locals: locals, scope: scope) as? NSNumber)?.doubleValue
-                }
-            let staticCornerRadius = (style["corner_radius"] as? NSNumber)?.doubleValue
-            let bottomCornerRadius = (style["corner_radius_bottom"] as? NSNumber)?.doubleValue
-            let cornerRadius = dynamicCornerRadius ?? staticCornerRadius ?? 0
-            let hasCornerRadius = dynamicCornerRadius != nil
-                || staticCornerRadius != nil
-                || bottomCornerRadius != nil
-            if hasCornerRadius {
-                if let bottomCornerRadius {
-                    let shape = UnevenRoundedRectangle(cornerRadii: RectangleCornerRadii(
-                        topLeading: cornerRadius,
-                        bottomLeading: bottomCornerRadius,
-                        bottomTrailing: bottomCornerRadius,
-                        topTrailing: cornerRadius
-                    ))
-                    styled = AnyView(styled.clipShape(shape))
-                    if let borderWidth = style["border_width"] as? Double,
-                       let border = devColor(style["border_color"], isDark: colorScheme == .dark) {
-                        styled = AnyView(styled.overlay(shape.stroke(border, lineWidth: borderWidth)))
-                    }
-                } else {
-                    let shape = RoundedRectangle(cornerRadius: cornerRadius)
-                    styled = AnyView(styled.clipShape(shape))
-                    if let borderWidth = style["border_width"] as? Double,
-                       let border = devColor(style["border_color"], isDark: colorScheme == .dark) {
-                        styled = AnyView(styled.overlay(shape.stroke(border, lineWidth: borderWidth)))
-                    }
-                }
-            } else if let borderWidth = style["border_width"] as? Double,
-                      let border = devColor(style["border_color"], isDark: colorScheme == .dark) {
-                let shape = RoundedRectangle(cornerRadius: cornerRadius)
-                styled = AnyView(styled.overlay(shape.stroke(border, lineWidth: borderWidth)))
-            }
-            if let opacity = style["opacity"] as? Double, opacity != 1 {
-                styled = AnyView(styled.compositingGroup().opacity(opacity))
-            }
-            let effects = style["effects"] as? [String: Any] ?? [:]
-            if let expression = effects["opacity_expression"], !(expression is NSNull),
-               let opacity = store.evaluate(expression, locals: locals, scope: scope) as? Double {
-                styled = AnyView(styled.compositingGroup().opacity(min(1, max(0, opacity))))
-            }
-            let scaleXExpression = effects["scale_expression"]
-            let scaleYExpression = effects["scale_y_expression"]
-            let hasScaleXExpression = scaleXExpression != nil && !(scaleXExpression is NSNull)
-            let scaleX: Double
-            if let expression = scaleXExpression, !(expression is NSNull) {
-                scaleX = store.evaluate(expression, locals: locals, scope: scope) as? Double ?? 1
-            } else {
-                scaleX = effects["scale"] as? Double ?? 1
-            }
-            if let expression = scaleYExpression, !(expression is NSNull) {
-                let scaleY = (store.evaluate(expression, locals: locals, scope: scope) as? Double)
-                    ?? (effects["scale_y"] as? Double) ?? scaleX
-                styled = AnyView(styled.scaleEffect(x: scaleX, y: scaleY))
-            } else if let scaleY = effects["scale_y"] as? Double {
-                styled = AnyView(styled.scaleEffect(x: scaleX, y: scaleY))
-            } else if hasScaleXExpression || effects["scale"] as? Double != nil {
-                styled = AnyView(styled.scaleEffect(scaleX))
-            }
-            if let rawOffset = effects["offset_y_expression"], !(rawOffset is NSNull),
-               let offsetY = store.evaluate(rawOffset, locals: locals, scope: scope) as? Double {
-                styled = AnyView(styled.offset(y: CGFloat(offsetY)))
-            }
-            if let rotation = effects["rotation"] as? Double { styled = AnyView(styled.rotationEffect(.degrees(rotation))) }
-            if let shadow = effects["shadow"] as? [String: Any],
-               let radius = shadow["radius"] as? Double,
-               let color = devColor(shadow["color"], isDark: colorScheme == .dark) {
-                styled = AnyView(styled.shadow(
-                    color: color,
-                    radius: radius,
-                    x: shadow["x"] as? Double ?? 0,
-                    y: shadow["y"] as? Double ?? 0
-                ))
-            }
-            if let blur = effects["blur"] as? Double { styled = AnyView(styled.blur(radius: blur)) }
-            if let radius = effects["clip_rounded"] as? Double {
-                styled = AnyView(styled.clipShape(RoundedRectangle(cornerRadius: radius)))
-            }
-            if let zIndex = effects["z_index"] as? Int { styled = AnyView(styled.zIndex(Double(zIndex))) }
-            if let glass = effects["glass"] as? [String: Any] {
-                let shapeValue = glass["shape"] as? [String: Any] ?? [:]
-                let glassShape: NexaDevGlassShape
-                if shapeValue["Circle"] != nil { glassShape = .circle }
-                else if let radius = shapeValue["Rounded"] as? Double { glassShape = .rounded(radius) }
-                else { glassShape = .capsule }
-                styled = AnyView(styled.nexaDevGlass(
-                    tint: devColor(glass["tint"], isDark: colorScheme == .dark),
-                    shape: glassShape
-                ))
-            }
+            styled = applyViewStyle(styled, style: style, frameAlignment: frameAlignment, locals: locals, scope: scope)
             if !bottomSheetNodes.isEmpty {
                 styled = AnyView(styled.background {
                     ZStack {
@@ -3094,40 +3110,71 @@ struct NexaDevNodeList: View {
         case "Image":
             let source = fields["source"] as? [String: Any] ?? [:]
             let description = fields["description"] as? String ?? ""
-            let scale: NexaImageScale = fields["scale"] as? String == "Fill" ? .fill : .fit
+            let fit: NexaImageScale = (fields["fit"] as? String ?? fields["scale"] as? String) == "Fill" ? .fill : .fit
             let placeholder = fields["placeholder"] as? String
             let showLoadingIndicator = fields["show_loading_indicator"] as? Bool ?? false
-            let maxHeight = fields["max_height"] as? CGFloat
-            let fillMaxSize = fields["fill_max_size"] as? Bool ?? false
+            let autoReplay = fields["auto_replay"] as? Bool ?? true
+            let style = fields[NexaDevKeys.style] as? [String: Any] ?? [:]
             let sharedExpression = fields["shared_element"] as? [String: Any]
+            let fitHeight: CGFloat? = {
+                let h = nexaDevDimension(style["height"]) ?? nexaDevDimension(style["max_height"])
+                let w = nexaDevDimension(style["width"])
+                let hv: CGFloat? = if case .fixed(let v) = h { v } else { nil }
+                let wv: CGFloat? = if case .fixed(let v) = w { v } else { nil }
+                return switch (wv, hv) {
+                case (let a?, let b?): max(a, b)
+                case (nil, let b?): b
+                case (let a?, nil): a
+                case (nil, nil): nil
+                }
+            }()
             var rendered: AnyView
             if let asset = source["Asset"] as? String {
                 rendered = AnyView(NexaAssetImagePrimitive(
                     name: asset,
                     description: description,
-                    scale: scale,
-                    maxHeight: maxHeight,
-                    fillMaxSize: fillMaxSize
+                    scale: fit,
+                    autoReplay: autoReplay,
+                    fitHeight: fitHeight
                 ))
             } else if let expression = source["RemoteUrl"] ?? source["LocalFile"] {
                 let allowsFile = source["LocalFile"] != nil
                 let urlText = store.stringify(store.evaluate(expression, locals: locals, scope: scope))
                 rendered = AnyView(NexaRemoteImagePrimitive(
                     url: urlText,
-                    scale: scale,
+                    scale: fit,
                     placeholder: allowsFile ? nil : placeholder,
                     showLoadingIndicator: showLoadingIndicator,
+                    autoReplay: autoReplay,
                     allowsFile: allowsFile,
                     description: description,
-                    maxHeight: maxHeight,
-                    fillMaxSize: fillMaxSize,
+                    fitHeight: fitHeight,
                     usesSharedElement: sharedExpression != nil
                 ))
             } else {
                 rendered = AnyView(NexaImagePlaceholderPrimitive(
                     name: placeholder ?? "",
-                    scale: scale
+                    scale: fit,
+                    autoReplay: autoReplay
                 ))
+            }
+            let hasHeightBound = nexaDevDimension(style["height"]) != nil || nexaDevDimension(style["max_height"]) != nil
+            if fit == .fill && hasHeightBound {
+                var sizeStyle = style
+                if nexaDevDimension(sizeStyle["width"]) == nil && nexaDevDimension(sizeStyle["max_width"]) == nil {
+                    sizeStyle["width"] = "Fill"
+                }
+                if nexaDevDimension(sizeStyle["height"]) == nil {
+                    sizeStyle["height"] = sizeStyle["max_height"]
+                }
+                let sizedBase = applyViewSize(AnyView(Color.clear), style: sizeStyle)
+                rendered = AnyView(sizedBase.overlay(rendered).clipped().contentShape(Rectangle()))
+                rendered = applyViewSurfaceAndEffects(rendered, style: style, locals: locals, scope: scope)
+            } else {
+                if fit == .fill && nexaDevDimension(style["width"]) == nil && nexaDevDimension(style["max_width"]) == nil {
+                    rendered = AnyView(rendered.frame(maxWidth: .infinity).clipped())
+                }
+                rendered = applyViewStyle(rendered, style: style, frameAlignment: .center, locals: locals, scope: scope)
             }
             if let sharedExpression, let namespace = nexaSharedNamespace {
                 let id = store.evaluate(sharedExpression, locals: locals, scope: scope) as? String ?? ""

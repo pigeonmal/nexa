@@ -628,8 +628,9 @@ app ArtistHero {
             Image(
                 url: "https://cdn.example.com/artists/artist-842/header.jpg",
                 description: "Artist header artwork",
-                scale: Fill,
-                fillMaxSize: true
+                fit: Fill,
+                width: Fill,
+                height: Fill
             )
         }
     }

@@ -37,7 +37,7 @@ app ECommerceArchetype {
 
             FastList(count: products.count, axis: Grid(2), rowHeight: 240) { index in
                 Column(gap: 6, padding: 8) {
-                    Image(url: productImages[index], description: "Product photo", scale: Fill)
+                    Image(url: productImages[index], description: "Product photo", fit: Fill)
                     Text(products[index])
                     Text(Number.formatCurrency(amount: prices[index], currencyCode: "EUR"))
                     Button("Add to cart") {

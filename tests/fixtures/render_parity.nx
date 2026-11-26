@@ -175,12 +175,12 @@ app RenderParity {
                                 Text("Accessible header", accessibilityLabel: "Parity section", accessibilityHint: "Opens this section", accessibilityValue: "Ready", accessibilityRole: Header, padding: Insets(top: SystemInsets.top, bottom: SystemInsets.bottom))
                             }
                             Section(title: "Images and links") {
-                                Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, fillMaxSize: false, maxHeight: 64)
+                                Image(asset: "parity_sample.png", description: "Parity sample image", fit: Fit, maxHeight: 64)
                                 .sharedElement(id: "parity-image")
-                                Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 64)
+                                Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", fit: Fit, placeholder: "parity_sample.png", maxHeight: 64)
                                 Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
                                 Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 64)
-                                Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
+                                Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", fit: Fit, maxHeight: 64)
                                 Icon(Icons.system.star, size: 24, color: "#E11D48", description: "Favorite")
                                 Icon(Icons.system.star_filled, size: 24, color: "#E11D48", description: "Star filled")
                                 Icon(Icons.system.favorite, size: 24, color: "#E11D48", description: "Favorite")
@@ -704,11 +704,41 @@ app RenderParity {
                 )
             }
             Section(title: "Image and icon parameters", comment: "Asset, URL, file, and system symbol sources") {
-                Image(asset: "parity_sample", description: "Asset image", scale: Fit, maxHeight: 64)
-                Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 64)
+                Image(
+                    asset: "parity_sample.png",
+                    description: "Styled image",
+                    fit: Fill,
+                    autoReplay: true,
+                    margin: 0,
+                    padding: 0,
+                    width: 64,
+                    height: 64,
+                    minWidth: 32,
+                    maxWidth: 120,
+                    minHeight: 32,
+                    maxHeight: 64,
+                    background: "#384470",
+                    cornerRadius: 12,
+                    cornerRadiusBottom: 12,
+                    borderColor: "#FFFFFF",
+                    borderWidth: 1,
+                    opacity: 1.0,
+                    scale: 1.0,
+                    scaleY: 1.0,
+                    rotation: 0.0,
+                    offsetY: 0.0,
+                    shadow: Shadow(2, 0, 1, "#00000020"),
+                    blur: 0.0,
+                    clip: Rounded(12),
+                    zIndex: 0,
+                    glass: Glass(shape: "rounded(12)"),
+                    animation: Linear
+                )
+                Image(asset: "parity_sample.png", description: "Asset image", fit: Fit, maxHeight: 64)
+                Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", fit: Fit, placeholder: "parity_sample.png", maxHeight: 64)
                 Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
                 Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 64)
-                Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
+                Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", fit: Fit, maxHeight: 64)
                 Icon(Icons.system.star, size: 24, color: "#E11D48", description: "Shared system icon")
                 Icon(Icons.system.star_filled, size: 24, color: "#E11D48", description: "Filled star")
                 Icon(Icons.system.favorite, size: 24, color: "#E11D48", description: "Favorite")

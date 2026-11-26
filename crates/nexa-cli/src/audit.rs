@@ -217,8 +217,11 @@ fn generated_source_and_dependencies(target: &str, module: &Module) -> (String, 
         if features.uses_network {
             dependencies.push("com.google.android.gms:play-services-cronet".to_owned());
         }
-        if features.uses_remote_image {
+        if features.uses_remote_image || features.uses_gif_asset {
             dependencies.push("io.coil-kt.coil3:coil-compose".to_owned());
+            dependencies.push("io.coil-kt.coil3:coil-gif".to_owned());
+        }
+        if features.uses_remote_image {
             dependencies.push("io.coil-kt.coil3:coil-network-core".to_owned());
         }
         if features.uses_keyboard_aware {

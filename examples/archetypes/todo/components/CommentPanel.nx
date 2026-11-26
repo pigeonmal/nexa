@@ -44,7 +44,7 @@ component CommentPanel(taskID: Int32) {
                             Text(Time.format(comment.createdAt, "d MMM, HH:mm"), fontSize: 12, color: "#8E8E93")
                             if comment.imageUri != "" {
                                 Pressable(accessibilityLabel: "Comment image", accessibilityHint: "Double tap to view full size", accessibilityRole: Button) {
-                                    Image(file: comment.imageUri, description: "", scale: Fit, maxHeight: 200)
+                                    Image(file: comment.imageUri, description: "", fit: Fit, maxHeight: 200)
                                 }
                                 .onTap {
                                     fullImageUri = comment.imageUri
@@ -127,7 +127,7 @@ component CommentPanel(taskID: Int32) {
 
                 BottomSheet(ref: fullImageSheetRef, detents: [1.0], initialDetent: 1.0) {
                     Column(gap: 12, padding: 16) {
-                        Image(file: fullImageUri, description: "Full size comment image", scale: Fit)
+                        Image(file: fullImageUri, description: "Full size comment image", fit: Fit)
                         Button("Done", style: Borderless) { fullImageSheetRef.dismiss() }
                     }
                 }

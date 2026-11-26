@@ -79,13 +79,18 @@ private func nexaReadImage(_ url: URL) async throws -> Data {
     return body
 }
 
+private enum NexaLoadedImage: @unchecked Sendable {
+    case staticImage(UIImage)
+    case animated(Data, Int)
+}
+
 @MainActor
 private final class NexaImageLoader {
     static let shared = NexaImageLoader()
 
     private struct Waiter {
         let height: Int
-        let continuation: CheckedContinuation<UIImage, any Error>
+        let continuation: CheckedContinuation<NexaLoadedImage, any Error>
     }
 
     private struct Load {
@@ -99,6 +104,11 @@ private final class NexaImageLoader {
     private let read: @Sendable (URL) async throws -> Data
     private let decode: @Sendable (Data, Int) async throws -> UIImage
     private let localLoadLimit: Int
+    private let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
     private var inFlight: [URL: Load] = [:]
     private var activeFileLoads = 0
     // Two batches keep FIFO order without shifting every waiting URL on dequeue.
@@ -116,11 +126,18 @@ private final class NexaImageLoader {
         self.decode = decode
     }
 
-    func image(for url: URL, height: Int = nexaImagePixelLimit) async throws -> UIImage {
+    private func cacheKey(url: URL, height: Int) -> NSString {
+        "\(url.absoluteString)#\(height)" as NSString
+    }
+
+    func image(for url: URL, height: Int = nexaImagePixelLimit) async throws -> NexaLoadedImage {
+        if let cached = cache.object(forKey: cacheKey(url: url, height: height)) {
+            return .staticImage(cached)
+        }
         nextID &+= 1
         let id = nextID
-        let image = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UIImage, any Error>) in
+        let loaded = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NexaLoadedImage, any Error>) in
                 guard !Task.isCancelled else {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -143,7 +160,7 @@ private final class NexaImageLoader {
             }
         }
         try Task.checkCancellation()
-        return image
+        return loaded
     }
 
     private func start(_ url: URL, loadID id: UInt64) {
@@ -153,11 +170,23 @@ private final class NexaImageLoader {
             do {
                 try Task.checkCancellation()
                 let data = try await read(url)
-                var nextHeight = await self?.largestHeight(for: url, loadID: id)
-                while let height = nextHeight {
-                    try Task.checkCancellation()
-                    let decoded = try await decode(data, height)
-                    nextHeight = await self?.resolve(url, loadID: id, through: height, result: .success(decoded))
+                if let source = CGImageSourceCreateWithData(
+                    data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
+                ), CGImageSourceGetCount(source) > 1 {
+                    let initialHeight = await self?.largestHeight(for: url, loadID: id) ?? nexaImagePixelLimit
+                    _ = await self?.resolve(
+                        url, loadID: id, through: nexaImagePixelLimit, result: .success(.animated(data, initialHeight))
+                    )
+                } else {
+                    var nextHeight = await self?.largestHeight(for: url, loadID: id)
+                    while let height = nextHeight {
+                        try Task.checkCancellation()
+                        let decoded = try await decode(data, height)
+                        await self?.storeCached(decoded, url: url, height: height)
+                        nextHeight = await self?.resolve(
+                            url, loadID: id, through: height, result: .success(.staticImage(decoded))
+                        )
+                    }
                 }
             } catch {
                 _ = await self?.resolve(url, loadID: id, through: nexaImagePixelLimit, result: .failure(error))
@@ -165,6 +194,11 @@ private final class NexaImageLoader {
             // A canceled decode can still be in ImageIO. Release its slot after it exits.
             if isFile { await self?.finishFileLoad() }
         }
+    }
+
+    private func storeCached(_ image: UIImage, url: URL, height: Int) {
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        cache.setObject(image, forKey: cacheKey(url: url, height: height), cost: cost)
     }
 
     private func finishFileLoad() {
@@ -198,7 +232,7 @@ private final class NexaImageLoader {
     }
 
     private func resolve(
-        _ url: URL, loadID: UInt64, through height: Int, result: Result<UIImage, any Error>
+        _ url: URL, loadID: UInt64, through height: Int, result: Result<NexaLoadedImage, any Error>
     ) -> Int? {
         // A canceled task may finish after a replacement request has started.
         guard let load = inFlight[url], load.id == loadID, let largest = load.largestHeight else { return nil }
@@ -236,23 +270,32 @@ struct NexaRemoteImage: View {
     let scale: NexaImageScale
     let placeholder: String?
     let showLoadingIndicator: Bool
+    let autoReplay: Bool
     let allowsFile: Bool
     let fitHeight: CGFloat?
     @Environment(\.displayScale) private var displayScale
     @State private var image: Image?
+    @State private var animatedData: Data?
     @State private var failed = false
 
     var body: some View {
         let request = Request(url: url, allowsFile: allowsFile, height: nexaImageDecodeHeight(fitHeight, displayScale: displayScale))
         ZStack {
             Color.clear
-                .frame(width: 1, height: 1)
+                .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
 
-            if let image {
+            if let animatedData {
+                NexaAnimatedGifView(
+                    data: animatedData,
+                    scale: scale,
+                    autoReplay: autoReplay,
+                    maxPixelHeight: request.height
+                )
+            } else if let image {
                 image.resizable().aspectRatio(contentMode: scale == .fit ? .fit : .fill)
             } else if let placeholder {
-                NexaImagePlaceholderPrimitive(name: placeholder, scale: scale)
+                NexaImagePlaceholderPrimitive(name: placeholder, scale: scale, autoReplay: autoReplay)
             } else if !failed && showLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
@@ -261,11 +304,17 @@ struct NexaRemoteImage: View {
         }
         .task(id: request) {
             image = nil
+            animatedData = nil
             failed = false
             do {
-                let decoded = try await NexaImageLoader.shared.image(for: request.validatedURL(), height: request.height)
+                let loaded = try await NexaImageLoader.shared.image(for: request.validatedURL(), height: request.height)
                 try Task.checkCancellation()
-                image = Image(uiImage: decoded)
+                switch loaded {
+                case .staticImage(let uiImage):
+                    image = Image(uiImage: uiImage)
+                case .animated(let data, _):
+                    animatedData = data
+                }
             } catch is CancellationError {
                 return
             } catch {

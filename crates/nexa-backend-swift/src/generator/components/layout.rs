@@ -395,6 +395,14 @@ pub(crate) fn append_style(
     if style.max_height.is_some() {
         append_modifier(out, depth, "clipped()");
     }
+    append_surface_and_effect_modifiers(out, depth, style);
+}
+
+pub(crate) fn append_surface_and_effect_modifiers(
+    out: &mut SourceWriter,
+    depth: usize,
+    style: &ViewStyle,
+) {
     // Keep the animated measurement inside the fill and border modifiers.
     // This makes the visible surface follow the interpolated size, matching
     // Compose's animateContentSize modifier order.
@@ -509,14 +517,14 @@ pub(crate) fn append_size_modifiers(
     let mut bounds = Vec::with_capacity(6);
     append_swift_dimension_bound(&mut bounds, "minWidth", style.min_width, true, true);
     append_swift_dimension_bound(&mut bounds, "maxWidth", style.max_width, true, false);
-    append_swift_dimension_bound(&mut bounds, "minHeight", style.min_height, false, true);
-    append_swift_dimension_bound(&mut bounds, "maxHeight", style.max_height, false, false);
     if matches!(style.width, Some(Dimension::Fill)) && style.min_width.is_none() {
         bounds.push("minWidth: 0".to_owned());
     }
     if matches!(style.width, Some(Dimension::Fill)) && style.max_width.is_none() {
         bounds.push("maxWidth: .infinity".to_owned());
     }
+    append_swift_dimension_bound(&mut bounds, "minHeight", style.min_height, false, true);
+    append_swift_dimension_bound(&mut bounds, "maxHeight", style.max_height, false, false);
     if matches!(style.height, Some(Dimension::Fill)) && style.min_height.is_none() {
         bounds.push("minHeight: 0".to_owned());
     }
