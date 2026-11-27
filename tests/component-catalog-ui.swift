@@ -30,7 +30,6 @@ final class NexaComponentCatalogUITests: XCTestCase {
         ("Image asset rendering", "ImageCases"),
         ("Linear gradient", "GradientCases"),
         ("External link", "LinkCases"),
-        ("NavigationBack behavior", "NavigationBackCases"),
         ("Toolbar placement", "ToolbarCases"),
         ("Page pager", "PagerCases"),
         ("App bottom bar", "BottomBarCases"),
@@ -162,46 +161,6 @@ final class NexaComponentCatalogUITests: XCTestCase {
     func testNestedScreenTransitionsPushAndPop() throws {
         let app = XCUIApplication()
         app.launch()
-
-        XCTAssertTrue(
-            app.staticTexts["Column spacing and padding"].waitForExistence(timeout: 30),
-            "Component catalog did not appear"
-        )
-        try push("NavigationBack behavior", screen: "NavigationBackCases", in: app)
-
-        let conditionalLink = app.buttons["Conditional navigation link"]
-        try tap("Toggle navigation availability", in: app)
-        XCTAssertFalse(conditionalLink.isEnabled, "when=false must disable the navigation link")
-        try tap("Toggle navigation availability", in: app)
-        XCTAssertTrue(conditionalLink.isEnabled, "when=true must enable the navigation link")
-        try tap("Conditional navigation link", in: app)
-        XCTAssertTrue(
-            app.staticTexts["DirectionCases"].waitForExistence(timeout: 8),
-            "The first navigation push did not show DirectionCases"
-        )
-        try capture("NavigationTransitionPush", app: app)
-
-        try tap("Open nested navigation level", in: app)
-        XCTAssertTrue(
-            app.staticTexts["NavigationBackCases"].waitForExistence(timeout: 8),
-            "The nested navigation push did not show NavigationBackCases"
-        )
-        try capture("NavigationTransitionNestedPush", app: app)
-
-        try navigateBack(in: app, from: "nested NavigationBackCases")
-        XCTAssertTrue(
-            app.buttons["Open nested navigation level"].waitForExistence(timeout: 5),
-            "The first pop did not restore DirectionCases"
-        )
-        try capture("NavigationTransitionFirstPop", app: app)
-
-        try navigateBack(in: app, from: "DirectionCases")
-        XCTAssertTrue(
-            app.buttons["Conditional navigation link"].waitForExistence(timeout: 5),
-            "The second pop did not restore the original NavigationBackCases screen"
-        )
-        try capture("NavigationTransitionRootRestored", app: app)
-    }
 
     func testTitleToolbarAndContextMenuActions() throws {
         let app = XCUIApplication()

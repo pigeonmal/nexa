@@ -1137,9 +1137,6 @@ fn lower_node_raw(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compile
         ast::Node::ComponentInvocation(inv) if inv.name == "NavigationSplitView" => {
             navigation::lower_navigation_split_view_component(inv, cx)
         }
-        ast::Node::ComponentInvocation(inv) if inv.name == "NavigationBack" => {
-            navigation::lower_navigation_back_component(inv, cx)
-        }
         ast::Node::ComponentInvocation(inv) if inv.name == "NavigationLink" => {
             navigation::lower_navigation_link_component(inv, cx)
         }

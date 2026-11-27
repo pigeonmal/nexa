@@ -179,7 +179,6 @@ public enum NexaDevNodeKind {
     public static let navigationStack = "NavigationStack"
     public static let navigationSplitView = "NavigationSplitView"
     public static let navigationLink = "NavigationLink"
-    public static let navigationBack = "NavigationBack"
     public static let content = "Content"
     public static let componentCall = "ComponentCall"
 }

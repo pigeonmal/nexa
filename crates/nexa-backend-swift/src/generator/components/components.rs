@@ -199,7 +199,10 @@ pub(crate) fn render_node(
                     depth + 1,
                     format_args!("ToolbarItem(placement: {placement}) {{"),
                 );
-                render_node(child, module, features, depth + 2, out);
+                out.line_at(depth + 2, format_args!("Group {{"));
+                render_node(child, module, features, depth + 3, out);
+                out.push('\n');
+                out.line_at(depth + 2, format_args!("}}.environment(\\.nexaInToolbar, true)"));
                 out.line_at(depth + 1, format_args!("}}"));
             }
             out.line_at(depth, format_args!("}}"));
@@ -698,7 +701,6 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
-        Node::NavigationBack { label } => navigation::render_back(label, None, depth, out),
         Node::Link { url, children } => {
             links::render_link(url, children, module, features, depth, out)
         }

@@ -41,7 +41,7 @@ app IosInteractionSmoke {
                 Text("Row Start")
                 Text("Row End")
             }
-            NavigationBack(label: "Go Home")
+            Button("Go Home") { Navigation.back() }
         }
     }
 

@@ -42,7 +42,9 @@ app Storefront {
             Button("Add to cart", icon: Icons.system.shopping_cart) {
                 cartCount = cartCount + 1
             }
-            NavigationBack(label: "Back to products")
+            Button("Back to products") {
+                Navigation.back()
+            }
         }
     }
 

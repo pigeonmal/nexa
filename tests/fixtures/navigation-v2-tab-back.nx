@@ -15,7 +15,7 @@ app NavigationTabBack {
         Column(gap: 8, padding: 16) {
             Text("Tab A Details")
             Text("Note: $note")
-            NavigationBack(label: "Back to Tab A Home")
+            Button("Back to Tab A Home") { Navigation.back() }
         }
     }
 

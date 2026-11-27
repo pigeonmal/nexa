@@ -79,6 +79,24 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
         context.has_navigation || context.include_all_shared_primitives,
         "androidx.compose.material.icons.automirrored.filled.ArrowBack",
     );
+    imports.add(
+        context.has_navigation
+            || context.features.uses_adaptive_tabs
+            || context.include_all_shared_primitives,
+        "androidx.compose.foundation.layout.windowInsetsPadding",
+    );
+    imports.add(
+        context.has_navigation
+            || context.features.uses_adaptive_tabs
+            || context.include_all_shared_primitives,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        context.has_navigation
+            || context.features.uses_adaptive_tabs
+            || context.include_all_shared_primitives,
+        "androidx.compose.ui.input.nestedscroll.nestedScroll",
+    );
     // The DevRuntime host includes every shared primitive so hot-reloaded
     // trees can use them even when the initial app does not. AOT source
     // sections are reachability-pruned, but share this import block.

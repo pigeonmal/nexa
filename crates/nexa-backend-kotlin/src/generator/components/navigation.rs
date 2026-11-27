@@ -5,7 +5,6 @@ use nexa_ir::{Expr, Module, Node, ScreenId, State, Type};
 use crate::generator::{
     components::{appearance, bottom_bar, render_children},
     engine::types::kotlin_type,
-    expressions::text_expression,
     features::Features,
     utils::{indent, kotlin_string},
 };
@@ -110,15 +109,6 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     );
     imports.add(
         context.has_navigation,
-        "androidx.activity.compose.BackHandler",
-    );
-    imports.add(context.has_navigation, "androidx.compose.runtime.getValue");
-    imports.add(
-        context.has_navigation,
-        "androidx.navigation.compose.currentBackStackEntryAsState",
-    );
-    imports.add(
-        context.has_navigation,
         "androidx.navigation.NavHostController",
     );
     imports.add(
@@ -133,22 +123,6 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         context.has_navigation,
         "androidx.navigation.compose.rememberNavController",
     );
-    imports.add(
-        context.has_navigation,
-        "androidx.compose.animation.AnimatedContentTransitionScope",
-    );
-    imports.add(
-        context.has_navigation,
-        "androidx.compose.animation.core.tween",
-    );
-}
-
-pub(crate) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
-    indent(out, depth);
-    out.push_str("TextButton(onClick = { if (navController.previousBackStackEntry != null) navController.popBackStack() }) {\n");
-    out.line_at(depth + 1, format_args!("Text({})", text_expression(label)));
-    indent(out, depth);
-    out.push('}');
 }
 
 pub(crate) fn render_link(
@@ -243,14 +217,6 @@ pub(crate) fn render_navigation_stack(
     indent(out, depth);
     out.push_str("val navController = rememberNavController()\n");
     indent(out, depth);
-    out.push_str("val currentBackStackEntry by navController.currentBackStackEntryAsState()\n");
-    indent(out, depth);
-    out.push_str("BackHandler(enabled = currentBackStackEntry != null && navController.previousBackStackEntry != null) {\n");
-    indent(out, depth + 1);
-    out.push_str("navController.popBackStack()\n");
-    indent(out, depth);
-    out.push_str("}\n");
-    indent(out, depth);
     out.push_str("NavHost(\n");
     indent(out, depth + 1);
     out.push_str("navController = navController,\n");
@@ -261,30 +227,6 @@ pub(crate) fn render_navigation_stack(
             route_value(module, root, arguments)
         ),
     );
-    for (parameter, direction) in [
-        ("enterTransition", "Start"),
-        ("exitTransition", "Start"),
-        ("popEnterTransition", "End"),
-        ("popExitTransition", "End"),
-    ] {
-        let transition = if parameter.starts_with("enter") || parameter.starts_with("popEnter") {
-            "slideIntoContainer"
-        } else {
-            "slideOutOfContainer"
-        };
-        out.line_at(depth + 1, format_args!("{parameter} = {{"));
-        out.line_at(depth + 2, format_args!("{transition}("));
-        out.line_at(
-            depth + 3,
-            format_args!("towards = AnimatedContentTransitionScope.SlideDirection.{direction},"),
-        );
-        out.line_at(
-            depth + 3,
-            format_args!("animationSpec = tween(durationMillis = 350),"),
-        );
-        out.line_at(depth + 2, format_args!(")"));
-        out.line_at(depth + 1, format_args!("}},"));
-    }
     indent(out, depth);
     out.push_str(") {\n");
     for screen in &module.screens {
@@ -560,15 +502,6 @@ fn render_navigation_screen_chrome(
     out.line_at(depth + 1, format_args!("inline = nexaTitleInline,"));
     out.line_at(depth + 1, format_args!("leadingTitle = nexaLeadingTitle,"));
     out.line_at(depth + 1, format_args!("showBackButton = !nexaIsRoot,"));
-    out.line_at(
-        depth + 1,
-        format_args!(
-            "hasTrailingActions = {},",
-            toolbars.iter().any(|(placement, children)| {
-                *placement == nexa_ir::ToolbarPlacement::Trailing && !children.is_empty()
-            })
-        ),
-    );
     out.line_at(
         depth + 1,
         format_args!("onBack = {{ if (navController.previousBackStackEntry != null) navController.popBackStack() }},"),

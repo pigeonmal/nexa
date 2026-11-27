@@ -453,7 +453,7 @@ app RenderParity {
 
     screen Detail {
         Column(gap: 12, padding: 16) {
-            NavigationBack(label: "Back to previous screen")
+            Button("Back to previous screen", style: Plain) { Navigation.back() }
             Text("Navigation destination", accessibilityLabel: "Navigation destination")
             NavigationLink(destination: TextEntry) {
                 Text("Open nested navigation screen", accessibilityLabel: "Open nested navigation screen")
@@ -464,7 +464,7 @@ app RenderParity {
     screen TextEntry {
         KeyboardAware(dismiss: Never, behavior: Stay, hideHorizontalScrollbar: false, hideVerticalScrollbar: false, focusedInputOffset: 4) {
             Column(gap: 12, padding: 16) {
-                NavigationBack(label: "Back to previous screen")
+                Button("Back to previous screen", style: Plain) { Navigation.back() }
                 Text("Nested navigation destination", accessibilityLabel: "Nested navigation destination")
                 TextInput(value: title, placeholder: "Task title", keyboardType: Text, capitalization: None, comment: "Task title input", fontSize: 16, fontFamily: "Gilroy-Regular", textColor: "#FFFFFF", placeholderColor: "#888888", clearable: true).onChange {
                     changed ->
@@ -487,7 +487,7 @@ app RenderParity {
     screen StyleParameters {
         let largeSheetRef = ComponentRef<BottomSheet>()
         Form {
-            NavigationBack(label: "Back to catalog", comment: "Return to component catalog")
+            Button("Back to catalog", style: Plain) { Navigation.back() }
             Section(title: "Layout style parameters", comment: "Named style options across native containers") {
                 Column(
                 gap: 6,
@@ -779,7 +779,7 @@ app RenderParity {
 
     screen ListParameters {
         Column(gap: 12, padding: 16) {
-            NavigationBack(label: "Back to lists")
+            Button("Back to lists", style: Plain) { Navigation.back() }
             Text("Page snap list parameters", comment: "Pagination screenshot fixture", accessibilityLabel: "Page snap list parameters")
             Text("Page position: \(pagePosition)")
             FastList(count: 3, pageSnap: true, scrollPosition: pagePosition, accessibilityLabel: "Page snap parity list") {

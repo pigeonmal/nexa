@@ -1349,6 +1349,11 @@ pub(crate) fn render_pressable(
             depth + 1,
             format_args!("contentAlignment = Alignment.Center,"),
         );
+    } else {
+        out.line_at(
+            depth + 1,
+            format_args!("contentAlignment = if (LocalNexaInToolbar.current) Alignment.Center else Alignment.TopStart,"),
+        );
     }
     indent(out, depth);
     out.push_str(") {\n");

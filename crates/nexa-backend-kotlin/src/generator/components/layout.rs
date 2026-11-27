@@ -503,6 +503,10 @@ fn render_toolbar_row(
 
     out.line_at(
         depth,
+        format_args!("CompositionLocalProvider(LocalNexaInToolbar provides true) {{"),
+    );
+    out.line_at(
+        depth + 1,
         format_args!("Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.{arrangement}, verticalAlignment = Alignment.CenterVertically) {{"),
     );
     for placement in [ToolbarPlacement::Leading, ToolbarPlacement::Trailing] {
@@ -514,7 +518,7 @@ fn render_toolbar_row(
         }
         let group_arrangement = "Arrangement.spacedBy(8.dp)";
         out.line_at(
-            depth + 1,
+            depth + 2,
             format_args!("Row(horizontalArrangement = {group_arrangement}, verticalAlignment = Alignment.CenterVertically) {{"),
         );
         let mut rendered_items = 0;
@@ -530,7 +534,7 @@ fn render_toolbar_row(
                     child,
                     scope.module,
                     scope.features,
-                    depth + 2,
+                    depth + 3,
                     out,
                     true,
                 );
@@ -538,9 +542,10 @@ fn render_toolbar_row(
             }
         }
         out.push('\n');
-        indent(out, depth + 1);
+        indent(out, depth + 2);
         out.push_str("}\n");
     }
+    out.line_at(depth + 1, format_args!("}}"));
     out.line_at(depth, format_args!("}}"));
 }
 

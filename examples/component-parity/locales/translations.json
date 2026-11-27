@@ -598,10 +598,6 @@
       "source": "Compare status-bar foreground, background, and safe-area handling.",
       "translations": {}
     },
-    "Compare the explicit back control with each platform's navigation header.": {
-      "source": "Compare the explicit back control with each platform's navigation header.",
-      "translations": {}
-    },
     "Compare with the padded card above": {
       "source": "Compare with the padded card above",
       "translations": {}
@@ -826,16 +822,6 @@
     },
     "Direction": {
       "source": "Direction",
-      "translations": {}
-    },
-    "Direction link enabled: {canOpenDirection}": {
-      "source": "Direction link enabled: {canOpenDirection}",
-      "arguments": [
-        "canOpenDirection"
-      ],
-      "argument_types": [
-        "Bool"
-      ],
       "translations": {}
     },
     "Disabled": {
@@ -1936,14 +1922,6 @@
       "source": "Navigation title system",
       "translations": {}
     },
-    "NavigationBack": {
-      "source": "NavigationBack",
-      "translations": {}
-    },
-    "NavigationBack behavior": {
-      "source": "NavigationBack behavior",
-      "translations": {}
-    },
     "Nested quick actions": {
       "source": "Nested quick actions",
       "translations": {}
@@ -2096,10 +2074,6 @@
     },
     "Open medium and expanded sheet": {
       "source": "Open medium and expanded sheet",
-      "translations": {}
-    },
-    "Open nested navigation level": {
-      "source": "Open nested navigation level",
       "translations": {}
     },
     "Open nested sheet": {
@@ -2406,11 +2380,6 @@
     },
     "Reset values": {
       "source": "Reset values",
-      "translations": {}
-    },
-    "Return to component index": {
-      "source": "Return to component index",
-      "comment": "Explicit back label parity sample",
       "translations": {}
     },
     "Return to task details": {
@@ -3431,12 +3400,12 @@
       "source": "Toggle animated row content",
       "translations": {}
     },
-    "Toggle empty-state copy": {
-      "source": "Toggle empty-state copy",
+    "Toggle conditional navigation": {
+      "source": "Toggle conditional navigation",
       "translations": {}
     },
-    "Toggle navigation availability": {
-      "source": "Toggle navigation availability",
+    "Toggle empty-state copy": {
+      "source": "Toggle empty-state copy",
       "translations": {}
     },
     "Toggle progress bar colors": {

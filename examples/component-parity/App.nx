@@ -35,8 +35,8 @@ app ComponentParity {
     screen Catalog {
         Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
-                NavigationLink(destination: ImageCases) {
-                    Text("Image asset rendering")
+                NavigationLink(destination: ToolbarCases) {
+                    Text("Toolbar placement")
                 }
             }
             Section(title: "Layout") {
@@ -131,9 +131,6 @@ app ComponentParity {
                 }
                 NavigationLink(destination: LinkCases) {
                     Text("External link")
-                }
-                NavigationLink(destination: NavigationBackCases) {
-                    Text("NavigationBack behavior")
                 }
                 NavigationLink(destination: ToolbarCases) {
                     Text("Toolbar placement")
@@ -2503,22 +2500,6 @@ app ComponentParity {
         }
     }
 
-    screen NavigationBackCases {
-        state canOpenDirection: Bool = true
-        Column(gap: 12, padding: 16) {
-            Text("NavigationBack", fontSize: 28, fontWeight: Bold)
-            Text("Compare the explicit back control with each platform's navigation header.")
-            NavigationBack(label: "Return to component index", comment: "Explicit back label parity sample")
-            Button("Toggle navigation availability") {
-                canOpenDirection =!canOpenDirection
-            }
-            Text("Direction link enabled: $canOpenDirection")
-            NavigationLink(destination: DirectionCases, when: canOpenDirection) {
-                Text("Conditional navigation link")
-            }
-        }
-    }
-
     screen ToolbarCases {
         state actions: Int32 = 0
         Column(gap: 12, padding: 16) {
@@ -3213,6 +3194,7 @@ app ComponentParity {
     }
 
     screen DirectionCases {
+        state canOpenToolbar: Bool = true
         Column(gap: 12, padding: 16) {
             Text("Direction", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Layout follows the app direction") {
@@ -3223,8 +3205,11 @@ app ComponentParity {
                     Text("Trailing")
                 }
             }
-            NavigationLink(destination: NavigationBackCases) {
-                Text("Open nested navigation level")
+            Button("Toggle conditional navigation") {
+                canOpenToolbar = !canOpenToolbar
+            }
+            NavigationLink(destination: ToolbarCases, when: canOpenToolbar) {
+                Text("Conditional navigation link")
             }
         }
     }

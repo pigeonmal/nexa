@@ -23,7 +23,7 @@ app NavigationDeepLink {
         state visited: Bool = true
         Column(gap: 8, padding: 16) {
             Text("Target Screen: $targetId")
-            NavigationBack(label: "Back")
+            Button("Back") { Navigation.back() }
         }
     }
 

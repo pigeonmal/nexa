@@ -1129,7 +1129,7 @@ failures without a platform-specific exception API.
 
 ## Navigation and modal content
 
-Declare destinations as `screen` blocks and select the root with `NavigationStack(root: ...)`. A `NavigationLink` is a declarative link in the view tree; `Navigation.push(...)` and `Navigation.back()` are imperative actions that work in foreground action blocks, including button, lifecycle, list, and plugin event actions. `NavigationBack` draws a back control; `Navigation.back()` only performs the pop. App links configured with `deepLinks` route incoming URLs by screen slug and scalar arguments in the path or named query parameters; use `Link(url: ...)` to open an external URL.
+Declare destinations as `screen` blocks and select the root with `NavigationStack(root: ...)`. A `NavigationLink` is a declarative link in the view tree; `Navigation.push(...)` and `Navigation.back()` are imperative actions that work in foreground action blocks, including button, lifecycle, list, and plugin event actions. App links configured with `deepLinks` route incoming URLs by screen slug and scalar arguments in the path or named query parameters; use `Link(url: ...)` to open an external URL.
 
 Pass route arguments positionally in the destination's declaration order. The
 compiler checks the destination and each argument type. A screen declared in
@@ -1165,7 +1165,6 @@ app SupportCenter {
             Link(url: "https://support.example.com") {
                 Text("Open help center")
             }
-            NavigationBack(label: "Back to support")
             Button("Close this screen") {
                 Navigation.back()
             }

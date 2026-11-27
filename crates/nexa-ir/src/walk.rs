@@ -667,7 +667,6 @@ pub fn walk_ir(
                     walk_expression(argument, visit_expression);
                 }
             }
-            Node::NavigationBack { label, .. } => walk_expression(label, visit_expression),
             Node::Image {
                 source,
                 style,
@@ -2102,7 +2101,6 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 visitor.visit_expr(argument);
             }
         }
-        Node::NavigationBack { label, .. } => visitor.visit_expr(label),
         Node::Image {
             source,
             style,
@@ -3125,9 +3123,6 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             show_navigation_bar,
             title_mode,
             title_alignment,
-        }),
-        Node::NavigationBack { label } => Some(Node::NavigationBack {
-            label: folder.fold_expr(label),
         }),
         Node::Image {
             source,

@@ -975,7 +975,6 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::Icon { .. }
         | Node::LinearGradient { .. }
         | Node::NavigationStack { .. }
-        | Node::NavigationBack { .. }
         | Node::Direction { .. }
         | Node::OnAppear { .. }
         | Node::OnDisappear { .. }

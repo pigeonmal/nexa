@@ -20,7 +20,7 @@ app NavigationGraphMigration {
             Button("Increment") {
                 count = count + 1
             }
-            NavigationBack(label: "Back")
+            Button("Back") { Navigation.back() }
         }
     }
 

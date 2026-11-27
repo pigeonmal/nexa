@@ -1428,10 +1428,69 @@ private struct NexaButtonLabelStyle: LabelStyle {
     }
 }
 
+// nexa-codegen: nexaInToolbar
+private struct NexaInToolbarKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private extension EnvironmentValues {
+    var nexaInToolbar: Bool {
+        get { self[NexaInToolbarKey.self] }
+        set { self[NexaInToolbarKey.self] = newValue }
+    }
+}
+
+// nexa-codegen: NexaPressableFrameModifier
+private struct NexaPressableFrameModifier: ViewModifier {
+    @Environment(\.nexaInToolbar) private var inToolbar
+    let fillMaxSize: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if fillMaxSize {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(.interaction, Rectangle())
+        } else if inToolbar {
+            content.frame(minWidth: 32, minHeight: 32, alignment: .center).contentShape(.interaction, Rectangle())
+        } else {
+            content.frame(minHeight: 48, alignment: .topLeading).contentShape(.interaction, Rectangle())
+        }
+    }
+}
+
+// nexa-codegen: NexaPressableContextMenuWrapper
+private struct NexaPressableContextMenuWrapper<Label: View, ToolbarLabel: View, MenuContent: View>: View {
+    @Environment(\.nexaInToolbar) private var inToolbar
+    let disabled: Bool
+    let hasTapAction: Bool
+    let onTap: () -> Void
+    let label: () -> Label
+    let toolbarLabel: () -> ToolbarLabel
+    let menu: () -> MenuContent
+
+    @ViewBuilder
+    var body: some View {
+        if inToolbar {
+            Group {
+                if hasTapAction {
+                    Menu(content: menu, label: toolbarLabel, primaryAction: onTap)
+                } else {
+                    Menu(content: menu, label: toolbarLabel)
+                }
+            }
+            .disabled(disabled)
+            .opacity(disabled ? 0.5 : 1.0)
+        } else {
+            label()
+                .contextMenu { menu() }
+        }
+    }
+}
+
 // nexa-codegen: NexaButtonPrimitive
 struct NexaButtonPrimitive<Label: View>: View {
     @Environment(\.colorScheme) private var colorScheme
-    let style: NexaSharedButtonStyleKind
+    @Environment(\.nexaInToolbar) private var inToolbar
+    let style: NexaSharedButtonStyleKind?
     let size: NexaSharedButtonSizeKind?
     let shape: NexaSharedButtonShapeKind
     let tint: Color?
@@ -1444,13 +1503,17 @@ struct NexaButtonPrimitive<Label: View>: View {
     private let label: Label
     @State private var activationGate = NexaButtonActivationGate()
 
+    private var resolvedStyle: NexaSharedButtonStyleKind {
+        style ?? (inToolbar ? .borderless : .borderedProminent)
+    }
+
     private func activate() {
         guard !disabled, !loading, activationGate.permitsActivation(shape: shape) else { return }
         action()
     }
 
     init(
-        style: NexaSharedButtonStyleKind,
+        style: NexaSharedButtonStyleKind?,
         size: NexaSharedButtonSizeKind?,
         shape: NexaSharedButtonShapeKind,
         tint: Color?,
@@ -1497,7 +1560,7 @@ struct NexaButtonPrimitive<Label: View>: View {
 
     private func singleLineButtonLabel<Content: View>(_ content: Content) -> some View {
         let isRegular = size == nil || size == .regular
-        let hasBorder = style == .bordered || style == .borderedProminent
+        let hasBorder = !inToolbar && (resolvedStyle == .bordered || resolvedStyle == .borderedProminent)
         return content.labelStyle(NexaButtonLabelStyle(
             horizontalPadding: isRegular && hasBorder ? __NEXA_BUTTON_LABELED_ICON_HORIZONTAL_PADDING__ : 0
         )).lineLimit(1)
@@ -1549,38 +1612,59 @@ struct NexaButtonPrimitive<Label: View>: View {
 
     @ViewBuilder
     var body: some View {
-        switch style {
-        case .bordered:
-            let tint = tint ?? .blue
-            let outline = NexaSharedButtonOutline(kind: shape)
-            accessible(Button(action: activate) { labelContent }
+        if inToolbar && (resolvedStyle == .borderless || resolvedStyle == .plain) {
+            let baseColor = tint ?? (resolvedStyle == .plain ? Color.primary : nexaControlAccent(colorScheme))
+            let foreground = (disabled || loading) ? baseColor.opacity(0.38) : baseColor
+            accessible(
+                Button(action: activate) {
+                    if loading {
+                        progressLabelContent.tint(foreground)
+                    } else {
+                        singleLineButtonLabel(
+                            label.font(.system(size: CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)))
+                        )
+                        .fixedSize(horizontal: true, vertical: false)
+                        .foregroundStyle(foreground)
+                    }
+                }
                 .disabled(disabled || loading)
-                .buttonStyle(NexaSharedBorderedButtonStyle(tint: tint, shape: outline, size: size))
-                .modifier(NexaSharedGlassModifier(enabled: glass, tint: self.tint, shape: shape)))
-        case .borderedProminent:
-            accessible(Button(action: activate) { labelContent }
-                .disabled(disabled || loading)
-                .buttonStyle(NexaSharedProminentButtonStyle(
-                    tint: tint ?? nexaControlAccent(colorScheme),
-                    shape: NexaSharedButtonOutline(kind: shape),
-                    size: size,
-                    iconOnlyCircle: iconOnlyCircle
-                ))
-                .modifier(NexaSharedGlassModifier(enabled: glass, tint: tint, shape: shape)))
-        case .borderless:
-            platformSize(
-                accessible(Button(action: activate) { plainLabelContent }
-                    .disabled(disabled || loading)
-                    .buttonStyle(.borderless)
-                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)))
+                .buttonStyle(.borderless)
+                .tint(baseColor)
             )
-        case .plain:
-            platformSize(
-                accessible(Button(action: activate) { plainLabelContent }
+        } else {
+            switch resolvedStyle {
+            case .bordered:
+                let tint = tint ?? .blue
+                let outline = NexaSharedButtonOutline(kind: shape)
+                accessible(Button(action: activate) { labelContent }
                     .disabled(disabled || loading)
-                    .buttonStyle(.plain)
-                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)))
-            )
+                    .buttonStyle(NexaSharedBorderedButtonStyle(tint: tint, shape: outline, size: size))
+                    .modifier(NexaSharedGlassModifier(enabled: glass, tint: self.tint, shape: shape)))
+            case .borderedProminent:
+                accessible(Button(action: activate) { labelContent }
+                    .disabled(disabled || loading)
+                    .buttonStyle(NexaSharedProminentButtonStyle(
+                        tint: tint ?? nexaControlAccent(colorScheme),
+                        shape: NexaSharedButtonOutline(kind: shape),
+                        size: size,
+                        iconOnlyCircle: iconOnlyCircle
+                    ))
+                    .modifier(NexaSharedGlassModifier(enabled: glass, tint: tint, shape: shape)))
+            case .borderless:
+                platformSize(
+                    accessible(Button(action: activate) { plainLabelContent }
+                        .disabled(disabled || loading)
+                        .buttonStyle(.borderless)
+                        .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)))
+                )
+            case .plain:
+                platformSize(
+                    accessible(Button(action: activate) { plainLabelContent }
+                        .disabled(disabled || loading)
+                        .buttonStyle(.plain)
+                        .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)))
+                )
+            }
         }
     }
 }
@@ -4359,11 +4443,11 @@ struct NexaNavigationScreenPrimitive<Content: View>: View {
         // at the bottom as well; otherwise SwiftUI leaves a safe-area-sized gap
         // after the final scroll content.
         .ignoresSafeArea(.container, edges: .bottom)
-        .navigationTitle(inline && leadingTitle ? "" : title)
+        .navigationTitle(title)
             .modifier(NexaNavigationTitleDisplayModeModifier(inline: inline))
             .toolbar {
                 if inline && leadingTitle {
-                    ToolbarItem(placement: .topBarLeading) {
+                    ToolbarItem(placement: .principal) {
                         leadingNavigationTitle
                     }
                 }
@@ -4378,9 +4462,7 @@ struct NexaNavigationScreenPrimitive<Content: View>: View {
             .font(.headline)
             .lineLimit(1)
             .truncationMode(.tail)
-            .layoutPriority(1)
-            .frame(minWidth: 160, alignment: .leading)
-            .offset(x: -13)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(title)
             .accessibilityAddTraits(.isHeader)
     }
@@ -7433,7 +7515,7 @@ mod tests {
             "GeometryReader { proxy in\n            content.frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)\n        }\n        // Android navigation content uses zero Scaffold window insets and extends\n        // beneath the system navigation area. Keep pushed iOS screens edge-to-edge\n        // at the bottom as well; otherwise SwiftUI leaves a safe-area-sized gap\n        // after the final scroll content.\n        .ignoresSafeArea(.container, edges: .bottom)\n        .navigationTitle"
         ));
         assert!(swift.contains(".toolbar(.visible, for: .navigationBar)"));
-        assert!(swift.contains(".navigationTitle(inline && leadingTitle ? \"\" : title)"));
+        assert!(swift.contains(".navigationTitle(title)"));
         assert!(swift.contains("NexaNavigationTitleDisplayModeModifier(inline: inline)"));
         assert!(swift.contains("content.toolbarTitleDisplayMode(inline ? .inline : .large)"));
         assert!(swift.contains("content.navigationBarTitleDisplayMode(inline ? .inline : .large)"));
@@ -7451,11 +7533,11 @@ mod tests {
             "let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []"
         ));
         assert!(!swift.contains("NexaNavigationEdgeBackGesture"));
-        assert!(swift.contains("ToolbarItem(placement: .topBarLeading)"));
+        assert!(swift.contains("ToolbarItem(placement: .principal)"));
         assert!(!swift.contains("Image(systemName: \"chevron.backward\")"));
         assert!(swift.contains(".accessibilityLabel(title)"));
-        assert!(swift.contains(".frame(minWidth: 160, alignment: .leading)"));
-        assert!(swift.contains(".offset(x: -13)"));
+        assert!(swift.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
+        assert!(!swift.contains(".offset(x: -13)"));
         assert!(swift.contains("Text(title)"));
         assert!(swift.contains("if inline && leadingTitle"));
         assert!(swift.contains("inline: true"));

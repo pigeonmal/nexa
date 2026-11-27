@@ -13,7 +13,7 @@ app NavigationDuplicatePush {
             NavigationLink(destination: CounterScreen(step + 1)) {
                 Text("Push next counter")
             }
-            NavigationBack(label: "Back")
+            Button("Back") { Navigation.back() }
         }
     }
 

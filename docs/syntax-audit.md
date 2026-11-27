@@ -559,20 +559,6 @@ Modifiers: none
 
 Reference: components.md#link
 
-### `NavigationBack`
-
-Pops the navigation stack with an optional label
-
-Signature: `NavigationBack(label:, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
-
-Optional options: `label`, `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
-
-Children: none
-
-Modifiers: none
-
-Reference: components.md#navigationstack--navigationlink
-
 ### `NavigationLink`
 
 Navigates to a declared screen destination

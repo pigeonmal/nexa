@@ -1185,9 +1185,6 @@ pub enum Node {
         guard: Option<Expr>,
         children: Vec<Node>,
     },
-    NavigationBack {
-        label: Expr,
-    },
     Link {
         url: Expr,
         children: Vec<Node>,

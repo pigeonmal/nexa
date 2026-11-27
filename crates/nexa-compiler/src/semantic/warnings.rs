@@ -517,7 +517,7 @@ fn walk_invocation(
                 walk_expression(scale, names, used);
             }
         }
-        "StatusBar" | "Direction" | "NavigationBack" | "Content" => {}
+        "StatusBar" | "Direction" | "Content" => {}
         "OnAppear" | "OnDisappear" | "OnActive" | "OnInactive" | "OnBackground" => {
             if let ast::ChildBody::Actions(actions) = &inv.children {
                 walk_actions(actions, names, used, target, file, warnings);

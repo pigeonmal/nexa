@@ -132,32 +132,6 @@ pub(super) fn lower_navigation_split_view_component(
 }
 
 #[inline(never)]
-pub(super) fn lower_navigation_back_component(
-    inv: ast::ComponentInvocation,
-    cx: &SemanticContext<'_>,
-) -> Result<Node, CompileError> {
-    let allow_navigation_back = cx.allow_navigation_back;
-
-    let span = inv.span;
-    let mut args = inv.arguments;
-    let comment = take_translator_comment(&mut args, "NavigationBack")?;
-    let label = args.remove("label");
-    if !allow_navigation_back {
-        return Err(CompileError::new(
-            span,
-            "NavigationBack is only allowed inside a declared screen",
-        ));
-    }
-    let label = label
-        .map(|label| lower_expr(&label, Some(&Type::String), &cx.exprs(false)))
-        .transpose()?
-        .unwrap_or_else(|| Expr::String("Back".to_owned()));
-    Ok(Node::NavigationBack {
-        label: localize_ui_text(label, comment.clone()),
-    })
-}
-
-#[inline(never)]
 pub(super) fn lower_navigation_link_component(
     inv: ast::ComponentInvocation,
     cx: &SemanticContext<'_>,

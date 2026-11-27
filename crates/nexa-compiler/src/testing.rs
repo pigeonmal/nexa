@@ -1231,7 +1231,6 @@ fn node_name(node: &Node) -> &'static str {
         Node::NavigationStack { .. } => "NavigationStack",
         Node::NavigationLink { .. } => "NavigationLink",
         Node::NavigationSplitView { .. } => "NavigationSplitView",
-        Node::NavigationBack { .. } => "NavigationBack",
         Node::Link { .. } => "Link",
         Node::Accessibility { .. } => "Accessibility",
         Node::KeyboardAware { .. } => "KeyboardAware",

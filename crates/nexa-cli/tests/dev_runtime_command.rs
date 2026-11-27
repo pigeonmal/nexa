@@ -1810,26 +1810,23 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
     assert!(swift.contains("screen/\\(name)"));
 
     let kotlin = read_android_dev_runtime(&output);
-    let kotlin_normalized = kotlin.lines().map(str::trim).collect::<Vec<_>>().join("\n");
     assert!(kotlin.contains("rememberNavController()"));
     assert!(kotlin.contains("NavHost("));
     assert!(kotlin.contains("navController = navController"));
     assert!(kotlin.contains("modifier = modifier.fillMaxSize()"));
     assert!(kotlin.contains("navigationEpoch"));
-    for (parameter, transition, direction) in [
-        ("enterTransition", "slideIntoContainer", "Start"),
-        ("exitTransition", "slideOutOfContainer", "Start"),
-        ("popEnterTransition", "slideIntoContainer", "End"),
-        ("popExitTransition", "slideOutOfContainer", "End"),
-    ] {
-        assert!(kotlin_normalized.contains(&format!(
-            "{parameter} = {{\n{transition}(\ntowards = AnimatedContentTransitionScope.SlideDirection.{direction},\nanimationSpec = tween(durationMillis = 350),"
-        )));
-    }
+    assert!(!kotlin.contains("BackHandler("));
+    assert!(!kotlin.contains("slideIntoContainer("));
+    assert!(!kotlin.contains("slideOutOfContainer("));
     assert!(
         fs::read_to_string(output.join("android/app/build.gradle.kts"))
             .expect("read Android navigation dependencies")
             .contains("androidx.navigation:navigation-compose")
+    );
+    assert!(
+        fs::read_to_string(output.join("android/app/src/main/AndroidManifest.xml"))
+            .expect("read Android manifest")
+            .contains("android:enableOnBackInvokedCallback=\"true\"")
     );
 }
 

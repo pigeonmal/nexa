@@ -653,8 +653,10 @@ private fun NexaDevStateStore.shapeDimensionReader(
 
 internal fun openNexaUrl(context: Context, value: String) {
     val uri = Uri.parse(value)
-    when (uri.scheme) {
+    when (uri.scheme?.lowercase()) {
         "https", "http", "mailto", "tel" -> runCatching { nexaLaunchLink(context, uri) }
+            .onFailure { android.util.Log.w("Nexa", "Failed to open URL: $value", it) }
+        else -> android.util.Log.w("Nexa", "Unsupported URL scheme in openNexaUrl: $value")
     }
 }
 
@@ -1441,7 +1443,7 @@ internal fun NexaDevNode(
             NexaDevRenderListNode(kind, fields, module, store, locals, scope, modifier)
         "If", "When", "Link", "Accessibility", "KeyboardAware", "AppBottomBar",
         "PagePager", "Toolbar", "BottomSheet", "Dialog", "ConfirmationDialog",
-        "NavigationStack", "NavigationSplitView", "NavigationLink", "NavigationBack" ->
+        "NavigationStack", "NavigationSplitView", "NavigationLink" ->
             NexaDevRenderNavigationNode(kind, fields, module, store, locals, scope, modifier)
     }
 }
@@ -1843,8 +1845,8 @@ private fun NexaDevRenderTextNode(
             NexaLinearGradientPrimitive(
                 startColor = start,
                 endColor = end,
-                horizontal = direction == "LeadingToTrailing" || direction == "TrailingToLeading",
-                reversed = direction == "BottomToTop" || direction == "TrailingToLeading",
+                horizontal = direction == "leading_to_trailing" || direction == "trailing_to_leading" || direction == "LeadingToTrailing" || direction == "TrailingToLeading",
+                reversed = direction == "bottom_to_top" || direction == "trailing_to_leading" || direction == "BottomToTop" || direction == "TrailingToLeading",
                 height = fields.optDouble("height", 180.0).dp,
             )
         }
@@ -2733,12 +2735,14 @@ private fun NexaDevRenderNavigationNode(
         }
         "Toolbar" -> {
             val children = fields.optJSONArray("children") ?: JSONArray()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = if (fields.optString("placement") == "Leading") Arrangement.Start else Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RenderChildren(children, module, store, locals, scope)
+            CompositionLocalProvider(LocalNexaInToolbar provides true) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (fields.optString("placement") == "Leading") Arrangement.Start else Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RenderChildren(children, module, store, locals, scope)
+                }
             }
         }
         "BottomSheet" -> {
@@ -2914,18 +2918,6 @@ private fun NexaDevRenderNavigationNode(
                 }
             }
         }
-        "NavigationBack" -> {
-            val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
-            val navId = (locals["__nexa_navigation_stack_identity"] as? String)
-                ?: resolveNavigatorIdFromScope(scope)
-            val controller = LocalNexaDevNavController.current
-                ?: store.resolveNavController(stackIdentity = navId, locals = locals, scope = scope)
-            androidx.compose.material3.TextButton(onClick = {
-                store.popNavigation(explicitController = controller, navigatorId = navId, scope = scope, locals = locals)
-            }) {
-                Text(label)
-            }
-        }
     }
 }
 
@@ -2939,27 +2931,46 @@ internal fun nexaDevToolbarLayout(nodes: JSONArray): NexaDevToolbarLayout {
 
     fun split(source: JSONArray): JSONArray {
         var filtered: JSONArray? = null
-        for (index in 0 until source.length()) {
-            val node = source.opt(index)
-            val objectNode = node as? JSONObject
-            val kind = objectNode?.keys()?.asSequence()?.firstOrNull()
-            val fields = kind?.let { objectNode?.optJSONObject(it) }
-            val replacement = when (kind) {
+        fun splitNode(node: Any?): Any? {
+            val objectNode = node as? JSONObject ?: return node
+            val kind = objectNode.keys().asSequence().firstOrNull() ?: return node
+            val fields = objectNode.optJSONObject(kind)
+            return when (kind) {
                 "Toolbar" -> {
                     if (fields != null) {
                         toolbars += fields.optString("placement") to (fields.optJSONArray("children") ?: JSONArray())
                     }
                     null
                 }
-                "Layout" -> {
+                "Column", "Row", "Stack", "Layout",
+                "ScrollView", "Form", "Appearance", "Direction", "KeyboardAware", "Accessibility" -> {
                     val children = fields?.optJSONArray("children")
                     val content = children?.let(::split)
                     if (fields != null && content != null && content !== children) {
                         JSONObject().put(kind, fields.nexaDevShallowCopy().put("children", content))
-                    } else node
+                    } else {
+                        node
+                    }
+                }
+                "ViewInsets" -> {
+                    val child = fields?.opt("child")
+                    val replacement = splitNode(child)
+                    if (fields != null && replacement !== child) {
+                        if (replacement == null) {
+                            null
+                        } else {
+                            JSONObject().put(kind, fields.nexaDevShallowCopy().put("child", replacement))
+                        }
+                    } else {
+                        node
+                    }
                 }
                 else -> node
             }
+        }
+        for (index in 0 until source.length()) {
+            val node = source.opt(index)
+            val replacement = splitNode(node)
             if (replacement !== node && filtered == null) {
                 filtered = JSONArray()
                 for (earlier in 0 until index) filtered.put(source.opt(earlier))
@@ -3097,7 +3108,12 @@ private fun NexaDevRenderPressableNode(
         } else {
             Modifier
         }
-        val pressableModifier = (if (fillMaxSize) modifier.then(dragModifier).fillMaxSize() else modifier.then(dragModifier))
+        val toolbarPaddingModifier = if (!fillMaxSize && LocalNexaInToolbar.current) {
+            Modifier.padding(horizontal = 6.dp)
+        } else {
+            Modifier
+        }
+        val pressableModifier = (if (fillMaxSize) modifier.then(dragModifier).fillMaxSize() else modifier.then(dragModifier).then(toolbarPaddingModifier))
             .defaultMinSize(minHeight = 48.dp)
             .alpha(if (disabled) 0.5f else 1f)
         val hasLongPress = longPressActions.length() > 0 || contextMenuActions.length() > 0
@@ -3139,7 +3155,7 @@ private fun NexaDevRenderPressableNode(
             }
             Box(
                 modifier = clickModifier,
-                contentAlignment = if (fillMaxSize) Alignment.Center else Alignment.TopStart,
+                contentAlignment = if (fillMaxSize || LocalNexaInToolbar.current) Alignment.Center else Alignment.TopStart,
             ) {
                 RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
             }
@@ -4254,9 +4270,7 @@ private fun NexaDevRenderAppBottomBarNode(
                                     identity = "nexa-tab-title-$activeIndex",
                                     title = title ?: "",
                                     largeTitle = activeTab.optBoolean("large_title") && title != null,
-                                    centerTitle = toolbarItems.none {
-                                        it.first == "Leading"
-                                    },
+                                    centerTitle = true,
                                     containerColor = contentBackground,
                                     modifier = contentModifier,
                                     navigationIcon = {

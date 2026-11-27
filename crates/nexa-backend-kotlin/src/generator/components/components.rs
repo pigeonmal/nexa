@@ -594,7 +594,6 @@ pub(crate) fn render_node_with_linear_parent(
             depth,
             out,
         ),
-        Node::NavigationBack { label, .. } => navigation::render_back(label, depth, out),
         Node::Link { url, children } => {
             links::render_link(url, children, module, features, depth, out)
         }

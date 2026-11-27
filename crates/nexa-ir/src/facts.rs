@@ -1382,9 +1382,6 @@ fn observe_node(
             record_child_layout(sidebar, ui);
             record_child_layout(detail, ui);
         }
-        Node::NavigationBack { .. } => {
-            scope_of(ui, scope).navigation_back = true;
-        }
         Node::Link { children, .. } => {
             scope_of(ui, scope).link = true;
             record_child_layout(children, ui);

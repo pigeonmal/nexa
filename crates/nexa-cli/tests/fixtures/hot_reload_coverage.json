@@ -1398,11 +1398,6 @@
         "android": "covered"
       },
       {
-        "name": "NavigationBack",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
         "name": "Link",
         "ios": "covered",
         "android": "covered"

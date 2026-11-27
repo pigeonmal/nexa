@@ -1,9 +1,6 @@
 package __NEXA_PACKAGE__
 
 import android.util.Base64
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -170,7 +167,6 @@ internal fun RenderNavigationStack(
     androidx.compose.runtime.key(store.navigationEpoch) {
         val navController = rememberNavController()
         val currentBackStackEntry by navController.currentBackStackEntryAsState()
-        val canPop = currentBackStackEntry != null && navController.previousBackStackEntry != null
         val activeRouteData = currentBackStackEntry?.arguments?.getString("routeData")
         val activeScreenName = activeRouteData
             ?.let(store::decodeScreenRoute)
@@ -187,9 +183,6 @@ internal fun RenderNavigationStack(
             onDispose {
                 store.unregisterNavController(stackIdentity, navController)
             }
-        }
-        BackHandler(enabled = canPop) {
-            store.popNavigation(explicitController = navController, navigatorId = stackIdentity)
         }
         val context = androidx.compose.ui.platform.LocalContext.current
         var activityContext: android.content.Context = context
@@ -260,30 +253,6 @@ internal fun RenderNavigationStack(
                 navController = navController,
                 startDestination = route,
                 modifier = modifier.fillMaxSize(),
-                enterTransition = {
-                    slideIntoContainer(
-                        towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                        animationSpec = tween(durationMillis = 350),
-                    )
-                },
-                exitTransition = {
-                    slideOutOfContainer(
-                        towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                        animationSpec = tween(durationMillis = 350),
-                    )
-                },
-                popEnterTransition = {
-                    slideIntoContainer(
-                        towards = AnimatedContentTransitionScope.SlideDirection.End,
-                        animationSpec = tween(durationMillis = 350),
-                    )
-                },
-                popExitTransition = {
-                    slideOutOfContainer(
-                        towards = AnimatedContentTransitionScope.SlideDirection.End,
-                        animationSpec = tween(durationMillis = 350),
-                    )
-                },
             ) {
             composable("nexa/{routeData}") { backStackEntry ->
                 val routeData = backStackEntry.arguments?.getString("routeData")
@@ -356,9 +325,6 @@ internal fun RenderNavigationStack(
                                         else -> false
                                     },
                                     showBackButton = !isRootScreen,
-                                    hasTrailingActions = screenToolbars.any {
-                                        it.first == "Trailing" && it.second.length() > 0
-                                    },
                                     onBack = {
                                         store.popNavigation(explicitController = navController, navigatorId = stackIdentity)
                                     },

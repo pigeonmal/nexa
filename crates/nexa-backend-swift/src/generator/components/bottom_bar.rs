@@ -300,8 +300,8 @@ fn render_app_tab_navigation_modifiers(
                 format_args!("if {selected} == Int32({}) {{", tab.index),
             );
             for (placement, swift_placement) in [
-                (ToolbarPlacement::Leading, ".navigationBarLeading"),
-                (ToolbarPlacement::Trailing, ".navigationBarTrailing"),
+                (ToolbarPlacement::Leading, ".topBarLeading"),
+                (ToolbarPlacement::Trailing, ".topBarTrailing"),
             ] {
                 let children = toolbars
                     .iter()
@@ -321,16 +321,18 @@ fn render_app_tab_navigation_modifiers(
                     depth + 2,
                     format_args!("ToolbarItemGroup(placement: {swift_placement}) {{"),
                 );
+                out.line_at(depth + 3, format_args!("Group {{"));
                 for child in children {
                     crate::generator::components::render_node(
                         child,
                         module,
                         features,
-                        depth + 3,
+                        depth + 4,
                         out,
                     );
                     out.push('\n');
                 }
+                out.line_at(depth + 3, format_args!("}}.environment(\\.nexaInToolbar, true)"));
                 out.line_at(depth + 2, format_args!("}}"));
             }
             out.line_at(depth + 1, format_args!("}}"));
@@ -407,7 +409,10 @@ pub(crate) fn render_navigation_toolbar_items(
             depth,
             format_args!("ToolbarItem(placement: {placement}) {{"),
         );
-        crate::generator::components::render_node(child, module, features, depth + 1, out);
+        out.line_at(depth + 1, format_args!("Group {{"));
+        crate::generator::components::render_node(child, module, features, depth + 2, out);
+        out.push('\n');
+        out.line_at(depth + 1, format_args!("}}.environment(\\.nexaInToolbar, true)"));
         out.line_at(depth, format_args!("}}"));
     }
 }
@@ -681,7 +686,9 @@ mod tests {
         assert!(output.contains(".navigationTitle("));
         assert!(output.contains("NexaNavigationTitleDisplayModeModifier(inline: !"));
         assert!(output.contains(".toolbar {"));
-        assert!(output.contains("ToolbarItemGroup(placement: .navigationBarTrailing)"));
+        assert!(output.contains("ToolbarItemGroup(placement: .topBarTrailing)"));
+        assert!(output.contains(".environment(\\.nexaInToolbar, true)"));
+        assert!(!output.contains("ToolbarItemGroup(placement: .navigationBarTrailing)"));
         assert!(!output.contains("NexaNavigationChromeModifier"));
     }
 

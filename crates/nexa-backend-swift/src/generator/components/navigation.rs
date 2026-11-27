@@ -49,27 +49,6 @@ pub(crate) fn render_link(
     out.push('}');
 }
 
-pub(crate) fn render_back(
-    label: &nexa_ir::Expr,
-    comment: Option<&str>,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    out.line_at(depth, format_args!("Button {{"));
-    indent(out, depth + 1);
-    out.push_str("if !nexaNavigationPath.wrappedValue.isEmpty { nexaNavigationPath.wrappedValue.removeLast() }\n");
-    out.line_at(depth, format_args!("}} label: {{"));
-    out.line_at(
-        depth + 1,
-        format_args!(
-            "{}",
-            crate::generator::expressions::localized_text_view(label, comment)
-        ),
-    );
-    indent(out, depth);
-    out.push('}');
-}
-
 pub(crate) fn action_route_value(destination: ScreenId, arguments: &[Expr]) -> String {
     route_value(destination, arguments)
 }

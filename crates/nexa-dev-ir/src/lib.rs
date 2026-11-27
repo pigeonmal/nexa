@@ -765,7 +765,6 @@ fn node_kind(node: &Node) -> &'static str {
         Node::NavigationStack { .. } => "NavigationStack",
         Node::NavigationSplitView { .. } => "NavigationSplitView",
         Node::NavigationLink { .. } => "NavigationLink",
-        Node::NavigationBack { .. } => "NavigationBack",
         Node::Link { .. } => "Link",
         Node::Accessibility { .. } => "Accessibility",
         Node::KeyboardAware { .. } => "KeyboardAware",

@@ -178,7 +178,6 @@ internal object NexaDevNodeKind {
     const val NAVIGATION_STACK = "NavigationStack"
     const val NAVIGATION_SPLIT_VIEW = "NavigationSplitView"
     const val NAVIGATION_LINK = "NavigationLink"
-    const val NAVIGATION_BACK = "NavigationBack"
     const val CONTENT = "Content"
     const val COMPONENT_CALL = "ComponentCall"
 }

@@ -11,7 +11,7 @@ app NavigationReloadSmoke {
     screen Details {
         Column {
             Text("Details Screen")
-            NavigationBack(label: "Go Home")
+            Button("Go Home") { Navigation.back() }
         }
     }
 

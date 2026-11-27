@@ -1,6 +1,6 @@
 # Nexa Agent Review
 
-> **In progress** · 28 reviewed · 1 in progress · 15 pending · iOS + Android · native AOT + DevRuntime
+> **In progress** · 31 reviewed · 1 in progress · 11 pending · iOS + Android · native AOT + DevRuntime
 
 Review shared behavior and appearance across iOS and Android. Build success and sampled device checks do not establish exhaustive parity.
 
@@ -53,10 +53,13 @@ python3 tests/render_component_parity_report.py --check
 - Human verification approved (2026-11-24): the user approved HapticCases. Agent Review is approved; active route advances to MarqueeCases.
 - Human verification approved (2026-11-24): the user approved MarqueeCases. Agent Review is approved; the next unapproved route in App.nx order is IconCases.
 - Human verification approved (2026-11-26): the user approved IconCases on iOS and Android after multilayer SVG color unification and font icon rendering optimizations. Agent Review is approved; active route advances to ImageCases.
+- Human verification approved (2026-11-26): the user approved ImageCases on iOS and Android after GIF/asset extension support, ViewStyle refactor, and Android rendering optimizations. Agent Review is approved; active route advances to GradientCases.
+- Human verification approved (2026-11-26): the user approved GradientCases on iOS and Android after fixing snake_case GradientDirection handling in both DevRuntimes. Agent Review is approved; active route advances to LinkCases.
+- Human verification approved (2026-11-26): the user approved LinkCases on iOS and Android after fixing Android external link launching with FLAG_ACTIVITY_NEW_TASK. Agent Review is approved; active route advances to ToolbarCases.
 
 ## Route review
 
-Active route: **ImageCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
+Active route: **ToolbarCases**. Human approval also approves Agent Review; Agent Review can be completed before human approval.
 
 | Route | Human review | Agent Review |
 |---|---|---|
@@ -88,11 +91,10 @@ Active route: **ImageCases**. Human approval also approves Agent Review; Agent R
 | RefreshCases | Approved | Approved |
 | KeyboardCases | Approved | Approved |
 | IconCases | Approved | Approved |
-| ImageCases | Pending | In progress |
-| GradientCases | Pending | Pending |
-| LinkCases | Pending | Pending |
-| NavigationBackCases | Pending | Pending |
-| ToolbarCases | Pending | Pending |
+| ImageCases | Approved | Approved |
+| GradientCases | Approved | Approved |
+| LinkCases | Approved | Approved |
+| ToolbarCases | Pending | In progress |
 | PagerCases | Pending | Pending |
 | BottomBarCases | Pending | Pending |
 | SplitViewCases | Pending | Pending |

@@ -195,7 +195,7 @@ app RenderParityCatalog {
     screen Detail {
         KeyboardAware(dismiss: Never) {
             Column(gap: 12, padding: 16) {
-                NavigationBack(label: "Back to catalog")
+                Button("Back to catalog", style: Plain) { Navigation.back() }
                 Text("Navigation destination", accessibilityLabel: "Navigation destination")
                 Text("Keyboard-aware content")
             }

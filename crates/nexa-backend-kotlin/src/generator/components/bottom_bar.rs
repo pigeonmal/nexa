@@ -507,15 +507,7 @@ pub(crate) fn render_app_bottom_bar(
                     tab.large_title && tab.navigation_title.is_some()
                 ),
             );
-            out.line_at(
-                content_depth + 4,
-                format_args!(
-                    "centerTitle = {},",
-                    !toolbars
-                        .iter()
-                        .any(|(placement, _)| *placement == ToolbarPlacement::Leading)
-                ),
-            );
+            out.line_at(content_depth + 4, format_args!("centerTitle = true,"));
             out.line_at(
                 content_depth + 4,
                 format_args!("containerColor = {content_background},"),
@@ -705,7 +697,15 @@ pub(crate) fn tab_toolbars(children: &[Node]) -> Vec<(ToolbarPlacement, &[Node])
                 placement,
                 children,
             } => toolbars.push((*placement, children.as_slice())),
-            Node::Layout { children, .. } => toolbars.extend(tab_toolbars(children)),
+            Node::Layout { children, .. }
+            | Node::Appearance { children, .. }
+            | Node::ScrollView { children, .. }
+            | Node::Form { children, .. }
+            | Node::KeyboardAware { children, .. }
+            | Node::Accessibility { children, .. } => toolbars.extend(tab_toolbars(children)),
+            Node::ViewInsets { child, .. } => {
+                toolbars.extend(tab_toolbars(std::slice::from_ref(child.as_ref())));
+            }
             _ => {}
         }
     }
@@ -812,6 +812,84 @@ pub(crate) fn without_tab_toolbars(children: &[Node]) -> Vec<Node> {
                 style: style.clone(),
                 children: without_tab_toolbars(children),
             }),
+            Node::Appearance { mode, children } => Some(Node::Appearance {
+                mode: mode.clone(),
+                children: without_tab_toolbars(children),
+            }),
+            Node::ScrollView {
+                axis,
+                hide_horizontal_scrollbar,
+                hide_vertical_scrollbar,
+                style,
+                component_ref,
+                children,
+            } => Some(Node::ScrollView {
+                axis: *axis,
+                hide_horizontal_scrollbar: *hide_horizontal_scrollbar,
+                hide_vertical_scrollbar: *hide_vertical_scrollbar,
+                style: style.clone(),
+                component_ref: component_ref.clone(),
+                children: without_tab_toolbars(children),
+            }),
+            Node::Form {
+                show_dividers,
+                hide_horizontal_scrollbar,
+                hide_vertical_scrollbar,
+                background,
+                children,
+            } => Some(Node::Form {
+                show_dividers: *show_dividers,
+                hide_horizontal_scrollbar: *hide_horizontal_scrollbar,
+                hide_vertical_scrollbar: *hide_vertical_scrollbar,
+                background: *background,
+                children: without_tab_toolbars(children),
+            }),
+            Node::KeyboardAware {
+                dismiss,
+                behavior,
+                hide_horizontal_scrollbar,
+                hide_vertical_scrollbar,
+                focused_input_offset,
+                on_show,
+                on_hide,
+                toolbar,
+                children,
+            } => Some(Node::KeyboardAware {
+                dismiss: *dismiss,
+                behavior: *behavior,
+                hide_horizontal_scrollbar: *hide_horizontal_scrollbar,
+                hide_vertical_scrollbar: *hide_vertical_scrollbar,
+                focused_input_offset: *focused_input_offset,
+                on_show: on_show.clone(),
+                on_hide: on_hide.clone(),
+                toolbar: toolbar.clone(),
+                children: without_tab_toolbars(children),
+            }),
+            Node::Accessibility {
+                label,
+                hint,
+                value,
+                role,
+                children,
+            } => Some(Node::Accessibility {
+                label: label.clone(),
+                hint: hint.clone(),
+                value: value.clone(),
+                role: *role,
+                children: without_tab_toolbars(children),
+            }),
+            Node::ViewInsets {
+                padding,
+                margin,
+                child,
+            } => {
+                let mut filtered = without_tab_toolbars(std::slice::from_ref(child.as_ref()));
+                filtered.pop().map(|next_child| Node::ViewInsets {
+                    padding: padding.clone(),
+                    margin: margin.clone(),
+                    child: Box::new(next_child),
+                })
+            }
             _ => Some(child.clone()),
         })
         .collect()

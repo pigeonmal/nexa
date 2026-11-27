@@ -107,7 +107,8 @@ pub(crate) fn render_button_node(
         Some(nexa_ir::ButtonStyle::Bordered) => ".bordered",
         Some(nexa_ir::ButtonStyle::Borderless) => ".borderless",
         Some(nexa_ir::ButtonStyle::Plain) => ".plain",
-        Some(nexa_ir::ButtonStyle::BorderedProminent) | None => ".borderedProminent",
+        Some(nexa_ir::ButtonStyle::BorderedProminent) => ".borderedProminent",
+        None => "nil",
     };
     let size = match size {
         Some(nexa_ir::ButtonSize::Small) => ".small",
@@ -902,6 +903,88 @@ pub(crate) fn render_pressable(
         out.push_str(") {\n");
     }
 
+    if !context_menu.is_empty()
+        && !has_long_press
+        && double_tap_actions.is_empty()
+        && !has_drag
+        && !has_pinch
+    {
+        let has_tap = !actions.is_empty();
+        indent(out, root_depth);
+        out.push_str("NexaPressableContextMenuWrapper(\n");
+        indent(out, root_depth + 1);
+        out.push_str(&format!("disabled: {},\n", expression(disabled)));
+        indent(out, root_depth + 1);
+        out.push_str(&format!("hasTapAction: {has_tap},\n"));
+        indent(out, root_depth + 1);
+        out.push_str("onTap: {\n");
+        render_pressable_gesture_actions(disabled, *haptic, actions, root_depth + 2, out);
+        indent(out, root_depth + 1);
+        out.push_str("},\n");
+        indent(out, root_depth + 1);
+        out.push_str("label: {\n");
+        let label_depth = root_depth + 2;
+        indent(out, label_depth);
+        out.push_str("Group {\n");
+        render_children(children, module, features, label_depth + 1, out);
+        out.push('\n');
+        indent(out, label_depth);
+        out.push('}');
+        out.push_str(&format!(".modifier(NexaPressableFrameModifier(fillMaxSize: {fill_max_size}))"));
+        if !matches!(disabled, nexa_ir::Expr::Bool(false)) {
+            out.push_str(".disabled(");
+            out.push_str(&expression(disabled));
+            out.push(')');
+            out.push_str(".opacity((");
+            out.push_str(&expression(disabled));
+            out.push_str(") ? 0.5 : 1.0)");
+        }
+        out.push_str(".overlay {\n");
+        indent(out, label_depth + 1);
+        out.push_str("GeometryReader { nexaPressableGeometry in\n");
+        indent(out, label_depth + 2);
+        out.push_str("Color.clear\n");
+        indent(out, label_depth + 3);
+        out.push_str(".contentShape(.interaction, Rectangle())\n");
+        indent(out, label_depth + 3);
+        out.push_str(".gesture(SpatialTapGesture(coordinateSpace: .local).onEnded { nexaTap in\n");
+        indent(out, label_depth + 4);
+        out.push_str("guard CGRect(origin: .zero, size: nexaPressableGeometry.size).contains(nexaTap.location) else { return }\n");
+        render_pressable_gesture_actions(disabled, *haptic, actions, label_depth + 4, out);
+        indent(out, label_depth + 3);
+        out.push_str("})\n");
+        indent(out, label_depth + 2);
+        out.push_str("}\n");
+        indent(out, label_depth);
+        out.push('}');
+        out.push_str(".accessibilityAction(.default) {");
+        render_pressable_gesture_actions(disabled, *haptic, actions, label_depth + 1, out);
+        out.push('}');
+        out.push_str(".accessibilityAddTraits(.isButton)");
+        out.push_str(".contentShape(.interaction, Rectangle())\n");
+        indent(out, root_depth + 1);
+        out.push_str("},\n");
+        indent(out, root_depth + 1);
+        out.push_str("toolbarLabel: {\n");
+        indent(out, label_depth);
+        out.push_str("Group {\n");
+        render_children(children, module, features, label_depth + 1, out);
+        out.push('\n');
+        indent(out, label_depth);
+        out.push_str("}.modifier(NexaPressableFrameModifier(fillMaxSize: false))\n");
+        indent(out, root_depth + 1);
+        out.push_str("},\n");
+        indent(out, root_depth + 1);
+        out.push_str("menu: {\n");
+        render_children(context_menu, module, features, label_depth, out);
+        out.push('\n');
+        indent(out, root_depth + 1);
+        out.push_str("}\n");
+        indent(out, root_depth);
+        out.push(')');
+        return;
+    }
+
     let depth = root_depth + usize::from(has_drag || has_pinch);
     indent(out, depth);
     out.push_str("Group {\n");
@@ -909,13 +992,7 @@ pub(crate) fn render_pressable(
     out.push('\n');
     indent(out, depth);
     out.push('}');
-    if *fill_max_size {
-        out.push_str(".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(.interaction, Rectangle())");
-    } else {
-        out.push_str(
-            ".frame(minHeight: 48, alignment: .topLeading).contentShape(.interaction, Rectangle())",
-        );
-    }
+    out.push_str(&format!(".modifier(NexaPressableFrameModifier(fillMaxSize: {fill_max_size}))"));
     if !matches!(disabled, nexa_ir::Expr::Bool(false)) {
         out.push_str(".disabled(");
         out.push_str(&expression(disabled));

@@ -1055,12 +1055,24 @@ internal fun NexaButtonPrimitive(
     accessibilityLabel: String? = null,
     onClick: () -> Unit,
 ) {
+    val inToolbar = LocalNexaInToolbar.current
     val useNativeActionStyle = style == null && LocalNexaDialogActionButtons.current
-    val resolvedStyle = if (useNativeActionStyle) "Plain" else style ?: "BorderedProminent"
-    val minHeight = if (size == "Large") androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_MIN_HEIGHT__.toFloat()) else androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_TAP_TARGET__.toFloat())
+    val resolvedStyle = when {
+        useNativeActionStyle -> "Plain"
+        style != null -> style
+        inToolbar -> "Borderless"
+        else -> "BorderedProminent"
+    }
+    val toolbarTextAction = inToolbar && (resolvedStyle == "Plain" || resolvedStyle == "Borderless")
+    val minHeight = when {
+        size == "Large" -> androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_MIN_HEIGHT__.toFloat())
+        toolbarTextAction -> androidx.compose.ui.unit.Dp(40f)
+        else -> androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_TAP_TARGET__.toFloat())
+    }
     val modifier = when {
         fullWidth -> androidx.compose.ui.Modifier.fillMaxWidth().defaultMinSize(minWidth = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_WIDTH__.toFloat()), minHeight = minHeight)
         iconOnlyCircle -> androidx.compose.ui.Modifier.size(minHeight)
+        toolbarTextAction -> androidx.compose.ui.Modifier.defaultMinSize(minWidth = androidx.compose.ui.unit.Dp(32f), minHeight = minHeight)
         else -> androidx.compose.ui.Modifier.defaultMinSize(minWidth = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_WIDTH__.toFloat()), minHeight = minHeight)
     }
     val resolvedShape = shape ?: androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
@@ -1068,7 +1080,10 @@ internal fun NexaButtonPrimitive(
         contentDescription = accessibilityLabel
     }
     val contentPadding = when {
-        iconOnlyCircle || resolvedStyle == "Plain" || resolvedStyle == "Borderless" -> androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
+        iconOnlyCircle -> androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
+        toolbarTextAction && label.isNotEmpty() -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(6f), vertical = androidx.compose.ui.unit.Dp(4f))
+        toolbarTextAction -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(4f), vertical = androidx.compose.ui.unit.Dp(4f))
+        resolvedStyle == "Plain" || resolvedStyle == "Borderless" -> androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
         size == "Small" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_VERTICAL_PADDING__.toFloat()))
         size == "Large" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_VERTICAL_PADDING__.toFloat()))
         icon != null && label.isNotEmpty() -> androidx.compose.foundation.layout.PaddingValues(horizontal = __NEXA_BUTTON_LABELED_ICON_HORIZONTAL_PADDING__.dp, vertical = __NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__.dp)
@@ -1111,8 +1126,8 @@ internal fun NexaButtonPrimitive(
             NexaTextPrimitive(
                 text = label,
                 color = plainContentColor,
-                fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
+                fontSize = if (toolbarTextAction) 16.sp else __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
+                fontWeight = if (toolbarTextAction) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal,
                 maxLines = 1,
                 lineHeight = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
                 letterSpacing = 0.sp,
@@ -1937,7 +1952,6 @@ internal fun NexaNavigationScreenPrimitive(
     inline: Boolean,
     leadingTitle: Boolean,
     showBackButton: Boolean = true,
-    hasTrailingActions: Boolean,
     onBack: () -> Unit,
     leadingActions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
     actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
@@ -1948,6 +1962,7 @@ internal fun NexaNavigationScreenPrimitive(
         NexaNavigationTitleSlot()
     }
     val hasTitleOverride = navigationTitleSlot.identity.value != null
+    val slotRevision = navigationTitleSlot.slotRevision.intValue
     val displayTitle = when {
         hasTitleOverride -> navigationTitleSlot.title.value
         showBackButton -> title
@@ -1960,147 +1975,264 @@ internal fun NexaNavigationScreenPrimitive(
     }
     val displayCenterTitle = if (hasTitleOverride) navigationTitleSlot.centerTitle.value else !leadingTitle
     val displayLeadingActions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-        if (hasTitleOverride) {
-            navigationTitleSlot.leadingContent()
-        } else {
-            leadingActions()
+        androidx.compose.runtime.key(slotRevision) {
+            if (hasTitleOverride) {
+                navigationTitleSlot.leadingContent(this)
+            } else {
+                leadingActions()
+            }
         }
     }
     val displayActions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-        if (hasTitleOverride) {
-            navigationTitleSlot.trailingContent(this)
-        } else {
-            actions()
+        androidx.compose.runtime.key(slotRevision) {
+            if (hasTitleOverride) {
+                navigationTitleSlot.trailingContent(this)
+            } else {
+                actions()
+            }
         }
     }
-    val scrollBehavior = if (displayLargeTitle) {
-        androidx.compose.material3.TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    } else {
-        androidx.compose.material3.TopAppBarDefaults.pinnedScrollBehavior()
-    }
-    androidx.compose.material3.Scaffold(
-        modifier = androidx.compose.ui.Modifier
-            .fillMaxSize()
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-        // Form and native list primitives own their grouped surface backgrounds. Keeping the
-        // navigation scaffold on the app background prevents it tinting the title bar and the
-        // content above an inset Form.
+    NexaNavigationScaffold(
+        title = displayTitle,
+        largeTitle = displayLargeTitle,
+        centerTitle = displayCenterTitle,
+        showBackButton = showBackButton,
+        onBack = onBack,
         containerColor = colorScheme.background,
-        contentColor = colorScheme.onSurface,
-        topBar = {
-            val navigationIcon: @androidx.compose.runtime.Composable () -> Unit = {
-                androidx.compose.foundation.layout.Row(
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                ) {
-                    if (showBackButton) {
-                        androidx.compose.material3.IconButton(onClick = onBack) {
-                            androidx.compose.material3.Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                            )
-                        }
-                    }
-                    if (!inline || !leadingTitle || hasTitleOverride) {
-                        displayLeadingActions()
-                    }
+        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+        leadingActions = displayLeadingActions,
+        actions = displayActions,
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalNexaNavigationTitleSlot provides navigationTitleSlot,
+        ) {
+            content()
+        }
+    }
+}
+
+// nexa-codegen: NexaNavigationScaffold
+@androidx.compose.runtime.Composable
+internal fun NexaToolbarRow(
+    inLeadingSlot: Boolean,
+    showBackButton: Boolean = false,
+    onBack: () -> Unit = {},
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalNexaInToolbar provides true) {
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(
+                androidx.compose.ui.unit.Dp(if (inLeadingSlot) 2f else 4f),
+            ),
+        ) {
+            if (inLeadingSlot && showBackButton) {
+                androidx.compose.material3.IconButton(onClick = onBack) {
+                    androidx.compose.material3.Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                    )
                 }
             }
-            val titleContent: @androidx.compose.runtime.Composable () -> Unit = {
-                if (!displayLargeTitle) {
+            content()
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+internal fun NexaInlineTopBar(
+    title: String,
+    centerTitle: Boolean,
+    showBackButton: Boolean,
+    onBack: () -> Unit,
+    containerColor: androidx.compose.ui.graphics.Color,
+    leadingActions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+    actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) {
+    val colorScheme = androidx.compose.material3.MaterialTheme.colorScheme
+    androidx.compose.material3.Surface(
+        color = containerColor,
+        contentColor = colorScheme.onSurface,
+    ) {
+        androidx.compose.ui.layout.Layout(
+            modifier = androidx.compose.ui.Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(androidx.compose.material3.TopAppBarDefaults.windowInsets),
+            content = {
+                NexaToolbarRow(
+                    inLeadingSlot = true,
+                    showBackButton = showBackButton,
+                    onBack = onBack,
+                    content = leadingActions,
+                )
+                NexaToolbarRow(
+                    inLeadingSlot = false,
+                    content = actions,
+                )
+                if (title.isNotEmpty()) {
                     androidx.compose.material3.Text(
-                        displayTitle,
+                        text = title,
                         style = NexaNavigationChromeTextStyle(),
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
-                } else {
-                    androidx.compose.material3.Text(
-                        displayTitle,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
                 }
-            }
-            val colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                containerColor = colorScheme.background,
-                scrolledContainerColor = colorScheme.background,
+            },
+        ) { measurables, constraints ->
+            val barHeight = androidx.compose.ui.unit.Dp(64f).roundToPx()
+            val looseConstraints = constraints.copy(
+                minWidth = 0,
+                minHeight = 0,
+                maxHeight = barHeight,
             )
-            val trailingActions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-                displayActions()
-                if (hasTrailingActions) {
-                    androidx.compose.foundation.layout.Spacer(
-                        modifier = androidx.compose.ui.Modifier.width(
-                            androidx.compose.ui.unit.Dp(__NEXA_NAVIGATION_TRAILING_ACTION_INSET__.toFloat()),
-                        ),
+            val leadingPlaceable = measurables[0].measure(looseConstraints)
+            val leadingInset = when {
+                showBackButton -> 0
+                leadingPlaceable.width > 0 -> androidx.compose.ui.unit.Dp(6f).roundToPx()
+                else -> 0
+            }
+            val trailingInset = androidx.compose.ui.unit.Dp(4f).roundToPx()
+            val remainingForTrailing =
+                (constraints.maxWidth - leadingInset - leadingPlaceable.width - trailingInset)
+                    .coerceAtLeast(0)
+            val trailingPlaceable = measurables[1].measure(
+                looseConstraints.copy(maxWidth = remainingForTrailing),
+            )
+            val titleGap = androidx.compose.ui.unit.Dp(6f).roundToPx()
+            val edgeTitlePadding = androidx.compose.ui.unit.Dp(16f).roundToPx()
+            val minTitleX = if (leadingPlaceable.width > 0) {
+                leadingInset + leadingPlaceable.width + titleGap
+            } else {
+                edgeTitlePadding
+            }
+            val trailingStart = constraints.maxWidth - trailingInset - trailingPlaceable.width
+            val maxTitleEnd = if (trailingPlaceable.width > 0) {
+                trailingStart - titleGap
+            } else {
+                constraints.maxWidth - edgeTitlePadding
+            }
+            val titleMaxWidth = (maxTitleEnd - minTitleX).coerceAtLeast(0)
+            val titlePlaceable = measurables.getOrNull(2)?.measure(
+                looseConstraints.copy(maxWidth = titleMaxWidth),
+            )
+            layout(constraints.maxWidth, barHeight) {
+                if (leadingPlaceable.width > 0) {
+                    leadingPlaceable.placeRelative(
+                        x = leadingInset,
+                        y = (barHeight - leadingPlaceable.height) / 2,
+                    )
+                }
+                if (trailingPlaceable.width > 0) {
+                    trailingPlaceable.placeRelative(
+                        x = trailingStart,
+                        y = (barHeight - trailingPlaceable.height) / 2,
+                    )
+                }
+                titlePlaceable?.let { placedTitle ->
+                    val titleX = if (centerTitle) {
+                        val idealCenteredX = (constraints.maxWidth - placedTitle.width) / 2
+                        val maxCenteredX = (maxTitleEnd - placedTitle.width).coerceAtLeast(minTitleX)
+                        idealCenteredX.coerceIn(minTitleX, maxCenteredX)
+                    } else {
+                        minTitleX
+                    }
+                    placedTitle.placeRelative(
+                        x = titleX,
+                        y = (barHeight - placedTitle.height) / 2,
                     )
                 }
             }
-            if (!hasTitleOverride && inline && leadingTitle) {
-                androidx.compose.material3.TopAppBar(
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+internal fun NexaNavigationScaffold(
+    title: String,
+    largeTitle: Boolean,
+    centerTitle: Boolean,
+    showBackButton: Boolean,
+    onBack: () -> Unit,
+    containerColor: androidx.compose.ui.graphics.Color,
+    modifier: androidx.compose.ui.Modifier,
+    leadingActions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+    actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val scrollBehavior = if (largeTitle && title.isNotEmpty()) {
+        androidx.compose.material3.TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    } else {
+        null
+    }
+    val scaffoldModifier = if (scrollBehavior != null) {
+        modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+    } else {
+        modifier
+    }
+    androidx.compose.material3.Scaffold(
+        modifier = scaffoldModifier,
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        // Form and native list primitives own their grouped surface backgrounds. Keeping the
+        // navigation scaffold on the app background prevents it tinting the title bar and the
+        // content above an inset Form.
+        containerColor = containerColor,
+        contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+        topBar = {
+            if (scrollBehavior != null) {
+                val colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = containerColor,
+                    scrolledContainerColor = containerColor,
+                )
+                androidx.compose.material3.LargeFlexibleTopAppBar(
                     title = {
-                        androidx.compose.foundation.layout.Row(
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        ) {
-                            androidx.compose.material3.Text(
-                                title,
-                                style = NexaNavigationChromeTextStyle(),
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            )
-                            androidx.compose.foundation.layout.Row(
-                                modifier = androidx.compose.ui.Modifier.padding(
-                                    start = androidx.compose.ui.unit.Dp(24f),
-                                ),
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                            ) {
-                                leadingActions()
-                            }
-                        }
+                        androidx.compose.material3.Text(
+                            title,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
                     },
-                    navigationIcon = navigationIcon,
-                    actions = trailingActions,
-                    scrollBehavior = scrollBehavior,
-                    colors = colors,
-                )
-            } else if (!displayLargeTitle && displayCenterTitle) {
-                androidx.compose.material3.CenterAlignedTopAppBar(
-                    title = titleContent,
-                    navigationIcon = navigationIcon,
-                    actions = trailingActions,
-                    scrollBehavior = scrollBehavior,
-                    colors = colors,
-                )
-            } else if (!displayLargeTitle) {
-                androidx.compose.material3.TopAppBar(
-                    title = titleContent,
-                    navigationIcon = navigationIcon,
-                    actions = trailingActions,
+                    navigationIcon = {
+                        NexaToolbarRow(
+                            inLeadingSlot = true,
+                            showBackButton = showBackButton,
+                            onBack = onBack,
+                            content = leadingActions,
+                        )
+                    },
+                    actions = {
+                        NexaToolbarRow(
+                            inLeadingSlot = false,
+                            content = actions,
+                        )
+                    },
                     scrollBehavior = scrollBehavior,
                     colors = colors,
                 )
             } else {
-                androidx.compose.material3.LargeFlexibleTopAppBar(
-                    title = titleContent,
-                    navigationIcon = navigationIcon,
-                    actions = trailingActions,
-                    scrollBehavior = scrollBehavior,
-                    colors = colors,
+                NexaInlineTopBar(
+                    title = title,
+                    centerTitle = centerTitle,
+                    showBackButton = showBackButton,
+                    onBack = onBack,
+                    containerColor = containerColor,
+                    leadingActions = leadingActions,
+                    actions = actions,
                 )
             }
         },
-    ) {
+    ) { innerPadding ->
         androidx.compose.foundation.layout.Box(
             modifier = androidx.compose.ui.Modifier
                 .fillMaxSize()
-                .padding(it)
-                .background(colorScheme.background),
+                .padding(innerPadding)
+                .background(containerColor),
         ) {
-            androidx.compose.runtime.CompositionLocalProvider(
-                LocalNexaNavigationTitleSlot provides navigationTitleSlot,
-            ) {
-                content()
-            }
+            androidx.compose.foundation.layout.Column(
+                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                content = content,
+            )
         }
     }
 }
@@ -2119,8 +2251,9 @@ internal class NexaNavigationTitleSlot {
     val identity = androidx.compose.runtime.mutableStateOf<String?>(null)
     val title = androidx.compose.runtime.mutableStateOf("")
     val largeTitle = androidx.compose.runtime.mutableStateOf(false)
-    val centerTitle = androidx.compose.runtime.mutableStateOf(false)
-    var leadingContent: @androidx.compose.runtime.Composable () -> Unit = {}
+    val centerTitle = androidx.compose.runtime.mutableStateOf(true)
+    val slotRevision = androidx.compose.runtime.mutableIntStateOf(0)
+    var leadingContent: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}
     var trailingContent: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}
 
     fun update(
@@ -2128,19 +2261,29 @@ internal class NexaNavigationTitleSlot {
         title: String,
         largeTitle: Boolean,
         centerTitle: Boolean,
-        leadingContent: @androidx.compose.runtime.Composable () -> Unit,
+        leadingContent: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
         trailingContent: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
     ) {
+        val changed = this.identity.value != identity ||
+            this.title.value != title ||
+            this.largeTitle.value != largeTitle ||
+            this.centerTitle.value != centerTitle
         this.leadingContent = leadingContent
         this.trailingContent = trailingContent
         if (this.identity.value != identity) this.identity.value = identity
         if (this.title.value != title) this.title.value = title
         if (this.largeTitle.value != largeTitle) this.largeTitle.value = largeTitle
         if (this.centerTitle.value != centerTitle) this.centerTitle.value = centerTitle
+        if (changed) this.slotRevision.intValue += 1
     }
 
     fun clear(identity: String) {
-        if (this.identity.value == identity) this.identity.value = null
+        if (this.identity.value == identity) {
+            this.identity.value = null
+            this.leadingContent = {}
+            this.trailingContent = {}
+            this.slotRevision.intValue += 1
+        }
     }
 }
 
@@ -3238,7 +3381,11 @@ internal fun NexaAccessibilityPrimitive(
 // nexa-codegen: NexaLinkPrimitive
 internal fun nexaLaunchLink(context: android.content.Context, uri: android.net.Uri) {
     try {
-        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+        if (context !is android.app.Activity) {
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
     } catch (_: android.content.ActivityNotFoundException) {
     }
 }
@@ -3352,6 +3499,9 @@ internal val LocalNexaPickerPressFeedback = androidx.compose.runtime.composition
 
 // nexa-codegen: LocalNexaDialogActionButtons
 internal val LocalNexaDialogActionButtons = androidx.compose.runtime.compositionLocalOf { false }
+
+// nexa-codegen: LocalNexaInToolbar
+internal val LocalNexaInToolbar = androidx.compose.runtime.compositionLocalOf { false }
 
 // nexa-codegen: NexaPickerPrimitive
 @androidx.compose.runtime.Composable
@@ -3557,7 +3707,6 @@ internal fun NexaPageIndicatorPrimitive(
 
 // nexa-codegen: NexaNavigationChrome
 @androidx.compose.runtime.Composable
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 internal fun NexaNavigationChrome(
     identity: String,
     title: String,
@@ -3565,7 +3714,7 @@ internal fun NexaNavigationChrome(
     centerTitle: Boolean,
     containerColor: androidx.compose.ui.graphics.Color,
     modifier: androidx.compose.ui.Modifier,
-    navigationIcon: @androidx.compose.runtime.Composable () -> Unit = {},
+    navigationIcon: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
     actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
     content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
@@ -3589,76 +3738,18 @@ internal fun NexaNavigationChrome(
                 content(this@Column)
             }
         } else {
-            val scrollBehavior = if (largeTitle) {
-                androidx.compose.material3.TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-            } else {
-                androidx.compose.material3.TopAppBarDefaults.pinnedScrollBehavior()
-            }
-            val colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+            NexaNavigationScaffold(
+                title = title,
+                largeTitle = largeTitle,
+                centerTitle = centerTitle,
+                showBackButton = false,
+                onBack = {},
                 containerColor = containerColor,
-                scrolledContainerColor = containerColor,
+                modifier = modifier,
+                leadingActions = navigationIcon,
+                actions = actions,
+                content = content,
             )
-            androidx.compose.material3.Scaffold(
-                modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-                contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-                containerColor = containerColor,
-                topBar = {
-                    val titleContent: @androidx.compose.runtime.Composable () -> Unit = {
-                        if (largeTitle) {
-                            androidx.compose.material3.Text(
-                                title,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            )
-                        } else {
-                            androidx.compose.material3.Text(
-                                title,
-                                style = NexaNavigationChromeTextStyle(),
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    if (largeTitle) {
-                        androidx.compose.material3.LargeFlexibleTopAppBar(
-                            title = titleContent,
-                            navigationIcon = navigationIcon,
-                            actions = actions,
-                            scrollBehavior = scrollBehavior,
-                            colors = colors,
-                        )
-                    } else if (centerTitle) {
-                        androidx.compose.material3.CenterAlignedTopAppBar(
-                            title = titleContent,
-                            navigationIcon = navigationIcon,
-                            actions = actions,
-                            scrollBehavior = scrollBehavior,
-                            colors = colors,
-                        )
-                    } else {
-                        androidx.compose.material3.TopAppBar(
-                            title = titleContent,
-                            navigationIcon = navigationIcon,
-                            actions = actions,
-                            scrollBehavior = scrollBehavior,
-                            colors = colors,
-                        )
-                    }
-                },
-            ) { innerPadding ->
-                androidx.compose.foundation.layout.Box(
-                    modifier = androidx.compose.ui.Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .background(containerColor),
-                ) {
-                    androidx.compose.foundation.layout.Column(
-                        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-                    ) {
-                        content(this@Column)
-                    }
-                }
-            }
         }
     }
 }
@@ -5900,8 +5991,10 @@ mod tests {
             "nexaLaunchLink(nexaLinkContext, android.net.Uri.parse(\"https://example.com\"))"
         ));
         assert!(kotlin.contains(
-            "context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))"
+            "val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)"
         ));
+        assert!(kotlin.contains("Intent.FLAG_ACTIVITY_NEW_TASK"));
+        assert!(kotlin.contains("context.startActivity(intent)"));
         assert!(kotlin.contains("catch (_: android.content.ActivityNotFoundException)"));
         assert!(!kotlin.contains("resolveActivity(nexaLinkContext.packageManager)"));
     }
@@ -6338,18 +6431,22 @@ mod tests {
     fn shared_navigation_title_uses_native_material_app_bars() {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaNavigationChrome("));
+        assert!(primitives.contains("internal fun NexaNavigationScaffold("));
+        assert!(primitives.contains("internal fun NexaInlineTopBar("));
+        assert!(primitives.contains("internal fun NexaToolbarRow("));
+        assert!(primitives.contains("LocalNexaInToolbar provides true"));
         assert!(!primitives.contains("internal fun NexaTitleBar("));
         assert!(primitives.contains("key(identity)"));
         assert!(primitives.contains("androidx.compose.material3.Scaffold("));
-        assert!(primitives.contains("contentColor = colorScheme.onSurface,"));
+        assert!(primitives.contains("contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,"));
         let navigation = primitives
             .split("// nexa-codegen: NexaNavigationScreenPrimitive")
             .nth(1)
             .unwrap_or_default()
-            .split("// nexa-codegen: NexaNavigationChrome")
+            .split("// nexa-codegen: NexaNavigationChromeTextStyle")
             .next()
             .unwrap_or_default();
-        assert!(navigation.contains("containerColor = colorScheme.background,"));
+        assert!(navigation.contains("containerColor = containerColor,"));
         assert!(navigation.contains(
             "contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"
         ));
@@ -6358,22 +6455,16 @@ mod tests {
         ));
         assert!(!navigation.contains("groupedSurface"));
         assert!(primitives.contains("TopAppBarDefaults.exitUntilCollapsedScrollBehavior()"));
-        assert!(primitives.contains("TopAppBarDefaults.pinnedScrollBehavior()"));
         assert!(primitives.contains("LargeFlexibleTopAppBar("));
-        assert!(primitives.contains("CenterAlignedTopAppBar("));
-        assert!(primitives.contains("TopAppBar("));
+        assert!(primitives.contains("androidx.compose.ui.layout.Layout("));
+        assert!(primitives.contains(".windowInsetsPadding(androidx.compose.material3.TopAppBarDefaults.windowInsets)"));
         assert!(
             primitives.contains("modifier.nestedScroll(scrollBehavior.nestedScrollConnection)")
         );
         assert!(primitives.contains("scrolledContainerColor = containerColor"));
         assert!(primitives.contains("androidx.compose.material3.Text("));
-        assert!(
-            primitives.contains(
-                "val navigationIcon: @androidx.compose.runtime.Composable () -> Unit = {"
-            )
-        );
-        assert!(primitives.contains("navigationIcon = navigationIcon,"));
-        assert!(primitives.contains("actions()"));
+        assert!(primitives.contains("leadingActions = leadingActions,"));
+        assert!(primitives.contains("actions = actions,"));
         assert!(!primitives.contains("LocalNexaNavigationContent"));
         assert!(!primitives.contains("LocalNexaFormContentTopInset"));
         assert!(primitives.contains("LocalNexaNavigationTitleSlot provides navigationTitleSlot"));
@@ -7195,17 +7286,13 @@ mod tests {
             .split_once("\n        ) {")
             .expect("navigation host arguments end before destinations")
             .0;
-        assert!(navigation_host.contains("enterTransition = {"));
-        assert!(navigation_host.contains("slideIntoContainer("));
-        assert!(navigation_host.contains("AnimatedContentTransitionScope.SlideDirection.Start"));
-        assert!(navigation_host.contains("slideOutOfContainer("));
-        assert!(navigation_host.contains("AnimatedContentTransitionScope.SlideDirection.End"));
-        assert!(navigation_host.contains("popEnterTransition = {"));
-        assert!(navigation_host.contains("popExitTransition = {"));
-        assert!(
-            kotlin.contains("import androidx.compose.animation.AnimatedContentTransitionScope")
-        );
-        assert!(kotlin.contains("import androidx.compose.animation.core.tween"));
+        assert!(navigation_host.contains("navController = navController,"));
+        assert!(navigation_host.contains("startDestination = \"nexa_screen_0\","));
+        assert!(!navigation_host.contains("enterTransition = {"));
+        assert!(!navigation_host.contains("slideIntoContainer("));
+        assert!(!navigation_host.contains("popEnterTransition = {"));
+        assert!(!kotlin.contains("BackHandler(enabled = currentBackStackEntry"));
+        assert!(!kotlin.contains("import androidx.activity.compose.BackHandler"));
         let root = kotlin
             .split("composable(route = \"nexa_screen_0\")")
             .nth(1)
@@ -7223,7 +7310,7 @@ mod tests {
         assert!(destination.contains("title = \"Task Details\""));
         assert!(destination.contains("inline = nexaTitleInline"));
         assert!(destination.contains("leadingTitle = nexaLeadingTitle"));
-        assert!(destination.contains("hasTrailingActions = true"));
+        assert!(!destination.contains("hasTrailingActions ="));
         assert!(!destination.contains("firstSection ="));
         assert!(destination.contains(
             "onBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() }"
@@ -7241,14 +7328,12 @@ mod tests {
         assert!(destination.contains("Button("));
         assert!(kotlin.contains("NexaAppearancePrimitive(mode = nexa_appearanceMode) {"));
         assert!(kotlin.contains("internal fun NexaNavigationScreenPrimitive("));
+        assert!(kotlin.contains("internal fun NexaNavigationScaffold("));
+        assert!(kotlin.contains("internal fun NexaInlineTopBar("));
+        assert!(kotlin.contains("internal fun NexaToolbarRow("));
         assert!(kotlin.contains("LargeFlexibleTopAppBar("));
-        assert!(kotlin.contains("CenterAlignedTopAppBar("));
-        assert!(kotlin.contains("androidx.compose.material3.TopAppBar("));
-        assert!(kotlin.contains("if (hasTrailingActions)"));
-        assert!(kotlin.contains("Dp(16.toFloat())"));
+        assert!(kotlin.contains("androidx.compose.ui.layout.Layout("));
         assert!(!kotlin.contains("LocalNexaFormContentTopInset"));
-        assert!(kotlin.contains("androidx.compose.ui.unit.Dp(24f)"));
-        assert!(kotlin.contains("start = androidx.compose.ui.unit.Dp(24f)"));
         assert!(kotlin.contains("exitUntilCollapsedScrollBehavior()"));
         assert!(kotlin.contains(".nestedScroll(scrollBehavior.nestedScrollConnection)"));
         assert!(kotlin.contains("contentDescription = \"Back\""));
@@ -7308,12 +7393,12 @@ mod tests {
             )
         });
         let no_toolbar_kotlin = generate(&no_trailing_actions_module);
-        assert!(no_toolbar_kotlin.contains("hasTrailingActions = false"));
         let no_toolbar_destination = no_toolbar_kotlin
             .split("composable(route = \"nexa_screen_1\")")
             .nth(1)
             .expect("pushed destination exists");
         assert!(no_toolbar_destination.contains("nexaLeadingTitle = false"));
+        assert!(!no_toolbar_kotlin.contains("hasTrailingActions"));
     }
 
     #[test]

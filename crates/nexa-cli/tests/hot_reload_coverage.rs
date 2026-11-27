@@ -1162,11 +1162,6 @@ fn component_parity_app_exercises_every_catalog_component() {
         "AppearanceCases must cover system, light, and dark modes"
     );
     assert!(
-        source.contains("canOpenDirection =!canOpenDirection")
-            && source.contains("when: canOpenDirection"),
-        "NavigationBackCases must cover both conditional-navigation states"
-    );
-    assert!(
         source.contains("StatusBar(style: Default, hidden: false"),
         "StatusBarCases must exercise the visible default configuration"
     );
@@ -4645,23 +4640,11 @@ fn android_dev_navigation_leaves_grouped_surfaces_with_their_components() {
         .expect("read Android DevRuntime navigation");
     let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime renderer");
-    let navigation_normalized = navigation
-        .lines()
-        .map(str::trim)
-        .collect::<Vec<_>>()
-        .join("\n");
 
     assert!(navigation.contains("NexaNavigationScreenPrimitive("));
-    for (parameter, transition, direction) in [
-        ("enterTransition", "slideIntoContainer", "Start"),
-        ("exitTransition", "slideOutOfContainer", "Start"),
-        ("popEnterTransition", "slideIntoContainer", "End"),
-        ("popExitTransition", "slideOutOfContainer", "End"),
-    ] {
-        assert!(navigation_normalized.contains(&format!(
-            "{parameter} = {{\n{transition}(\ntowards = AnimatedContentTransitionScope.SlideDirection.{direction},\nanimationSpec = tween(durationMillis = 350),"
-        )));
-    }
+    assert!(!navigation.contains("BackHandler("));
+    assert!(!navigation.contains("slideIntoContainer("));
+    assert!(!navigation.contains("slideOutOfContainer("));
     assert!(!navigation.contains("groupedSurface ="));
     assert!(!renderer.contains("hasGroupedSurface"));
     assert!(!renderer.contains("nexaDevContainsForm("));
@@ -6220,9 +6203,13 @@ fn development_button_shape_defaults_match_on_both_platforms() {
     assert!(kotlin_primitives.contains(
         "val useNativeActionStyle = style == null && LocalNexaDialogActionButtons.current"
     ));
-    assert!(kotlin_primitives.contains(
-        "val resolvedStyle = if (useNativeActionStyle) \"Plain\" else style ?: \"BorderedProminent\""
-    ));
+    assert!(kotlin_primitives.contains("LocalNexaInToolbar.current"));
+    assert!(kotlin_primitives.contains("inToolbar -> \"Borderless\""));
+    let swift_primitives =
+        fs::read_to_string(root.join("../../crates/nexa-backend-swift/src/generator/mod.rs"))
+            .expect("read shared Swift button primitive");
+    assert!(swift_primitives.contains("@Environment(\\.nexaInToolbar) private var inToolbar"));
+    assert!(swift_primitives.contains("style ?? (inToolbar ? .borderless : .borderedProminent)"));
 }
 
 #[test]
@@ -6388,7 +6375,9 @@ fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntim
     assert!(swift.contains(
         "NexaNavigationScreenPrimitive(title: \"Task Details\", inline: true, leadingTitle: true)"
     ));
-    assert!(swift.contains(".navigationTitle(inline && leadingTitle ? \"\" : title)"));
+    assert!(swift.contains(".navigationTitle(title)"));
+    assert!(swift.contains("ToolbarItem(placement: .principal)"));
+    assert!(!swift.contains(".offset(x: -13)"));
     assert!(swift.contains(".navigationBarTitleDisplayMode(inline ? .inline : .large)"));
     assert!(swift.contains("struct NexaNavigationLinkPrimitive<Value: Hashable, Label: View>"));
     assert!(swift.contains("NexaNavigationLinkPrimitive(value:"));
@@ -6446,6 +6435,7 @@ fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntim
     assert!(kotlin_runtime.contains("nexaDevToolbarLayout(screenNodes)"));
     assert!(kotlin_runtime.contains("remember(module, screenNodes)"));
     assert!(kotlin_renderer.contains("return filtered ?: source"));
+    assert!(kotlin_renderer.contains("\"Column\", \"Row\", \"Stack\", \"Layout\","));
     assert!(kotlin_renderer.contains("NexaNavigationLinkPrimitive("));
     assert!(kotlin_renderer.contains("staticallyDisabled"));
 }

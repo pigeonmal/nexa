@@ -149,7 +149,7 @@ component CardItem(title: String, score: String) {{
 screen DetailScreen {{
     Column {{
         Text("Detail for item {i}")
-        NavigationBack(label: "Back")
+        Button("Back") {{ Navigation.back() }}
     }}
 }}
 

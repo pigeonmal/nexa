@@ -30,7 +30,7 @@ app LifecycleSmoke {
 
         Column {
             Text("Detail visits: $detailVisits")
-            NavigationBack(label: "Back")
+            Button("Back") { Navigation.back() }
         }
     }
 

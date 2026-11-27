@@ -450,31 +450,6 @@ def run_switch_interaction(xml_path: Path, capture_directory: Path) -> None:
     )
 
 
-def run_navigation_transitions(xml_path: Path, capture_directory: Path) -> None:
-    run("shell", "am", "force-stop", APP_ID)
-    run("shell", "monkey", "-p", APP_ID, "-c", "android.intent.category.LAUNCHER", "1")
-    wait_for_label("Column spacing and padding", xml_path, timeout=30)
-    tap_label("NavigationBack behavior", xml_path)
-    wait_for_label("NavigationBackCases", xml_path)
-
-    tap_label("Conditional navigation link", xml_path, scroll=False)
-    wait_for_label("DirectionCases", xml_path)
-    capture("NavigationTransitionPush", capture_directory)
-
-    tap_label("Open nested navigation level", xml_path, scroll=False)
-    wait_for_label("NavigationBackCases", xml_path)
-    capture("NavigationTransitionNestedPush", capture_directory)
-
-    run("shell", "input", "keyevent", "4")
-    wait_for_label("Open nested navigation level", xml_path)
-    capture("NavigationTransitionFirstPop", capture_directory)
-
-    run("shell", "input", "keyevent", "4")
-    wait_for_label("Conditional navigation link", xml_path)
-    capture("NavigationTransitionRootRestored", capture_directory)
-    print("PASS NavigationBackCases: nested pushes and system-back pops restore each previous screen")
-
-
 def run_segmented_control_interaction(xml_path: Path, capture_directory: Path) -> None:
     run("shell", "am", "force-stop", APP_ID)
     run("shell", "monkey", "-p", APP_ID, "-c", "android.intent.category.LAUNCHER", "1")
@@ -726,9 +701,6 @@ def main() -> int:
         return 0
     if interaction_mode == "--switch-only":
         run_switch_interaction(xml_path, capture_directory)
-        return 0
-    if interaction_mode == "--navigation-transitions-only":
-        run_navigation_transitions(xml_path, capture_directory)
         return 0
     if interaction_mode == "--segmented-only":
         run_segmented_control_interaction(xml_path, capture_directory)

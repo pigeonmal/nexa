@@ -1355,6 +1355,7 @@ struct NexaDevNodeList: View {
     ) -> AnyView {
         AnyView(NexaDevToolbarRevisionView(revision: store.revisionObserver(for: scope)) {
             renderNode(rawNode, locals: locals, scope: scope, identity: identity)
+                .environment(\.nexaInToolbar, true)
         })
     }
 
@@ -1880,8 +1881,8 @@ struct NexaDevNodeList: View {
                     ForEach(toolbarNodes.indices, id: \.self) { toolbarIndex in
                         let toolbar = toolbarNodes[toolbarIndex]
                         let placement: ToolbarItemPlacement = toolbar["placement"] as? String == "Leading"
-                            ? .navigationBarLeading
-                            : .navigationBarTrailing
+                            ? .topBarLeading
+                            : .topBarTrailing
                         let items = toolbar["children"] as? [Any] ?? []
                         ForEach(items.indices, id: \.self) { itemIndex in
                             ToolbarItem(placement: placement) {
@@ -2344,11 +2345,12 @@ struct NexaDevNodeList: View {
             } else {
                 accessibilityLabel = label
             }
-            let style: NexaSharedButtonStyleKind = switch fields[NexaDevKeys.style] as? String {
+            let style: NexaSharedButtonStyleKind? = switch fields[NexaDevKeys.style] as? String {
             case "Bordered": .bordered
             case "Borderless": .borderless
             case "Plain": .plain
-            default: .borderedProminent
+            case "BorderedProminent": .borderedProminent
+            default: nil
             }
             let size: NexaSharedButtonSizeKind? = switch fields["size"] as? String {
             case "Small": .small
@@ -2415,9 +2417,9 @@ struct NexaDevNodeList: View {
             let fillMaxSize = fields["fill_max_size"] as? Bool == true
             let haptic = fields["haptic"] as? String
             let content = NexaDevNodeList(nodes: children, module: module, store: store, parameters: locals, stateScope: scope)
-            let hitTarget: AnyView = fillMaxSize
-                ? AnyView(content.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(.interaction, Rectangle()))
-                : AnyView(content.frame(minHeight: 48, alignment: .topLeading).contentShape(.interaction, Rectangle()))
+            let hitTarget: AnyView = AnyView(
+                content.modifier(NexaPressableFrameModifier(fillMaxSize: fillMaxSize))
+            )
             let hasDoubleTap = !doubleTapActions.isEmpty
             let hasLongPress = !longPressActions.isEmpty
             let longPressMinimumDuration: Double
@@ -2474,6 +2476,37 @@ struct NexaDevNodeList: View {
                             })
                     }
                 })
+            }
+            if !contextMenu.isEmpty && !hasDoubleTap && !hasLongPress && dragParameters.isEmpty && pinchParameter == nil {
+                return AnyView(
+                    NexaPressableContextMenuWrapper(
+                        disabled: disabled,
+                        hasTapAction: !actions.isEmpty,
+                        onTap: performTap,
+                        label: {
+                            hitTarget
+                                .overlay {
+                                    GeometryReader { geometry in
+                                        Color.clear
+                                            .contentShape(.interaction, Rectangle())
+                                            .gesture(SpatialTapGesture(coordinateSpace: .local).onEnded { tap in
+                                                guard CGRect(origin: .zero, size: geometry.size).contains(tap.location) else { return }
+                                                performTap()
+                                            })
+                                    }
+                                }
+                                .accessibilityAction(.default) { performTap() }
+                                .accessibilityAddTraits(.isButton)
+                                .disabled(disabled)
+                                .opacity(disabled ? 0.5 : 1.0)
+                                .contentShape(.interaction, Rectangle())
+                        },
+                        toolbarLabel: { hitTarget },
+                        menu: {
+                            NexaDevNodeList(nodes: contextMenu, module: module, store: store, parameters: locals, stateScope: scope)
+                        }
+                    )
+                )
             }
             let pressable = AnyView(gesturePressable
                 .accessibilityAction(.default) { performTap() }
@@ -3098,11 +3131,12 @@ struct NexaDevNodeList: View {
         case "LinearGradient":
             let start = devColor(fields["start_color"], isDark: colorScheme == .dark) ?? .clear
             let end = devColor(fields["end_color"], isDark: colorScheme == .dark) ?? .clear
-            let direction = fields["direction"] as? String ?? "TopToBottom"
+            let direction = fields["direction"] as? String ?? "top_to_bottom"
             let points: (UnitPoint, UnitPoint) = switch direction {
-            case "BottomToTop": (.bottom, .top)
-            case "LeadingToTrailing": (.leading, .trailing)
-            case "TrailingToLeading": (.trailing, .leading)
+            case "bottom_to_top", "BottomToTop": (.bottom, .top)
+            case "leading_to_trailing", "LeadingToTrailing": (.leading, .trailing)
+            case "trailing_to_leading", "TrailingToLeading": (.trailing, .leading)
+            case "top_to_bottom", "TopToBottom": (.top, .bottom)
             default: (.top, .bottom)
             }
             let height = fields["height"] as? Double ?? 180
@@ -3536,7 +3570,7 @@ struct NexaDevNodeList: View {
                         .modifier(NexaNavigationTitleDisplayModeModifier(inline: inline))
                         .toolbar {
                             if activeToolbars.contains(where: { $0["placement"] as? String == "Leading" }) {
-                                ToolbarItemGroup(placement: .navigationBarLeading) {
+                                ToolbarItemGroup(placement: .topBarLeading) {
                                     ForEach(activeToolbars.indices, id: \.self) { toolbarIndex in
                                         let toolbar = activeToolbars[toolbarIndex]
                                         if toolbar["placement"] as? String == "Leading" {
@@ -3549,7 +3583,7 @@ struct NexaDevNodeList: View {
                                 }
                             }
                             if activeToolbars.contains(where: { $0["placement"] as? String == "Trailing" }) {
-                                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                                ToolbarItemGroup(placement: .topBarTrailing) {
                                     ForEach(activeToolbars.indices, id: \.self) { toolbarIndex in
                                         let toolbar = activeToolbars[toolbarIndex]
                                         if toolbar["placement"] as? String == "Trailing" {
@@ -3598,7 +3632,7 @@ struct NexaDevNodeList: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity))
         case "Toolbar":
             let children = fields["children"] as? [Any] ?? []
-            let placement: ToolbarItemPlacement = fields["placement"] as? String == "Leading" ? .navigationBarLeading : .navigationBarTrailing
+            let placement: ToolbarItemPlacement = fields["placement"] as? String == "Leading" ? .topBarLeading : .topBarTrailing
             return AnyView(EmptyView().toolbar {
                 ToolbarItemGroup(placement: placement) {
                     ForEach(children.indices, id: \.self) { index in
@@ -3731,14 +3765,6 @@ struct NexaDevNodeList: View {
             let route = store.navigationRoute(screen: screenName, values: argumentValues, signature: signature, navigatorId: navId)
             return AnyView(NexaNavigationLinkPrimitive(value: route, enabled: enabled) {
                 NexaDevNodeList(nodes: children, module: module, store: store, parameters: locals, stateScope: scope)
-            })
-        case "NavigationBack":
-            let label = store.stringify(store.evaluate(fields["label"] ?? "Back", locals: locals, scope: scope))
-            return AnyView(Button(label) {
-                store.popNavigation(
-                    stackIdentity: locals["__nexa_navigation_stack_identity"] as? String,
-                    scope: scope
-                )
             })
         default:
             return AnyView(EmptyView())

@@ -362,8 +362,7 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                 }
                 Node::NavigationStack { .. }
                 | Node::NavigationSplitView { .. }
-                | Node::NavigationLink { .. }
-                | Node::NavigationBack { .. } => return Err(unsupported("navigation", span)),
+                | Node::NavigationLink { .. } => return Err(unsupported("navigation", span)),
                 Node::OnAppear { .. }
                 | Node::OnDisappear { .. }
                 | Node::OnActive { .. }

@@ -84,7 +84,6 @@
     "NavigationStack",
     "NavigationSplitView",
     "NavigationLink",
-    "NavigationBack",
     "Content",
     "ComponentCall"
   ],
